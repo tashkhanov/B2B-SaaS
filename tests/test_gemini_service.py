@@ -26,7 +26,7 @@ async def test_generate_response_from_voice():
     mock_client.aio.models = mock_models
     service.client = mock_client
 
-    reply = await service.generate_response_from_voice(user_id=888, voice_bytes=b"fake_audio_bytes")
+    reply, transcript = await service.generate_response_from_voice(user_id=888, voice_bytes=b"fake_audio_bytes")
     assert "Салам алейкум" in reply
     assert mock_models.generate_content.called
 

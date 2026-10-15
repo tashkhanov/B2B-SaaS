@@ -232,8 +232,8 @@ async def handle_voice_message(message: Message):
     finally:
         file_bytes_io.close()
 
-    # 2. Обработка голоса через Gemini 2.5 Flash
-    ai_reply = await gemini_service.generate_response_from_voice(
+    # 2. Обработка голоса через Gemini 2.5 Flash (распознавание + генерация ответа)
+    ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
         user_id=user_id,
         voice_bytes=voice_data,
         mime_type="audio/ogg"
@@ -242,8 +242,8 @@ async def handle_voice_message(message: Message):
     # 3. Отправка ответа клиенту
     await message.answer(ai_reply, reply_markup=get_main_keyboard(is_admin=is_admin))
 
-    # 4. Проверка и сохранение записи
-    await process_booking_intent(message, client_query="[🎙 Голосовое сообщение]", ai_reply=ai_reply)
+    # 4. Проверка и сохранение записи с реальным текстом из голосового сообщения
+    await process_booking_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
 
 
 @router.message(F.text)
@@ -275,9 +275,8 @@ async def handle_user_text(message: Message):
 async def process_booking_intent(message: Message, client_query: str, ai_reply: str) -> None:
     """
     Интеллектуальная проверка и фиксация структурированной записи:
-    Если диалог завершается согласием и фиксацией времени/имени,
-    данные извлекаются в структурированный вид и сохраняются в SQLite,
-    а клиенту ненавязчиво предлагается ссылка 'Подключить ИИ в свой бизнес'.
+    Анализирует последние реплики диалога (до 6 сообщений), чтобы объединить данные,
+    названные клиентом в разных сообщениях (например, время в первом ГС, а имя во втором).
     """
     user_id = message.from_user.id
     booking_signals = [
@@ -289,8 +288,11 @@ async def process_booking_intent(message: Message, client_query: str, ai_reply: 
     if not has_signal:
         return
 
-    # Запускаем структурированное извлечение через Gemini
-    dialog_sample = f"Клиент: {client_query}\nИброхим (Администратор): {ai_reply}"
+    # Запускаем структурированное извлечение через Gemini на базе последних реплик диалога
+    recent_msgs = await get_recent_messages(user_id=user_id, limit=6)
+    dialog_lines = [f"{'Клиент' if m['role'] == 'user' else 'Иброхим'}: {m['text']}" for m in recent_msgs]
+    dialog_sample = "\n".join(dialog_lines) if dialog_lines else f"Клиент: {client_query}\nИброхим: {ai_reply}"
+    
     extracted = await gemini_service.extract_booking_info(dialog_sample)
 
     full_name = (
