@@ -64,3 +64,59 @@ async def test_handle_reset():
         message.answer.assert_called_once()
         args, _ = message.answer.call_args
         assert "История диалога очищена" in args[0]
+
+@pytest.mark.asyncio
+async def test_process_booking_intent_flow():
+    from bot.handlers import process_booking_intent
+    from services.gemini_service import ExtractedBooking
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=777, is_bot=False, first_name="Бабур", username="babur7")
+    message.answer = AsyncMock()
+
+    # Case 1: Booking not confirmed yet (only time asked)
+    with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
+         patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save:
+        
+        mock_get_recent.return_value = [{"role": "user", "text": "запиши на завтра в 15:00"}]
+        mock_extract.return_value = ExtractedBooking(is_booking_confirmed=False, booking_time="завтра в 15:00")
+
+        await process_booking_intent(
+            message=message,
+            client_query="запиши на завтра в 15:00",
+            ai_reply="Завтра в 15:00 свободно, как вас зовут?"
+        )
+
+        mock_get_recent.assert_called_once_with(user_id=777, limit=6)
+        mock_save.assert_not_called()
+
+    # Case 2: Booking confirmed (both name and time present)
+    with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
+         patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
+         patch("bot.handlers.has_recent_booking", new_callable=AsyncMock) as mock_has_recent:
+        
+        mock_get_recent.return_value = [
+            {"role": "user", "text": "запиши на завтра в 15:00"},
+            {"role": "user", "text": "Бабур"}
+        ]
+        mock_extract.return_value = ExtractedBooking(
+            is_booking_confirmed=True,
+            customer_name="Бабур",
+            booking_time="завтра в 15:00",
+            service="Стрижка"
+        )
+        mock_has_recent.return_value = False
+        mock_save.return_value = 42
+
+        await process_booking_intent(
+            message=message,
+            client_query="Бабур",
+            ai_reply="Записал вас на завтра в 15:00!"
+        )
+
+        mock_save.assert_called_once()
+        message.answer.assert_called_once()
+        assert "Мы ценим ваше доверие" in message.answer.call_args[0][0]
+

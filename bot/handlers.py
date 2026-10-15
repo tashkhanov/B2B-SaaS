@@ -13,7 +13,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 
 from config import settings
-from database import clear_history, save_booking, has_recent_booking
+from database import clear_history, save_booking, has_recent_booking, get_recent_messages
 from services.gemini_service import GeminiService
 
 logger = logging.getLogger(__name__)
