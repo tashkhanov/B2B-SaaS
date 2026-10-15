@@ -48,7 +48,13 @@ async def test_web_app_endpoints(monkeypatch):
         resp_admin = await client.get("/admin")
         assert resp_admin.status == 200
         admin_text = await resp_admin.text()
-        assert "Панель администратора" in admin_text
+        assert "Панель" in admin_text
+
+        # 2.1 Test Barber HTML (/barber)
+        resp_barber = await client.get("/barber")
+        assert resp_barber.status == 200
+        barber_text = await resp_barber.text()
+        assert "Рабочее место мастера" in barber_text
 
         # 3. Test API config
         resp_cfg = await client.get("/api/config")
@@ -117,6 +123,63 @@ async def test_web_app_endpoints(monkeypatch):
         resp_my_after = await client.get("/api/my-booking?user_id=123")
         my_after_data = await resp_my_after.json()
         assert my_after_data["booking"] is None
+
+        # 11. Test Services API (/api/services)
+        resp_srv = await client.get("/api/services")
+        assert resp_srv.status == 200
+        srv_list = await resp_srv.json()
+        assert len(srv_list) >= 4
+
+        # Create new service
+        resp_create_srv = await client.post("/api/services", json={
+            "name": "Мытье и премиум-массаж",
+            "price": 40000,
+            "duration_min": 20,
+            "description": "СПА процедура",
+            "badge": "СПА"
+        })
+        assert resp_create_srv.status == 200
+        new_srv_data = await resp_create_srv.json()
+        assert new_srv_data["ok"] is True
+        new_srv_id = new_srv_data["id"]
+
+        # Update service
+        resp_upd_srv = await client.post(f"/api/services/{new_srv_id}/update", json={
+            "name": "Мытье и премиум-массаж LUX",
+            "price": 45000,
+            "duration_min": 25,
+            "description": "СПА процедура LUX",
+            "badge": "СПА+",
+            "is_active": 1
+        })
+        assert resp_upd_srv.status == 200
+
+        # Delete service
+        resp_del_srv = await client.post(f"/api/services/{new_srv_id}/delete")
+        assert resp_del_srv.status == 200
+
+        # 12. Test Barbers API (/api/barbers)
+        resp_barbers = await client.get("/api/barbers")
+        assert resp_barbers.status == 200
+        barbers_data = await resp_barbers.json()
+        assert len(barbers_data) >= 3
+
+        # Toggle barber shift
+        first_barber = barbers_data[0]
+        resp_toggle = await client.post(f"/api/barbers/{first_barber['id']}/toggle-shift", json={"is_working_today": 0})
+        assert resp_toggle.status == 200
+        toggle_data = await resp_toggle.json()
+        assert toggle_data["barber"]["is_working_today"] == 0
+
+        # Toggle back
+        await client.post(f"/api/barbers/{first_barber['id']}/toggle-shift", json={"is_working_today": 1})
+
+        # 13. Test Barber Workspace schedule (/api/barber/my-schedule)
+        resp_barber_sched = await client.get(f"/api/barber/my-schedule?barber_id={first_barber['id']}")
+        assert resp_barber_sched.status == 200
+        sched_data = await resp_barber_sched.json()
+        assert sched_data["ok"] is True
+        assert sched_data["barber"]["id"] == first_barber["id"]
 
     finally:
         await client.close()

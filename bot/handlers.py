@@ -13,7 +13,16 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 
 from config import settings
-from database import clear_history, save_booking, has_recent_booking, get_recent_messages, get_active_bookings
+from database import (
+    clear_history,
+    save_booking,
+    has_recent_booking,
+    get_recent_messages,
+    get_active_bookings,
+    get_barbers,
+    get_barber_by_telegram_id,
+    get_barber_by_id,
+)
 from services.gemini_service import GeminiService
 from services.schedule_service import (
     parse_booking_datetime,
@@ -182,6 +191,56 @@ async def handle_admin(message: Message):
             "3. Укажите её в `.env`: `WEBAPP_URL=https://xyz.ngrok-free.app` и перезапустите бота.",
             reply_markup=admin_keyboard,
             parse_mode="Markdown",
+        )
+
+
+@router.message(Command("barber"))
+async def handle_barber(message: Message):
+    """
+    Команда /barber для вызова TMA кабинета мастера ('Моя смена').
+    Доступна барберам салона и администратору.
+    """
+    user_id = message.from_user.id if message.from_user else 0
+    barber = await get_barber_by_telegram_id(user_id)
+    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
+
+    if not barber and not is_admin:
+        await message.answer(
+            "⚠️ Ваш Telegram ID не привязан ни к одному мастеру салона.\n"
+            "Попросите администратора указать ваш Telegram ID в панели управления!"
+        )
+        return
+
+    base_url = (settings.WEBAPP_URL or "").rstrip("/")
+    b_name = barber["name"] if barber else "Администратор"
+
+    if base_url.startswith("https://"):
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="💈 Открыть Мою Смену (TMA)",
+                        web_app=WebAppInfo(url=f"{base_url}/barber"),
+                    )
+                ]
+            ]
+        )
+        await message.answer(
+            f"Салам, {b_name}! 💈\n\n"
+            "В кабинете мастера вы можете управлять статусом смены ('На смене / Отдыхаю') и видеть всех своих клиентов на сегодня.",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+    else:
+        barber_url = f"{base_url}/barber" if base_url else "http://localhost:8000/barber"
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🌐 Открыть в браузере", url=barber_url)]]
+        )
+        await message.answer(
+            f"Салам, {b_name}! 💈\n"
+            f"Ссылка на кабинет смены: `{barber_url}`",
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
 
 
@@ -376,12 +435,28 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
         target_dt = parse_booking_datetime(admin_action.booking_time)
         if target_dt:
             active_bookings = await get_active_bookings()
-            is_avail, error_msg, _ = check_slot_availability(target_dt, active_bookings)
-            if not is_avail:
-                await message.answer(f"⚠️ Шеф, на это время записать нельзя: {error_msg}")
+            barbers = await get_barbers(active_only=True)
+            matched_barber = None
+            if admin_action.barber_name:
+                matched_barber = next(
+                    (b for b in barbers if b["name"].lower() in admin_action.barber_name.lower()),
+                    None
+                )
+
+            res = check_slot_availability(
+                target_dt=target_dt,
+                existing_bookings=active_bookings,
+                barber_id=matched_barber["id"] if matched_barber else None,
+                available_barbers=barbers
+            )
+            if not res.is_available:
+                await message.answer(f"⚠️ Шеф, на это время записать нельзя: {res.error_message}")
                 return
 
             normalized_time = format_booking_datetime(target_dt)
+            final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
+            final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
+
             await save_booking(
                 user_id=0,
                 username=None,
@@ -391,9 +466,30 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 service=admin_action.service or "Стрижка / Комплекс",
                 booking_time=normalized_time,
                 status="confirmed",
+                barber_id=final_barber_id,
+                barber_name=final_barber_name,
             )
+
+            # Оповещение назначенному барберу в Telegram
+            if matched_barber and matched_barber.get("telegram_id"):
+                try:
+                    await message.bot.send_message(
+                        chat_id=matched_barber["telegram_id"],
+                        text=(
+                            f"💈 **Шеф записал к вам клиента!**\n\n"
+                            f"👤 **Клиент:** {admin_action.client_query}\n"
+                            f"✂️ **Услуга:** {admin_action.service or 'Стрижка'}\n"
+                            f"⏰ **Время:** {normalized_time}\n"
+                            f"📞 **Телефон:** {admin_action.phone or 'Не указан'}"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить уведомление барберу: {e}")
+
+            master_str = f" к мастеру **{final_barber_name}**" if final_barber_name else ""
             await message.answer(
-                f"💈 Запись клиента **{admin_action.client_query}** на **{normalized_time}** ({admin_action.service or 'Стрижка'}) успешно зафиксирована в графике!"
+                f"💈 Запись клиента **{admin_action.client_query}**{master_str} на **{normalized_time}** ({admin_action.service or 'Стрижка'}) успешно зафиксирована в графике!"
             )
 
 
@@ -426,6 +522,19 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
     dialog_sample = "\n".join(dialog_lines) if dialog_lines else f"Клиент: {client_query}\nИброхим: {ai_reply}"
 
     client_action = await gemini_service.extract_client_action(dialog_sample)
+    if not client_action:
+        # Fallback на extract_booking_info (для совместимости)
+        extracted = await gemini_service.extract_booking_info(dialog_sample)
+        if extracted:
+            from services.gemini_service import ClientAction
+            client_action = ClientAction(
+                action="create_booking" if extracted.is_booking_confirmed else "chat",
+                is_booking_confirmed=extracted.is_booking_confirmed,
+                customer_name=extracted.customer_name,
+                phone=extracted.phone,
+                service=extracted.service,
+                booking_time=extracted.booking_time,
+            )
     if not client_action:
         return
 
@@ -475,14 +584,27 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             )
             return
 
-        # Проверяем доступность слота (1 час длительность + максимум 7 дней горизонт)
+        # Проверяем доступность слота с мульти-мастер подбором
         active_bookings = await get_active_bookings()
-        is_avail, error_msg, _ = check_slot_availability(target_dt, active_bookings)
-        if not is_avail:
-            logger.warning(f"Отклонена запись на {raw_booking_time}: {error_msg}")
+        barbers = await get_barbers(active_only=True)
+        matched_barber = None
+        if client_action.barber_name:
+            matched_barber = next(
+                (b for b in barbers if b["name"].lower() in client_action.barber_name.lower()),
+                None
+            )
+
+        res = check_slot_availability(
+            target_dt=target_dt,
+            existing_bookings=active_bookings,
+            barber_id=matched_barber["id"] if matched_barber else None,
+            available_barbers=barbers
+        )
+        if not res.is_available:
+            logger.warning(f"Отклонена запись на {raw_booking_time}: {res.error_message}")
             await message.answer(
                 f"⚠️ **Ака, на это время ({raw_booking_time}) записать не могу!**\n\n"
-                f"{error_msg}\n\n"
+                f"{res.error_message}\n\n"
                 "Выбери другое свободное окошко на этой неделе, и мы всё оформим! 💈",
                 parse_mode="Markdown",
             )
@@ -497,6 +619,8 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         username = f"@{message.from_user.username}" if message.from_user.username else None
         phone = client_action.phone or None
         service = client_action.service or "Стрижка / Комплекс"
+        final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
+        final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
         # Сохранение в базу
         await save_booking(
@@ -508,13 +632,17 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             service=service,
             booking_time=booking_time,
             status="new",
+            barber_id=final_barber_id,
+            barber_name=final_barber_name,
         )
 
         # Отправляем уведомление администратору в личку
         if settings.ADMIN_CHAT_ID:
+            master_str = f"💈 **Мастер:** {final_barber_name}\n" if final_barber_name else ""
             admin_card = (
                 "💈 **НОВАЯ ЗАПИСЬ В БАРБЕРШОП BLACK BEARD!**\n\n"
                 f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
+                f"{master_str}"
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {booking_time}\n"
                 f"📞 **Телефон:** {phone or 'Не указан'}\n"
@@ -529,6 +657,26 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                 )
             except Exception as e:
                 logger.warning(f"Не удалось отправить уведомление администратору: {e}")
+
+        # Уведомление назначенному барберу в Telegram
+        if final_barber_id:
+            barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None)
+            if barber_obj and barber_obj.get("telegram_id"):
+                try:
+                    await message.bot.send_message(
+                        chat_id=barber_obj["telegram_id"],
+                        text=(
+                            "💈 **У ВАС НОВАЯ ЗАПИСЬ НА СМЕНУ!**\n\n"
+                            f"👤 **Клиент:** {full_name}\n"
+                            f"✂️ **Услуга:** {service}\n"
+                            f"⏰ **Время:** {booking_time}\n"
+                            f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
+                            "📱 _Посмотреть свою очередь: /barber_"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось уведомить барбера {barber_obj['name']}: {e}")
 
         # Предлагаем аккуратную кнопку брендинга разработчика
         await message.answer(

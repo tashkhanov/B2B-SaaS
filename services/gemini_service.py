@@ -7,7 +7,14 @@ from google import genai
 from google.genai import types
 
 from config import settings
-from database import get_recent_messages, add_message, get_active_bookings, get_all_bookings
+from database import (
+    get_recent_messages,
+    add_message,
+    get_active_bookings,
+    get_all_bookings,
+    get_barbers,
+    get_services,
+)
 from prompts import (
     CLIENT_SYSTEM_PROMPT,
     ADMIN_SYSTEM_PROMPT,
@@ -83,6 +90,14 @@ class ClientAction(BaseModel):
         default=None,
         description="Каноническая дата и время 'YYYY-MM-DD HH:MM (ДеньНедели)'",
     )
+    barber_name: Optional[str] = Field(
+        default=None,
+        description="Имя выбранного барбера (например 'Иброхим', 'Сардор', 'Жасур') или None/'Любой'",
+    )
+    barber_id: Optional[int] = Field(
+        default=None,
+        description="ID барбера, если известен",
+    )
 
 
 class AdminAction(BaseModel):
@@ -112,6 +127,14 @@ class AdminAction(BaseModel):
     phone: Optional[str] = Field(
         default=None,
         description="Телефон клиента при ручной записи",
+    )
+    barber_name: Optional[str] = Field(
+        default=None,
+        description="Имя мастера (для фильтрации расписания или создания записи)",
+    )
+    barber_id: Optional[int] = Field(
+        default=None,
+        description="ID мастера",
     )
 
 
@@ -187,9 +210,15 @@ class GeminiService:
                 raw_history=raw_history, current_message=user_message
             )
 
-            # Формируем контекст расписания
+            # Формируем контекст расписания, мастеров и услуг
             active_bookings = await get_active_bookings()
-            schedule_context = build_schedule_context_for_prompt(active_bookings)
+            barbers = await get_barbers(active_only=True)
+            services = await get_services(active_only=True)
+            schedule_context = build_schedule_context_for_prompt(
+                bookings=active_bookings,
+                barbers=barbers,
+                services=services
+            )
 
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
@@ -247,7 +276,13 @@ class GeminiService:
             )
 
             active_bookings = await get_active_bookings()
-            schedule_context = build_schedule_context_for_prompt(active_bookings)
+            barbers = await get_barbers(active_only=True)
+            services = await get_services(active_only=True)
+            schedule_context = build_schedule_context_for_prompt(
+                bookings=active_bookings,
+                barbers=barbers,
+                services=services
+            )
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
 

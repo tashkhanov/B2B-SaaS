@@ -49,10 +49,11 @@ async def setup_bot_commands(bot: Bot) -> None:
     - Для клиентов: кнопка '💈 Записаться' (Client TMA: /book)
     - Для администратора: кнопка '📊 Админка' (Admin TMA: /admin)
     """
-    # 1. Общедоступные команды для клиентов
+    # 1. Общедоступные команды для клиентов и мастеров
     client_commands = [
         BotCommand(command="start", description="💈 Главное меню / Запись"),
         BotCommand(command="price", description="✂️ Прайс-лист услуг"),
+        BotCommand(command="barber", description="💈 Кабинет мастера (TMA)"),
         BotCommand(command="about", description="⚡ О разработчике (Khan)"),
         BotCommand(command="reset", description="🔄 Сбросить диалог"),
     ]
@@ -63,6 +64,7 @@ async def setup_bot_commands(bot: Bot) -> None:
         admin_commands = [
             BotCommand(command="start", description="💈 Главное меню / Запуск"),
             BotCommand(command="admin", description="📊 Панель управления (TMA)"),
+            BotCommand(command="barber", description="💈 Кабинет мастера (TMA)"),
             BotCommand(command="price", description="✂️ Прайс-лист услуг"),
             BotCommand(command="about", description="⚡ О разработчике (Khan)"),
             BotCommand(command="reset", description="🔄 Сбросить диалог"),

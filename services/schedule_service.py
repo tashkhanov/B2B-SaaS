@@ -1,10 +1,10 @@
 """
-Модуль управления расписанием, часовым поясом Ташкента (UTC+5)
-и валидацией пересечения записей в барбершопе Black Beard.
+Модуль управления расписанием, часовым поясом Ташкента (UTC+5),
+мульти-мастер валидацией и умным распределением слотов в барбершопе Black Beard.
 """
 
 from datetime import datetime, date, time, timedelta, timezone
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 import re
 import logging
 
@@ -17,15 +17,56 @@ try:
 except Exception:
     TASHKENT_TZ = timezone(timedelta(hours=5))
 
-# Длительность любой процедуры в барбершопе (1 час = 60 минут)
+# Базовая длительность процедуры в барбершопе по умолчанию (1 час = 60 минут)
 SERVICE_DURATION_MINUTES = 60
 
 # Рабочие часы барбершопа Black Beard
 WORK_START_HOUR = 10  # 10:00
 WORK_END_HOUR = 22    # 22:00
 
+# Горизонт бронирования вперед
+MAX_BOOKING_DAYS_AHEAD = 7
+
 DAYS_RU = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 MONTHS_RU = ["", "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+
+class SlotCheckResult:
+    """
+    Результат проверки доступности временного слота.
+    Поддерживает распаковку как 3 элементов: (is_available, error_message, conflicting_booking)
+    для полной обратной совместимости, а также предоставляет свойства для мульти-мастера:
+    assigned_barber_id, assigned_barber_name.
+    """
+    def __init__(
+        self,
+        is_available: bool,
+        error_message: Optional[str] = None,
+        conflicting_booking: Optional[Dict] = None,
+        assigned_barber_id: Optional[int] = None,
+        assigned_barber_name: Optional[str] = None,
+    ):
+        self.is_available = is_available
+        self.error_message = error_message
+        self.conflicting_booking = conflicting_booking
+        self.assigned_barber_id = assigned_barber_id
+        self.assigned_barber_name = assigned_barber_name
+
+    def __iter__(self):
+        # Распаковка по умолчанию в 3 элемента (совместимость с существующим кодом)
+        return iter((self.is_available, self.error_message, self.conflicting_booking))
+
+    def __getitem__(self, index):
+        items = (self.is_available, self.error_message, self.conflicting_booking, self.assigned_barber_id)
+        return items[index]
+
+    def __repr__(self):
+        return (
+            f"SlotCheckResult(is_available={self.is_available}, "
+            f"error_message={self.error_message!r}, "
+            f"assigned_barber_id={self.assigned_barber_id}, "
+            f"assigned_barber_name={self.assigned_barber_name!r})"
+        )
 
 
 def get_now_tashkent() -> datetime:
@@ -36,7 +77,7 @@ def get_now_tashkent() -> datetime:
 def format_tashkent_now_for_prompt() -> str:
     """
     Форматирует текущую дату и время для передачи в системный промпт нейросети.
-    Пример: '15 октября 2026 г., 22:20 (Четверг, Ташкент UTC+5)'
+    Пример: '16 октября 2026 г., 00:15 (Пятница, Ташкент UTC+5)'
     """
     now = get_now_tashkent()
     day_name = DAYS_RU[now.weekday()]
@@ -103,28 +144,32 @@ def parse_booking_datetime(val: str, base_dt: Optional[datetime] = None) -> Opti
 
 
 def is_slot_overlapping(
-    dt1: datetime, dt2: datetime, duration_minutes: int = SERVICE_DURATION_MINUTES
+    dt1: datetime,
+    dt2: datetime,
+    duration1: int = SERVICE_DURATION_MINUTES,
+    duration2: int = SERVICE_DURATION_MINUTES,
+    duration_minutes: Optional[int] = None
 ) -> bool:
     """
-    Проверяет, пересекаются ли два слота длительностью duration_minutes.
-    Слоты пересекаются, если интервал между их началами строго меньше длительности процедуры.
-    Например: 15:00 и 15:30 при длительности 60 мин -> разница 30 мин < 60 мин -> ПЕРЕСЕКАЮТСЯ!
-    А 15:00 и 16:00 -> разница 60 мин -> НЕ ПЕРЕСЕКАЮТСЯ.
+    Проверяет, пересекаются ли два интервала времени: [dt1, dt1 + duration1] и [dt2, dt2 + duration2].
+    Два отрезка [A_start, A_end] и [B_start, B_end] пересекаются,
+    если A_start < B_end и B_start < A_end.
     """
-    # Приводим к одному часовому поясу
-    t1 = dt1.astimezone(TASHKENT_TZ) if dt1.tzinfo else dt1.replace(tzinfo=TASHKENT_TZ)
-    t2 = dt2.astimezone(TASHKENT_TZ) if dt2.tzinfo else dt2.replace(tzinfo=TASHKENT_TZ)
-    diff_seconds = abs((t1 - t2).total_seconds())
-    return diff_seconds < (duration_minutes * 60)
+    if duration_minutes is not None:
+        duration1 = duration_minutes
+        duration2 = duration_minutes
 
+    t1_start = dt1.astimezone(TASHKENT_TZ) if dt1.tzinfo else dt1.replace(tzinfo=TASHKENT_TZ)
+    t2_start = dt2.astimezone(TASHKENT_TZ) if dt2.tzinfo else dt2.replace(tzinfo=TASHKENT_TZ)
+    t1_end = t1_start + timedelta(minutes=duration1)
+    t2_end = t2_start + timedelta(minutes=duration2)
 
-# Максимальный горизонт бронирования вперед (7 дней)
-MAX_BOOKING_DAYS_AHEAD = 7
+    return t1_start < t2_end and t2_start < t1_end
 
 
 def is_booking_past(raw_booking_time: str, grace_minutes: int = SERVICE_DURATION_MINUTES) -> bool:
     """
-    Проверяет, завершилась ли процедура записи (время начала + длительность 60 мин < текущее время Ташкента).
+    Проверяет, завершилась ли процедура записи (время начала + длительность grace_minutes < текущее время Ташкента).
     """
     dt = parse_booking_datetime(raw_booking_time)
     if not dt:
@@ -134,53 +179,181 @@ def is_booking_past(raw_booking_time: str, grace_minutes: int = SERVICE_DURATION
     return end_time < now
 
 
+def is_barber_working_on_date(barber: Dict, target_date: date) -> bool:
+    """
+    Проверяет, работает ли барбер в указанную дату:
+    1. Барбер должен быть активен (is_active == 1).
+    2. Если дата сегодняшняя, проверяется тумблер смены is_working_today (1 = на смене).
+    3. День недели target_date.weekday() (0=Пн .. 6=Вс) должен входить в work_days.
+    """
+    if not barber.get("is_active", 1):
+        return False
+
+    now_date = get_now_tashkent().date()
+    if target_date == now_date and barber.get("is_working_today", 1) == 0:
+        return False
+
+    work_days_raw = barber.get("work_days", "0,1,2,3,4,5,6")
+    if isinstance(work_days_raw, str):
+        days_list = [int(d.strip()) for d in work_days_raw.split(",") if d.strip().isdigit()]
+    elif isinstance(work_days_raw, (list, tuple, set)):
+        days_list = [int(x) for x in work_days_raw]
+    else:
+        days_list = list(range(7))
+
+    return target_date.weekday() in days_list
+
+
 def check_slot_availability(
     target_dt: datetime,
     existing_bookings: List[Dict],
+    barber_id: Optional[int] = None,
+    available_barbers: Optional[List[Dict]] = None,
+    duration_minutes: int = SERVICE_DURATION_MINUTES,
     ignore_booking_id: Optional[int] = None
-) -> Tuple[bool, Optional[str], Optional[Dict]]:
+) -> SlotCheckResult:
     """
-    Проверяет, свободно ли желаемое время target_dt:
-    1. Попадает ли в рабочие часы (10:00 - 22:00, последняя запись в 21:00).
-    2. Не превышает ли горизонт планирования (максимум 7 дней вперед).
-    3. Не находится ли в прошлом.
-    4. Не пересекается ли с существующими активными бронями (длительность 1 час).
-    
-    Возвращает (is_available, error_message, conflicting_booking).
+    Мульти-мастер проверка доступности слота:
+    1. Проверка на прошедшее время.
+    2. Проверка горизонта планирования (до 7 дней).
+    3. Проверка рабочих часов салона (10:00 - 22:00) с учетом длительности.
+    4. Если указан конкретный barber_id:
+       - Проверяется график этого мастера на target_dt.date().
+       - Проверяются только записи этого мастера.
+    5. Если barber_id не указан («Любой мастер»):
+       - Проверяются все активные мастера на смене в эту дату.
+       - Выбирается первый свободный мастер.
+       - Если все заняты, возвращается сообщение о занятости всех мастеров.
     """
     target = target_dt.astimezone(TASHKENT_TZ) if target_dt.tzinfo else target_dt.replace(tzinfo=TASHKENT_TZ)
     now = get_now_tashkent()
 
-    # 1. Проверка на прошедшее время
+    # 1. Прошедшее время
     if target < now - timedelta(minutes=15):
-        return False, "Выбранное время уже прошло.", None
+        return SlotCheckResult(False, "Выбранное время уже прошло.", None)
 
-    # 2. Проверка горизонта планирования (максимум 7 дней вперед)
+    # 2. Горизонт планирования (максимум 7 дней)
     diff_days = (target.date() - now.date()).days
     if diff_days > MAX_BOOKING_DAYS_AHEAD:
         max_allowed_date = now.date() + timedelta(days=MAX_BOOKING_DAYS_AHEAD)
         max_month = MONTHS_RU[max_allowed_date.month] if max_allowed_date.month < len(MONTHS_RU) else ""
         max_str = f"{max_allowed_date.day} {max_month}"
-        return (
+        return SlotCheckResult(
             False,
             f"Запись открыта максимум на 7 дней вперед (до {max_str}). "
             f"Пожалуйста, выберите удобный день на ближайшей неделе, ака!",
-            None,
+            None
         )
 
-    # 3. Проверка рабочих часов (10:00 - 22:00)
-    # Так как процедура длится 1 час, последняя возможная запись - в 21:00
-    if target.hour < WORK_START_HOUR or (target.hour == WORK_END_HOUR and target.minute > 0) or target.hour > WORK_END_HOUR:
-        return False, f"Барбершоп работает с {WORK_START_HOUR}:00 до {WORK_END_HOUR}:00. Выберите время в этом интервале.", None
+    # 3. Рабочие часы (10:00 - 22:00)
+    if target.hour < WORK_START_HOUR or target.hour > WORK_END_HOUR or (target.hour == WORK_END_HOUR and target.minute > 0):
+        return SlotCheckResult(
+            False,
+            f"Барбершоп работает с {WORK_START_HOUR}:00 до {WORK_END_HOUR}:00. Выберите время в этом интервале.",
+            None
+        )
 
-    if target.hour == WORK_END_HOUR - 1 and target.minute > 0:
-        return False, f"Барбершоп закрывается в {WORK_END_HOUR}:00, а стрижка длится ровно 1 час. Последняя запись возможна в 21:00.", None
+    end_time_dt = target + timedelta(minutes=duration_minutes)
+    closing_dt = target.replace(hour=WORK_END_HOUR, minute=0, second=0, microsecond=0)
+    if end_time_dt > closing_dt:
+        return SlotCheckResult(
+            False,
+            f"Барбершоп закрывается в {WORK_END_HOUR}:00, а процедура длится {duration_minutes} мин. Выберите более раннее время.",
+            None
+        )
 
-    # Проверка конфликтов с существующими бронированиями
+    # 4. Проверка конкретного мастера
+    if barber_id:
+        target_barber = None
+        if available_barbers:
+            target_barber = next((b for b in available_barbers if b.get("id") == barber_id), None)
+
+        b_name = target_barber.get("name") if target_barber else "Мастер"
+
+        if target_barber and not is_barber_working_on_date(target_barber, target.date()):
+            return SlotCheckResult(
+                False,
+                f"Мастер {b_name} в этот день отдыхает (выходной). Пожалуйста, выберите другого мастера или другой день.",
+                None
+            )
+
+        # Проверяем конфликты с записями этого мастера
+        for b in existing_bookings:
+            if ignore_booking_id and b.get("id") == ignore_booking_id:
+                continue
+            if b.get("status") in ("cancelled", "completed"):
+                continue
+
+            # Сравниваем с записями этого мастера (или записями без мастера)
+            b_barber_id = b.get("barber_id")
+            if b_barber_id is not None and b_barber_id != barber_id:
+                continue
+
+            raw_time = b.get("booking_time")
+            b_dt = parse_booking_datetime(raw_time)
+            if not b_dt:
+                continue
+
+            if is_slot_overlapping(target, b_dt, duration_minutes, SERVICE_DURATION_MINUTES):
+                b_end = (b_dt + timedelta(minutes=SERVICE_DURATION_MINUTES)).strftime("%H:%M")
+                b_start = b_dt.strftime("%H:%M")
+                client_name = b.get("full_name") or "клиент"
+                reason = (
+                    f"У мастера {b_name} в это время идет стрижка: с {b_start} до {b_end} "
+                    f"записан {client_name}."
+                )
+                return SlotCheckResult(False, reason, b, barber_id, b_name)
+
+        return SlotCheckResult(True, None, None, barber_id, b_name)
+
+    # 5. Выбор любого свободного мастера
+    if available_barbers:
+        # Находим всех мастеров, работающих в эту дату
+        working_barbers = [b for b in available_barbers if is_barber_working_on_date(b, target.date())]
+        if not working_barbers:
+            return SlotCheckResult(
+                False,
+                "На выбранный день нет работающих мастеров. Выберите другой день.",
+                None
+            )
+
+        # Ищем первого свободного мастера
+        for barber in working_barbers:
+            b_id = barber["id"]
+            has_conflict = False
+            for b in existing_bookings:
+                if ignore_booking_id and b.get("id") == ignore_booking_id:
+                    continue
+                if b.get("status") in ("cancelled", "completed"):
+                    continue
+
+                b_barber_id = b.get("barber_id")
+                if b_barber_id is not None and b_barber_id != b_id:
+                    continue
+
+                raw_time = b.get("booking_time")
+                b_dt = parse_booking_datetime(raw_time)
+                if not b_dt:
+                    continue
+
+                if is_slot_overlapping(target, b_dt, duration_minutes, SERVICE_DURATION_MINUTES):
+                    has_conflict = True
+                    break
+
+            if not has_conflict:
+                return SlotCheckResult(True, None, None, barber["id"], barber["name"])
+
+        return SlotCheckResult(
+            False,
+            "В это время все мастера заняты. Пожалуйста, выберите другое время.",
+            existing_bookings[0] if existing_bookings else None
+        )
+
+    # 6. Fallback (если список мастеров не передан)
     for b in existing_bookings:
         if ignore_booking_id and b.get("id") == ignore_booking_id:
             continue
-        if b.get("status") == "cancelled":
+        if b.get("status") in ("cancelled", "completed"):
             continue
 
         raw_time = b.get("booking_time")
@@ -188,22 +361,78 @@ def check_slot_availability(
         if not b_dt:
             continue
 
-        if is_slot_overlapping(target, b_dt):
+        if is_slot_overlapping(target, b_dt, duration_minutes, SERVICE_DURATION_MINUTES):
             b_end = (b_dt + timedelta(minutes=SERVICE_DURATION_MINUTES)).strftime("%H:%M")
             b_start = b_dt.strftime("%H:%M")
             client_name = b.get("full_name") or "клиент"
             reason = (
                 f"В это время мастер занят: с {b_start} до {b_end} оформлена запись "
-                f"({client_name}). Процедура длится ровно 1 час."
+                f"({client_name})."
             )
-            return False, reason, b
+            return SlotCheckResult(False, reason, b)
 
-    return True, None, None
+    return SlotCheckResult(True, None, None)
 
 
-def build_schedule_context_for_prompt(bookings: List[Dict]) -> str:
+def get_slots_for_date(
+    target_date: date,
+    existing_bookings: List[Dict],
+    barber_id: Optional[int] = None,
+    available_barbers: Optional[List[Dict]] = None,
+    duration_minutes: int = SERVICE_DURATION_MINUTES,
+    step_minutes: int = 30
+) -> List[Dict]:
     """
-    Генерирует актуальный текстовый блок с графиком и занятыми окнами
+    Возвращает список слотов с шагом step_minutes (по умолчанию 30 мин)
+    с 10:00 до 21:00 включительно для указанной даты и мастера.
+    """
+    now = get_now_tashkent()
+    slots = []
+
+    start_min = WORK_START_HOUR * 60
+    end_min = (WORK_END_HOUR - 1) * 60  # 21:00 - последний слот
+
+    for total_m in range(start_min, end_min + 1, step_minutes):
+        hour = total_m // 60
+        minute = total_m % 60
+        slot_dt = datetime(target_date.year, target_date.month, target_date.day, hour, minute, tzinfo=TASHKENT_TZ)
+        time_str = f"{hour:02d}:{minute:02d}"
+
+        if slot_dt < now:
+            slots.append({
+                "time": time_str,
+                "is_available": False,
+                "reason": "Время уже прошло",
+                "barber_id": None,
+                "barber_name": None
+            })
+            continue
+
+        res = check_slot_availability(
+            target_dt=slot_dt,
+            existing_bookings=existing_bookings,
+            barber_id=barber_id,
+            available_barbers=available_barbers,
+            duration_minutes=duration_minutes
+        )
+        slots.append({
+            "time": time_str,
+            "is_available": res.is_available,
+            "reason": res.error_message if not res.is_available else None,
+            "barber_id": res.assigned_barber_id,
+            "barber_name": res.assigned_barber_name
+        })
+
+    return slots
+
+
+def build_schedule_context_for_prompt(
+    bookings: List[Dict],
+    barbers: Optional[List[Dict]] = None,
+    services: Optional[List[Dict]] = None
+) -> str:
+    """
+    Генерирует актуальный текстовый блок с графиком, мастерами и занятыми окнами
     для системного промпта нейросети на основе реальной базы SQLite.
     """
     now = get_now_tashkent()
@@ -212,36 +441,49 @@ def build_schedule_context_for_prompt(bookings: List[Dict]) -> str:
     lines = [
         f"ТЕКУЩЕЕ ВРЕМЯ И ДАТА В ТАШКЕНТЕ: {now_formatted}",
         f"РЕЖИМ РАБОТЫ БАРБЕРШОПА: ежедневно с {WORK_START_HOUR}:00 до {WORK_END_HOUR}:00 (последняя запись в 21:00).",
-        f"ДЛИТЕЛЬНОСТЬ ЛЮБОЙ УСЛУГИ: РОВНО {SERVICE_DURATION_MINUTES} МИНУТ (1 ЧАС).",
-        "",
-        "АКТУАЛЬНЫЕ ЗАПИСИ ИЗ БАЗЫ ДАННЫХ (ЗАНЯТЫЕ ОКНА):"
+        f"ГОРИЗОНТ ЗАПИСИ: максимум на 7 дней вперед.",
+        ""
     ]
 
-    # Собираем записи на ближайшие 7 дней
-    active_slots_by_date: Dict[date, List[Tuple[datetime, datetime, str]]] = {}
+    # Секция мастеров
+    if barbers:
+        lines.append("КОМАНДА БАРБЕРОВ САЛОНА:")
+        for b in barbers:
+            status_text = "на смене" if b.get("is_working_today", 1) else "выходной сегодня"
+            role = b.get("role_title") or "Барбер"
+            lines.append(f"- {b['name']} ({role}) — {status_text}")
+        lines.append("")
 
+    # Секция услуг
+    if services:
+        lines.append("АКТУАЛЬНЫЙ ПРАЙС-ЛИСТ И ДЛИТЕЛЬНОСТЬ УСЛУГ:")
+        for s in services:
+            badge_str = f" [{s['badge']}]" if s.get("badge") else ""
+            lines.append(f"- {s['name']}{badge_str}: {s['price']:,} сум ({s.get('duration_min', 60)} мин) — {s.get('description', '')}".replace(",", " "))
+        lines.append("")
+
+    lines.append("АКТУАЛЬНЫЕ ЗАПИСИ ИЗ БАЗЫ ДАННЫХ (ЗАНЯТЫЕ ОКНА):")
+
+    active_by_date: Dict[date, List[str]] = {}
     for b in bookings:
-        if b.get("status") == "cancelled":
+        if b.get("status") in ("cancelled", "completed"):
             continue
         raw_time = b.get("booking_time")
         b_dt = parse_booking_datetime(raw_time)
-        if not b_dt:
-            continue
-        # Фильтруем записи старше сегодняшнего дня
-        if b_dt.date() < now.date():
+        if not b_dt or b_dt.date() < now.date():
             continue
 
         end_dt = b_dt + timedelta(minutes=SERVICE_DURATION_MINUTES)
         client = b.get("full_name") or "Клиент"
         service = b.get("service") or "Стрижка"
-        desc = f"{client} ({service})"
+        b_master = b.get("barber_name") or "Мастер"
+        desc = f"{b_dt.strftime('%H:%M')} — {end_dt.strftime('%H:%M')} (Мастер: {b_master}, Клиент: {client}, {service})"
+        active_by_date.setdefault(b_dt.date(), []).append(desc)
 
-        active_slots_by_date.setdefault(b_dt.date(), []).append((b_dt, end_dt, desc))
-
-    if not active_slots_by_date:
-        lines.append("- На ближайшие дни все окна с 10:00 до 21:00 полностью свободны!")
+    if not active_by_date:
+        lines.append("- На ближайшие дни все окна с 10:00 до 21:00 полностью свободны у всех мастеров!")
     else:
-        for d in sorted(active_slots_by_date.keys())[:7]:
+        for d in sorted(active_by_date.keys())[:7]:
             day_name = DAYS_RU[d.weekday()]
             diff_days = (d - now.date()).days
             rel_label = ""
@@ -249,71 +491,20 @@ def build_schedule_context_for_prompt(bookings: List[Dict]) -> str:
                 rel_label = " (Сегодня)"
             elif diff_days == 1:
                 rel_label = " (Завтра)"
-            elif diff_days == 2:
-                rel_label = " (Послезавтра)"
 
-            date_header = f"• {d.strftime('%Y-%m-%d')} ({day_name}){rel_label}:"
-            lines.append(date_header)
-
-            slots = sorted(active_slots_by_date[d], key=lambda x: x[0])
-            for start, end, info in slots:
-                lines.append(
-                    f"  - ЗАНЯТО: {start.strftime('%H:%M')} — {end.strftime('%H:%M')} [{info}]. "
-                    f"Запись в промежуток между {start.strftime('%H:%M')} и {end.strftime('%H:%M')} (включая 15:30 и т.д.) НЕВОЗМОЖНА!"
-                )
+            d_str = f"{d.strftime('%Y-%m-%d')} ({day_name}){rel_label}:"
+            lines.append(d_str)
+            for item in active_by_date[d]:
+                lines.append(f"  • {item}")
 
     lines.extend([
         "",
-        "СТРОЖАЙШИЕ ПРАВИЛА ПРОВЕРКИ СВОБОДНЫХ ОКОН:",
-        "1. ПЕРЕД ТЕМ как сказать клиенту, свободно ли время, СТРОГО сверься со списком ЗАНЯТЫХ ОКОН выше!",
-        "2. Учитывай, что стрижка длится РОВНО 1 ЧАС: если человек записан на 15:00, то окно 15:00-16:00 ЗАНЯТО! Запись на 15:15, 15:30, 15:45 или 14:30 ЗАПРЕЩЕНА.",
-        "3. Если клиент спрашивает про занятое время (например: 'Свободно ли в 15:30?'):",
-        "   ОТВЕТЬ ЧЕТКО И ДРУЖЕЛЮБНО:",
-        "   'Ака, на 15:30 не получится — у мастера в это время идет стрижка (с 15:00 до 16:00 занято, стрижка длится ровно час). Могу предложить на 14:00 или на 16:00 — какое время удобнее?'",
-        "4. Если время СВОБОДНО — скажи, что время свободно, и (если имя еще не названо) спроси имя клиента!",
-        "5. Если клиент спрашивает: 'Какие есть окна на завтра?' — назови свободные круглые часы с 10:00 до 21:00, исключая занятые слоты."
+        "ПРАВИЛА КОНСУЛЬТАЦИИ КЛИЕНТОВ ПО ВРЕМЕНИ И МАСТЕРАМ:",
+        "1. Любая стрижка или комплекс длится ровно 1 час (если не указано иное в услугах).",
+        "2. Если клиент спрашивает про занятое время (например: 'Свободно ли в 15:30?'):",
+        "   'Ака, на 15:30 не получится — у мастера в это время идет стрижка (с 15:00 до 16:00 занято). Могу предложить на 14:00 или на 16:00 — какое время удобнее?'",
+        "3. Если время СВОБОДНО — скажи, что время свободно, и спроси, к какому мастеру клиент хочет записаться (или предложить любого свободного).",
+        "4. Если клиент спрашивает: 'Какие есть окна на завтра?' — назови свободные часы с 10:00 до 21:00."
     ])
 
     return "\n".join(lines)
-
-
-def get_slots_for_date(
-    target_date: date, existing_bookings: List[Dict], step_minutes: int = 30
-) -> List[Dict]:
-    """
-    Возвращает список слотов с шагом step_minutes (по умолчанию 30 мин)
-    с 10:00 до 21:00 включительно.
-    Для каждого слота указывается статус доступности (с учетом правила 1 часа и занятости).
-    """
-    now = get_now_tashkent()
-    slots = []
-
-    # Генерируем слоты с 10:00 до 21:00 с шагом 30 минут
-    start_min = WORK_START_HOUR * 60
-    end_min = (WORK_END_HOUR - 1) * 60  # 21:00 - последний слот на 1 час работы
-
-    for total_m in range(start_min, end_min + 1, step_minutes):
-        hour = total_m // 60
-        minute = total_m % 60
-        slot_dt = datetime(target_date.year, target_date.month, target_date.day, hour, minute, tzinfo=TASHKENT_TZ)
-        time_str = f"{hour:02d}:{minute:02d}"
-
-        # Если время уже прошло (для сегодняшнего дня)
-        if slot_dt < now:
-            slots.append({
-                "time": time_str,
-                "is_available": False,
-                "reason": "Время уже прошло"
-            })
-            continue
-
-        is_avail, reason, _ = check_slot_availability(slot_dt, existing_bookings)
-        slots.append({
-            "time": time_str,
-            "is_available": is_avail,
-            "reason": reason if not is_avail else None
-        })
-
-    return slots
-
-

@@ -73,12 +73,15 @@ async def test_process_booking_intent_flow():
     message = MagicMock(spec=Message)
     message.from_user = User(id=777, is_bot=False, first_name="Бабур", username="babur7")
     message.answer = AsyncMock()
+    message.bot = AsyncMock()
 
     # Case 1: Booking not confirmed yet (only time asked)
     with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
+         patch("bot.handlers.gemini_service.extract_client_action", new_callable=AsyncMock) as mock_client_action, \
          patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
          patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save:
         
+        mock_client_action.return_value = None
         mock_get_recent.return_value = [{"role": "user", "text": "запиши на завтра в 15:00"}]
         mock_extract.return_value = ExtractedBooking(is_booking_confirmed=False, booking_time="завтра в 15:00")
 
@@ -93,11 +96,17 @@ async def test_process_booking_intent_flow():
 
     # Case 2: Booking confirmed (both name and time present and slot is available)
     with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
+         patch("bot.handlers.gemini_service.extract_client_action", new_callable=AsyncMock) as mock_client_action, \
          patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
          patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
          patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_active, \
-         patch("bot.handlers.has_recent_booking", new_callable=AsyncMock) as mock_has_recent:
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock) as mock_get_barbers, \
+         patch("bot.handlers.has_recent_booking", new_callable=AsyncMock) as mock_has_recent, \
+         patch("database.get_user_active_booking", new_callable=AsyncMock) as mock_user_b:
         
+        mock_client_action.return_value = None
+        mock_user_b.return_value = None
+        mock_get_barbers.return_value = []
         mock_active.return_value = []
         mock_get_recent.return_value = [
             {"role": "user", "text": "запиши на завтра в 15:00"},
@@ -125,10 +134,16 @@ async def test_process_booking_intent_flow():
     # Case 3: Slot conflict (trying to book 15:30 when 15:00 is occupied)
     message.answer.reset_mock()
     with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
+         patch("bot.handlers.gemini_service.extract_client_action", new_callable=AsyncMock) as mock_client_action, \
          patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
          patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
-         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_active:
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_active, \
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock) as mock_get_barbers, \
+         patch("database.get_user_active_booking", new_callable=AsyncMock) as mock_user_b:
         
+        mock_client_action.return_value = None
+        mock_user_b.return_value = None
+        mock_get_barbers.return_value = []
         mock_active.return_value = [
             {
                 "id": 1,
@@ -155,4 +170,22 @@ async def test_process_booking_intent_flow():
         args, _ = message.answer.call_args
         assert "записать не могу" in args[0]
         assert "15:00" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_barber():
+    from bot.handlers import handle_barber
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=333444, is_bot=False, first_name="Сардор")
+    message.answer = AsyncMock()
+
+    with patch("bot.handlers.get_barber_by_telegram_id", new_callable=AsyncMock) as mock_get_b:
+        mock_get_b.return_value = {"id": 2, "name": "Сардор", "telegram_id": 333444}
+        await handle_barber(message)
+        message.answer.assert_called_once()
+        args, kwargs = message.answer.call_args
+        assert "Сардор" in args[0]
+        assert "Мою Смену" in str(kwargs.get("reply_markup"))
+
 

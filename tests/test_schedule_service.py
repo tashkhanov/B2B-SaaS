@@ -125,3 +125,75 @@ def test_is_booking_past():
     # Future year 2099
     assert is_booking_past("2099-01-01 12:00") is False
 
+
+def test_multi_master_slot_checking():
+    barbers = [
+        {"id": 1, "name": "Иброхим", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+        {"id": 2, "name": "Сардор", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+    ]
+    # Запись только к мастеру Иброхим (ID=1) на 14:00
+    now = get_now_tashkent()
+    target_dt = (now + timedelta(days=1)).replace(hour=14, minute=0, second=0, microsecond=0)
+    time_str = target_dt.strftime("%Y-%m-%d 14:00")
+
+    existing = [
+        {
+            "id": 10,
+            "full_name": "Клиент Иброхима",
+            "booking_time": time_str,
+            "barber_id": 1,
+            "barber_name": "Иброхим",
+            "status": "confirmed"
+        }
+    ]
+
+    # 1. Запрос к Иброхиму на 14:00 -> Должен быть ЗАНЯТ
+    res_b1 = check_slot_availability(target_dt, existing, barber_id=1, available_barbers=barbers)
+    assert res_b1.is_available is False
+    assert "Иброхим" in res_b1.error_message
+
+    # 2. Запрос к Сардору на 14:00 -> Должен быть СВОБОДЕН!
+    res_b2 = check_slot_availability(target_dt, existing, barber_id=2, available_barbers=barbers)
+    assert res_b2.is_available is True
+    assert res_b2.assigned_barber_id == 2
+    assert res_b2.assigned_barber_name == "Сардор"
+
+    # 3. Запрос «Любой свободный мастер» на 14:00 -> Должен автоматически назначить Сардора!
+    res_any = check_slot_availability(target_dt, existing, barber_id=None, available_barbers=barbers)
+    assert res_any.is_available is True
+    assert res_any.assigned_barber_id == 2
+    assert res_any.assigned_barber_name == "Сардор"
+
+
+def test_barber_off_day():
+    # Мастер работает только по будням (Пн-Пт: 0,1,2,3,4)
+    barber = {"id": 3, "name": "Жасур", "work_days": "0,1,2,3,4", "is_working_today": 1, "is_active": 1}
+    now = get_now_tashkent()
+
+    # Найдем ближайшее воскресенье (weekday = 6)
+    days_to_sunday = (6 - now.weekday()) % 7
+    if days_to_sunday == 0:
+        days_to_sunday = 7
+    sunday_dt = (now + timedelta(days=days_to_sunday)).replace(hour=12, minute=0, second=0, microsecond=0)
+
+    # Жасур в воскресенье отдыхает
+    res = check_slot_availability(sunday_dt, [], barber_id=3, available_barbers=[barber])
+    assert res.is_available is False
+    assert "отдыхает" in res.error_message or "выходной" in res.error_message
+
+
+def test_dynamic_duration():
+    now = get_now_tashkent()
+    # 21:30 при закрытии в 22:00
+    t_2130 = (now + timedelta(days=1)).replace(hour=21, minute=30, second=0, microsecond=0)
+
+    # 30-минутная услуга помещается (21:30 -> 22:00)
+    res_30 = check_slot_availability(t_2130, [], duration_minutes=30)
+    assert res_30.is_available is True
+
+    # 60-минутная услуга НЕ помещается (21:30 -> 22:30 > 22:00)
+    res_60 = check_slot_availability(t_2130, [], duration_minutes=60)
+    assert res_60.is_available is False
+    assert "закрывается в 22:00" in res_60.error_message
+
+

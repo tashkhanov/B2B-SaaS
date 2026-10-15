@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e232d" />
+      <stop offset="100%" stop-color="#0e1117" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F3C64F" />
+      <stop offset="100%" stop-color="#B8860B" />
+    </linearGradient>
+  </defs>
+  <circle cx="50" cy="50" r="48" fill="url(#bgGrad)" stroke="url(#goldGrad)" stroke-width="2.5" />
+  <!-- Barber silhouette with beard & crown -->
+  <path d="M50 24c-7 0-13 6-13 13 0 5 3 9 7 11 0 3 2 7 6 9 4-2 6-6 6-9 4-2 7-6 7-11 0-7-6-13-13-13z" fill="#2d3340" />
+  <!-- Beard shape -->
+  <path d="M43 45c0 0 2 12 7 12s7-12 7-12c-2 1-5 2-7 2s-5-1-7-2z" fill="url(#goldGrad)" />
+  <!-- Crown for Chef Master -->
+  <path d="M42 22l3 3 5-5 5 5 3-3-2 5h-12z" fill="url(#goldGrad)" />
+  <!-- Body shoulders -->
+  <path d="M26 80c0-13 11-20 24-20s24 7 24 20v4H26v-4z" fill="#232936" />
+  <!-- Monogram text -->
+  <text x="50" y="93" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="bold" font-size="9" fill="url(#goldGrad)">ШЕФ-МАСТЕР</text>
+</svg>

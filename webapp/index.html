@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Black Beard — Панель администратора</title>
-  
+
   <!-- Telegram Web App SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
@@ -26,6 +26,7 @@
             surfaceBorder: '#30363d',
             accent: '#ff6b00',
             accentHover: '#e66000',
+            gold: '#D4AF37'
           },
           fontFamily: {
             sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
@@ -86,10 +87,10 @@
   </div>
 
   <!-- КОНТЕЙНЕР АДМИНИСТРАТОРА -->
-  <div id="admin-container" class="max-w-md mx-auto w-full px-4 pt-4 pb-20 flex-1">
+  <div id="admin-container" class="max-w-md mx-auto w-full px-4 pt-4 pb-24 flex-1">
     
     <!-- Шапка (Header) -->
-    <header class="flex items-center justify-between pb-3.5 border-b border-surfaceBorder mb-4">
+    <header class="flex items-center justify-between pb-3.5 border-b border-surfaceBorder mb-3">
       <div class="flex items-center space-x-3">
         <div class="w-10 h-10 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center text-accent shadow-sm shadow-accent/10">
           <svg class="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -102,21 +103,21 @@
         </div>
         <div>
           <h1 class="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
-            <span>Black Beard</span>
+            <span>Black Beard Pro</span>
             <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 pulse-dot" title="Онлайн"></span>
           </h1>
-          <p class="text-[11px] text-gray-400 font-normal">Панель администратора • Ташкент</p>
+          <p class="text-[11px] text-gray-400 font-normal">Панель управления • Ташкент</p>
         </div>
       </div>
       <div class="flex items-center space-x-2">
-        <button onclick="openManualBookingModal()" class="flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accentHover transition shadow-sm shadow-accent/20 active:scale-95">
+        <button id="header-action-btn" onclick="openContextModal()" class="flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accentHover transition shadow-sm shadow-accent/20 active:scale-95">
           <svg class="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
-          <span>Записать</span>
+          <span id="header-action-text">Записать</span>
         </button>
-        <button onclick="fetchBookings()" class="p-2 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Обновить">
+        <button onclick="refreshCurrentTab()" class="p-2 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Обновить">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
@@ -124,59 +125,128 @@
       </div>
     </header>
 
-    <!-- Сводная статистика -->
-    <div class="grid grid-cols-3 gap-2.5 mb-4">
-      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
-        <div class="text-[11px] text-gray-400 mb-0.5 font-medium">Всего</div>
-        <div id="stat-total" class="text-base font-bold text-white">0</div>
-      </div>
-      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
-        <div class="text-[11px] text-gray-400 mb-0.5 font-medium">Сегодня</div>
-        <div id="stat-today" class="text-base font-bold text-accent">0</div>
-      </div>
-      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
-        <div class="text-[11px] text-gray-400 mb-0.5 font-medium">Новые</div>
-        <div id="stat-new" class="text-base font-bold text-emerald-400">0</div>
-      </div>
-    </div>
-
-    <!-- Фильтры списка -->
-    <div class="flex items-center space-x-1.5 bg-surface p-1 rounded-xl border border-surfaceBorder mb-4 text-xs font-medium">
-      <button onclick="setFilter('all')" id="filter-all" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold">Все</button>
-      <button onclick="setFilter('today')" id="filter-today" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">Сегодня</button>
-      <button onclick="setFilter('upcoming')" id="filter-upcoming" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">Предстоящие</button>
-    </div>
-
-    <!-- Индикатор загрузки -->
-    <div id="loading" class="py-12 text-center text-gray-400 text-xs">
-      <div class="inline-block animate-spin rounded-full h-6 w-6 border-2 border-accent border-t-transparent mb-2"></div>
-      <div>Синхронизация записей...</div>
-    </div>
-
-    <!-- Список записей -->
-    <div id="bookings-list" class="space-y-3 hidden">
-      <!-- Карточки генерируются скриптом -->
-    </div>
-
-    <!-- Заглушка, если записей нет -->
-    <div id="empty-state" class="py-12 text-center text-gray-500 hidden bg-surface/50 border border-surfaceBorder/60 rounded-2xl p-6">
-      <div class="w-12 h-12 rounded-xl bg-surfaceBorder/40 border border-surfaceBorder flex items-center justify-center mx-auto mb-2 text-gray-400">
-        <svg class="w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Главная навигация по разделам (Tabs) -->
+    <nav class="flex items-center p-1 bg-surface border border-surfaceBorder rounded-xl mb-4 text-xs font-medium">
+      <button onclick="switchTab('bookings')" id="nav-bookings" class="flex-1 py-1.5 px-2 rounded-lg text-center transition flex items-center justify-center gap-1.5 bg-accent text-white font-semibold shadow-sm shadow-accent/20">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/>
-          <line x1="16" x2="16" y1="2" y2="6"/>
-          <line x1="8" x2="8" y1="2" y2="6"/>
-          <line x1="3" x2="21" y1="10" y2="10"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
         </svg>
+        <span>Записи</span>
+      </button>
+      <button onclick="switchTab('services')" id="nav-services" class="flex-1 py-1.5 px-2 rounded-lg text-center transition flex items-center justify-center gap-1.5 text-gray-400 hover:text-white">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6" cy="6" r="3"/>
+          <circle cx="6" cy="18" r="3"/>
+          <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+          <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+          <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+        </svg>
+        <span>Услуги</span>
+      </button>
+      <button onclick="switchTab('barbers')" id="nav-barbers" class="flex-1 py-1.5 px-2 rounded-lg text-center transition flex items-center justify-center gap-1.5 text-gray-400 hover:text-white">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <span>Барберы</span>
+      </button>
+    </nav>
+
+    <!-- ==================== ВКУЛАДКА 1: ЗАПИСИ ==================== -->
+    <section id="section-bookings" class="space-y-4">
+      <!-- Сводная статистика -->
+      <div class="grid grid-cols-3 gap-2.5">
+        <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
+          <div class="text-[11px] text-gray-400 mb-0.5 font-medium">Всего</div>
+          <div id="stat-total" class="text-base font-bold text-white">0</div>
+        </div>
+        <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
+          <div class="text-[11px] text-gray-400 mb-0.5 font-medium">Сегодня</div>
+          <div id="stat-today" class="text-base font-bold text-accent">0</div>
+        </div>
+        <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
+          <div class="text-[11px] text-gray-400 mb-0.5 font-medium">Новые</div>
+          <div id="stat-new" class="text-base font-bold text-emerald-400">0</div>
+        </div>
       </div>
-      <p class="text-sm font-semibold text-gray-300">Записей пока нет</p>
-      <p class="text-xs text-gray-500 mt-1">Клиенты еще не оформили бронь через бота или онлайн-меню.</p>
-    </div>
+
+      <!-- Фильтры списка записей -->
+      <div class="flex items-center space-x-1.5 bg-surface p-1 rounded-xl border border-surfaceBorder text-xs font-medium">
+        <button onclick="setFilter('all')" id="filter-all" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold">Все</button>
+        <button onclick="setFilter('today')" id="filter-today" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">Сегодня</button>
+        <button onclick="setFilter('upcoming')" id="filter-upcoming" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">Предстоящие</button>
+      </div>
+
+      <!-- Индикатор загрузки -->
+      <div id="bookings-loading" class="py-12 text-center text-gray-400 text-xs">
+        <div class="inline-block animate-spin rounded-full h-6 w-6 border-2 border-accent border-t-transparent mb-2"></div>
+        <div>Синхронизация записей...</div>
+      </div>
+
+      <!-- Список записей -->
+      <div id="bookings-list" class="space-y-3 hidden"></div>
+
+      <!-- Заглушка, если записей нет -->
+      <div id="bookings-empty-state" class="py-12 text-center text-gray-500 hidden bg-surface/50 border border-surfaceBorder/60 rounded-2xl p-6">
+        <div class="w-12 h-12 rounded-xl bg-surfaceBorder/40 border border-surfaceBorder flex items-center justify-center mx-auto mb-2 text-gray-400">
+          <svg class="w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" x2="21" y1="10" y2="10"/>
+          </svg>
+        </div>
+        <p class="text-sm font-semibold text-gray-300">Записей пока нет</p>
+        <p class="text-xs text-gray-500 mt-1">Клиенты еще не оформили бронь через бота или онлайн-меню.</p>
+      </div>
+    </section>
+
+    <!-- ==================== ВКЛАДКА 2: УСЛУГИ ==================== -->
+    <section id="section-services" class="space-y-3 hidden">
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-gray-400 font-medium">Каталог услуг и цен</span>
+        <button onclick="openServiceModal()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-xs text-white transition active:scale-95">
+          <svg class="w-3 h-3 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Добавить</span>
+        </button>
+      </div>
+
+      <div id="services-loading" class="py-10 text-center text-gray-400 text-xs">
+        <div class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-accent border-t-transparent mb-2"></div>
+        <div>Загрузка услуг...</div>
+      </div>
+
+      <div id="services-list" class="space-y-2.5 hidden"></div>
+    </section>
+
+    <!-- ==================== ВКЛАДКА 3: БАРБЕРЫ ==================== -->
+    <section id="section-barbers" class="space-y-3 hidden">
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-gray-400 font-medium">Команда мастеров и смены</span>
+        <button onclick="openBarberModal()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-xs text-white transition active:scale-95">
+          <svg class="w-3 h-3 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Добавить</span>
+        </button>
+      </div>
+
+      <div id="barbers-loading" class="py-10 text-center text-gray-400 text-xs">
+        <div class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-accent border-t-transparent mb-2"></div>
+        <div>Загрузка барберов...</div>
+      </div>
+
+      <div id="barbers-list" class="space-y-3 hidden"></div>
+    </section>
 
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО РУЧНОЙ ЗАПИСИ КЛИЕНТА АДМИНИСТРАТОРОМ -->
   <div id="manual-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-surface border border-surfaceBorder rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+    <div class="bg-surface border border-surfaceBorder rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between pb-2 border-b border-surfaceBorder">
         <h3 class="text-sm font-semibold text-white flex items-center gap-2">
           <svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -195,7 +265,13 @@
         </div>
         <div>
           <label class="block text-gray-400 mb-1 font-medium">Телефон</label>
-          <input type="tel" id="m-phone" placeholder="+998 90 ..." class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-accent" />
+          <input type="tel" id="m-phone" placeholder="+998 90 123 45 67" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Мастер / Барбер</label>
+          <select id="m-barber" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent">
+            <option value="">⚡ Любой свободный мастер (Автовыбор)</option>
+          </select>
         </div>
         <div>
           <label class="block text-gray-400 mb-1 font-medium">Услуга</label>
@@ -211,7 +287,7 @@
             <input type="date" id="m-date" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-accent" />
           </div>
           <div>
-            <label class="block text-gray-400 mb-1 font-medium">Время * (шаг 30 мин)</label>
+            <label class="block text-gray-400 mb-1 font-medium">Время *</label>
             <select id="m-time" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-2 py-2 text-white focus:outline-none focus:border-accent">
               <option value="10:00">10:00</option>
               <option value="10:30">10:30</option>
@@ -252,6 +328,118 @@
     </div>
   </div>
 
+  <!-- МОДАЛЬНОЕ ОКНО: ДОБАВИТЬ/РЕДАКТИРОВАТЬ УСЛУГУ -->
+  <div id="service-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-surface border border-surfaceBorder rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between pb-2 border-b border-surfaceBorder">
+        <h3 id="service-modal-title" class="text-sm font-semibold text-white flex items-center gap-2">
+          <span>Услуга</span>
+        </h3>
+        <button onclick="closeServiceModal()" class="text-gray-400 hover:text-white text-lg font-semibold">&times;</button>
+      </div>
+
+      <input type="hidden" id="srv-id" />
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Название услуги *</label>
+          <input type="text" id="srv-name" placeholder="Например: Стрижка + Борода" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-gray-400 mb-1 font-medium">Цена (сум) *</label>
+            <input type="number" id="srv-price" placeholder="100000" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+          </div>
+          <div>
+            <label class="block text-gray-400 mb-1 font-medium">Длительность (мин)</label>
+            <input type="number" id="srv-duration" placeholder="60" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Бейдж (необязательно)</label>
+          <input type="text" id="srv-badge" placeholder="Например: ТОП СЕТ или ХИТ" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Описание</label>
+          <textarea id="srv-desc" rows="2" placeholder="Краткое описание для клиента..." class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent resize-none"></textarea>
+        </div>
+      </div>
+
+      <div class="pt-2 flex gap-2">
+        <button id="srv-delete-btn" onclick="deleteService()" class="hidden py-2.5 px-3 rounded-xl bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/30 text-xs font-semibold transition">
+          Удалить
+        </button>
+        <button onclick="closeServiceModal()" class="flex-1 py-2.5 rounded-xl border border-surfaceBorder text-gray-300 hover:text-white text-xs font-semibold transition">
+          Отмена
+        </button>
+        <button id="srv-save-btn" onclick="saveService()" class="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accentHover text-white text-xs font-semibold transition shadow-md shadow-accent/20">
+          Сохранить
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: ДОБАВИТЬ/РЕДАКТИРОВАТЬ БАРБЕРА -->
+  <div id="barber-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-surface border border-surfaceBorder rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-2 border-b border-surfaceBorder">
+        <h3 id="barber-modal-title" class="text-sm font-semibold text-white flex items-center gap-2">
+          <span>Мастер / Барбер</span>
+        </h3>
+        <button onclick="closeBarberModal()" class="text-gray-400 hover:text-white text-lg font-semibold">&times;</button>
+      </div>
+
+      <input type="hidden" id="brb-id" />
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Имя барбера *</label>
+          <input type="text" id="brb-name" placeholder="Например: Иброхим" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Квалификация / Роль</label>
+          <input type="text" id="brb-role" placeholder="Например: Шеф-мастер, Топ-барбер" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-gray-400 mb-1 font-medium">Телефон</label>
+            <input type="tel" id="brb-phone" placeholder="+998 90 ..." class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+          </div>
+          <div>
+            <label class="block text-gray-400 mb-1 font-medium">Telegram ID</label>
+            <input type="number" id="brb-tg-id" placeholder="12345678" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Аватарка (URL)</label>
+          <input type="text" id="brb-avatar" placeholder="/static/avatars/ibrohim.svg" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1 font-medium">Рабочие дни недели</label>
+          <div class="grid grid-cols-7 gap-1 text-center" id="brb-days-grid">
+            <button type="button" data-day="0" onclick="toggleWorkDay(this)" class="day-btn py-1.5 rounded-lg border border-surfaceBorder text-gray-400 font-semibold text-[10px]">Пн</button>
+            <button type="button" data-day="1" onclick="toggleWorkDay(this)" class="day-btn py-1.5 rounded-lg border border-surfaceBorder text-gray-400 font-semibold text-[10px]">Вт</button>
+            <button type="button" data-day="2" onclick="toggleWorkDay(this)" class="day-btn py-1.5 rounded-lg border border-surfaceBorder text-gray-400 font-semibold text-[10px]">Ср</button>
+            <button type="button" data-day="3" onclick="toggleWorkDay(this)" class="day-btn py-1.5 rounded-lg border border-surfaceBorder text-gray-400 font-semibold text-[10px]">Чт</button>
+            <button type="button" data-day="4" onclick="toggleWorkDay(this)" class="day-btn py-1.5 rounded-lg border border-surfaceBorder text-gray-400 font-semibold text-[10px]">Пт</button>
+            <button type="button" data-day="5" onclick="toggleWorkDay(this)" class="day-btn py-1.5 rounded-lg border border-surfaceBorder text-gray-400 font-semibold text-[10px]">Сб</button>
+            <button type="button" data-day="6" onclick="toggleWorkDay(this)" class="day-btn py-1.5 rounded-lg border border-surfaceBorder text-gray-400 font-semibold text-[10px]">Вс</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-2 flex gap-2">
+        <button id="brb-delete-btn" onclick="deleteBarber()" class="hidden py-2.5 px-3 rounded-xl bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/30 text-xs font-semibold transition">
+          Удалить
+        </button>
+        <button onclick="closeBarberModal()" class="flex-1 py-2.5 rounded-xl border border-surfaceBorder text-gray-300 hover:text-white text-xs font-semibold transition">
+          Отмена
+        </button>
+        <button id="brb-save-btn" onclick="saveBarber()" class="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accentHover text-white text-xs font-semibold transition shadow-md shadow-accent/20">
+          Сохранить
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Футер -->
   <footer class="w-full py-4 text-center border-t border-surfaceBorder/80 bg-bgDark/95 backdrop-blur fixed bottom-0 left-0 z-10">
     <a href="https://asatkhanov.uz" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200 group">
@@ -264,17 +452,59 @@
 
   <!-- Клиентская логика -->
   <script>
-    // Инициализация Telegram Mini App
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     if (tg) {
       tg.ready();
       tg.expand();
     }
 
+    let activeTab = 'bookings';
     let allBookings = [];
     let currentFilter = 'all';
+    let allServices = [];
+    let allBarbers = [];
 
-    // 1. Проверка прав администратора
+    // --- TAB SWITCHING ---
+    function switchTab(tab) {
+      activeTab = tab;
+      ['bookings', 'services', 'barbers'].forEach(t => {
+        const navBtn = document.getElementById(`nav-${t}`);
+        const sec = document.getElementById(`section-${t}`);
+        if (t === tab) {
+          navBtn.className = 'flex-1 py-1.5 px-2 rounded-lg text-center transition flex items-center justify-center gap-1.5 bg-accent text-white font-semibold shadow-sm shadow-accent/20';
+          sec.classList.remove('hidden');
+        } else {
+          navBtn.className = 'flex-1 py-1.5 px-2 rounded-lg text-center transition flex items-center justify-center gap-1.5 text-gray-400 hover:text-white';
+          sec.classList.add('hidden');
+        }
+      });
+
+      const headerActionText = document.getElementById('header-action-text');
+      if (tab === 'bookings') {
+        headerActionText.textContent = 'Записать';
+        fetchBookings();
+      } else if (tab === 'services') {
+        headerActionText.textContent = 'Услуга +';
+        fetchServices();
+      } else if (tab === 'barbers') {
+        headerActionText.textContent = 'Барбер +';
+        fetchBarbers();
+      }
+    }
+
+    function openContextModal() {
+      if (activeTab === 'bookings') openManualBookingModal();
+      else if (activeTab === 'services') openServiceModal();
+      else if (activeTab === 'barbers') openBarberModal();
+    }
+
+    function refreshCurrentTab() {
+      if (activeTab === 'bookings') fetchBookings();
+      else if (activeTab === 'services') fetchServices();
+      else if (activeTab === 'barbers') fetchBarbers();
+    }
+
+    // --- ADMIN SECURITY CHECK ---
     async function checkAdminAccess() {
       try {
         const res = await fetch('/api/config');
@@ -295,14 +525,14 @@
       return true;
     }
 
-    // 2. Получение записей с бэкенда
+    // ==================== 1. ЗАПИСИ (BOOKINGS) ====================
     async function fetchBookings() {
       const isAllowed = await checkAdminAccess();
       if (!isAllowed) return;
 
-      const loader = document.getElementById('loading');
+      const loader = document.getElementById('bookings-loading');
       const list = document.getElementById('bookings-list');
-      const emptyState = document.getElementById('empty-state');
+      const emptyState = document.getElementById('bookings-empty-state');
 
       loader.classList.remove('hidden');
       list.classList.add('hidden');
@@ -327,7 +557,6 @@
 
     function updateStats() {
       document.getElementById('stat-total').textContent = allBookings.length;
-
       const todayStr = new Date().toISOString().slice(0, 10);
       const todayCount = allBookings.filter(b => {
         const d = (b.booking_time || b.created_at || '').toLowerCase();
@@ -354,7 +583,7 @@
 
     function renderBookings() {
       const list = document.getElementById('bookings-list');
-      const emptyState = document.getElementById('empty-state');
+      const emptyState = document.getElementById('bookings-empty-state');
       list.innerHTML = '';
 
       let filtered = allBookings;
@@ -395,6 +624,8 @@
           statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">Отменена</span>';
         }
 
+        const barberName = booking.barber_name ? escapeHtml(booking.barber_name) : 'Любой мастер';
+
         let actionsHtml = '';
         if (booking.status === 'new') {
           actionsHtml = `
@@ -429,7 +660,7 @@
         }
 
         card.innerHTML = `
-          <div class="flex items-start justify-between mb-2.5">
+          <div class="flex items-start justify-between mb-2">
             <div>
               <div class="font-semibold text-white text-sm flex items-center gap-1.5">
                 ${escapeHtml(booking.full_name || 'Гость')}
@@ -445,6 +676,16 @@
             <div>
               ${statusBadge}
             </div>
+          </div>
+
+          <!-- Назначенный мастер бейдж -->
+          <div class="mb-2">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-surfaceBorder/60 text-gray-300 border border-surfaceBorder">
+              <svg class="w-3 h-3 text-gold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              </svg>
+              <span>Барбер: <strong class="text-white font-semibold">${barberName}</strong></span>
+            </span>
           </div>
 
           <div class="bg-bgDark/60 rounded-xl p-2.5 mb-3 border border-surfaceBorder/50 space-y-1.5 text-xs">
@@ -537,13 +778,47 @@
       updateBookingStatus(id, 'cancelled');
     }
 
-    // 3. Ручное создание записи
-    function openManualBookingModal() {
+    // --- MANUAL BOOKING MODAL ---
+    async function openManualBookingModal() {
       const modal = document.getElementById('manual-modal');
       modal.classList.remove('hidden');
       const dateInput = document.getElementById('m-date');
       if (!dateInput.value) {
         dateInput.value = new Date().toISOString().slice(0, 10);
+      }
+
+      // Загрузить барберов для выбора
+      try {
+        const res = await fetch('/api/barbers');
+        const barbers = await res.json();
+        allBarbers = barbers;
+        const bSelect = document.getElementById('m-barber');
+        bSelect.innerHTML = '<option value="">⚡ Любой свободный мастер (Автовыбор)</option>';
+        barbers.forEach(b => {
+          const opt = document.createElement('option');
+          opt.value = b.id;
+          opt.textContent = `${b.name} (${b.role || 'Барбер'})`;
+          bSelect.appendChild(opt);
+        });
+      } catch (e) {
+        console.warn("Could not load barbers for selector", e);
+      }
+
+      // Загрузить услуги для выбора
+      try {
+        const res = await fetch('/api/services');
+        const services = await res.json();
+        allServices = services;
+        const sSelect = document.getElementById('m-service');
+        sSelect.innerHTML = '';
+        services.filter(s => s.is_active).forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.name;
+          opt.textContent = `${s.name} (${s.price.toLocaleString()} сум)`;
+          sSelect.appendChild(opt);
+        });
+      } catch (e) {
+        console.warn("Could not load services for selector", e);
       }
     }
 
@@ -554,6 +829,7 @@
     async function submitManualBooking() {
       const name = document.getElementById('m-name').value.trim();
       const phone = document.getElementById('m-phone').value.trim();
+      const barberIdVal = document.getElementById('m-barber').value;
       const service = document.getElementById('m-service').value;
       const bDate = document.getElementById('m-date').value;
       const bTime = document.getElementById('m-time').value;
@@ -580,6 +856,7 @@
             phone: phone || null,
             service: service,
             booking_time: `${bDate} ${bTime}`,
+            barber_id: barberIdVal ? parseInt(barberIdVal) : null,
             details: 'Ручная запись администратором через TMA'
           })
         });
@@ -599,6 +876,393 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Сохранить';
+      }
+    }
+
+    // ==================== 2. УСЛУГИ (SERVICES CRUD) ====================
+    async function fetchServices() {
+      const loader = document.getElementById('services-loading');
+      const list = document.getElementById('services-list');
+      loader.classList.remove('hidden');
+      list.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/services');
+        allServices = await res.json();
+        renderServices();
+      } catch (e) {
+        console.error("Ошибка загрузки услуг:", e);
+      } finally {
+        loader.classList.add('hidden');
+        list.classList.remove('hidden');
+      }
+    }
+
+    function renderServices() {
+      const list = document.getElementById('services-list');
+      list.innerHTML = '';
+
+      if (allServices.length === 0) {
+        list.innerHTML = '<div class="py-6 text-center text-gray-500 text-xs">Услуг пока нет. Нажмите "+ Добавить".</div>';
+        return;
+      }
+
+      allServices.forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-sm';
+        
+        const badgeHtml = s.badge ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-accent/20 text-accent border border-accent/30">${escapeHtml(s.badge)}</span>` : '';
+        const statusDot = s.is_active ? '<span class="w-2 h-2 rounded-full bg-emerald-500" title="Активна"></span>' : '<span class="w-2 h-2 rounded-full bg-gray-600" title="Отключена"></span>';
+
+        card.innerHTML = `
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              ${statusDot}
+              <h4 class="font-semibold text-white text-xs truncate">${escapeHtml(s.name)}</h4>
+              ${badgeHtml}
+            </div>
+            <div class="flex items-center gap-2 text-[11px] text-gray-400">
+              <span class="font-bold text-gold">${s.price.toLocaleString()} сум</span>
+              <span>•</span>
+              <span>${s.duration || 60} мин</span>
+            </div>
+            ${s.description ? `<p class="text-[11px] text-gray-500 mt-1 truncate">${escapeHtml(s.description)}</p>` : ''}
+          </div>
+          <button onclick="openServiceModal(${s.id})" class="p-2 rounded-xl bg-surfaceBorder/40 hover:bg-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Редактировать">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    function openServiceModal(serviceId = null) {
+      const modal = document.getElementById('service-modal');
+      const title = document.getElementById('service-modal-title');
+      const delBtn = document.getElementById('srv-delete-btn');
+
+      document.getElementById('srv-id').value = serviceId || '';
+      if (serviceId) {
+        const s = allServices.find(item => item.id === serviceId);
+        if (s) {
+          title.textContent = 'Редактировать услугу';
+          document.getElementById('srv-name').value = s.name;
+          document.getElementById('srv-price').value = s.price;
+          document.getElementById('srv-duration').value = s.duration || 60;
+          document.getElementById('srv-badge').value = s.badge || '';
+          document.getElementById('srv-desc').value = s.description || '';
+          delBtn.classList.remove('hidden');
+        }
+      } else {
+        title.textContent = 'Новая услуга';
+        document.getElementById('srv-name').value = '';
+        document.getElementById('srv-price').value = '';
+        document.getElementById('srv-duration').value = '60';
+        document.getElementById('srv-badge').value = '';
+        document.getElementById('srv-desc').value = '';
+        delBtn.classList.add('hidden');
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeServiceModal() {
+      document.getElementById('service-modal').classList.add('hidden');
+    }
+
+    async function saveService() {
+      const sId = document.getElementById('srv-id').value;
+      const name = document.getElementById('srv-name').value.trim();
+      const price = parseInt(document.getElementById('srv-price').value);
+      const duration = parseInt(document.getElementById('srv-duration').value) || 60;
+      const badge = document.getElementById('srv-badge').value.trim();
+      const description = document.getElementById('srv-desc').value.trim();
+
+      if (!name || isNaN(price)) {
+        alert('Пожалуйста, укажите название и цену услуги');
+        return;
+      }
+
+      const btn = document.getElementById('srv-save-btn');
+      btn.disabled = true;
+      btn.textContent = 'Сохранение...';
+
+      const payload = { name, price, duration, badge: badge || null, description: description || null, is_active: 1 };
+      const url = sId ? `/api/services/${sId}/update` : '/api/services';
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeServiceModal();
+          fetchServices();
+          if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        } else {
+          alert(data.error || 'Ошибка при сохранении услуги');
+        }
+      } catch (e) {
+        alert('Ошибка связи с сервером');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Сохранить';
+      }
+    }
+
+    async function deleteService() {
+      const sId = document.getElementById('srv-id').value;
+      if (!sId) return;
+      if (!confirm('Вы точно хотите удалить эту услугу из меню?')) return;
+
+      try {
+        const res = await fetch(`/api/services/${sId}/delete`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          closeServiceModal();
+          fetchServices();
+        } else {
+          alert(data.error || 'Ошибка при удалении');
+        }
+      } catch (e) {
+        alert('Ошибка при удалении');
+      }
+    }
+
+    // ==================== 3. БАРБЕРЫ (BARBERS & SHIFTS) ====================
+    async function fetchBarbers() {
+      const loader = document.getElementById('barbers-loading');
+      const list = document.getElementById('barbers-list');
+      loader.classList.remove('hidden');
+      list.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/barbers');
+        allBarbers = await res.json();
+        renderBarbers();
+      } catch (e) {
+        console.error("Ошибка загрузки барберов:", e);
+      } finally {
+        loader.classList.add('hidden');
+        list.classList.remove('hidden');
+      }
+    }
+
+    function renderBarbers() {
+      const list = document.getElementById('barbers-list');
+      list.innerHTML = '';
+
+      if (allBarbers.length === 0) {
+        list.innerHTML = '<div class="py-6 text-center text-gray-500 text-xs">Мастеров пока нет. Нажмите "+ Добавить".</div>';
+        return;
+      }
+
+      const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+      allBarbers.forEach(b => {
+        const card = document.createElement('div');
+        card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-4 shadow-sm';
+
+        const shiftBadge = b.is_on_shift 
+          ? `<button onclick="toggleShift(${b.id})" class="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition active:scale-95 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>На смене</button>`
+          : `<button onclick="toggleShift(${b.id})" class="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-gray-500/15 text-gray-400 border border-gray-500/30 hover:bg-gray-500/25 transition active:scale-95 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-gray-500"></span>Выходной</button>`;
+
+        const workDays = (b.work_days || '0,1,2,3,4,5,6').split(',').map(d => parseInt(d.trim()));
+        const daysBadges = dayNames.map((name, idx) => {
+          const isWorking = workDays.includes(idx);
+          return `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium ${isWorking ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-surfaceBorder/30 text-gray-500'}">${name}</span>`;
+        }).join('');
+
+        const avatarSrc = b.avatar_url || '/static/avatars/ibrohim.svg';
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div class="flex items-center gap-3">
+              <img src="${avatarSrc}" alt="${escapeHtml(b.name)}" class="w-11 h-11 rounded-2xl object-cover border border-surfaceBorder bg-bgDark" onerror="this.src='/static/avatars/ibrohim.svg'" />
+              <div>
+                <h4 class="font-bold text-white text-sm">${escapeHtml(b.name)}</h4>
+                <div class="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gold/15 text-gold border border-gold/30">
+                  <span>${escapeHtml(b.role || 'Барбер')}</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              ${shiftBadge}
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-surfaceBorder/40 flex items-center justify-between">
+            <div class="flex items-center gap-1 flex-wrap">
+              ${daysBadges}
+            </div>
+            <button onclick="openBarberModal(${b.id})" class="p-1.5 rounded-lg bg-surfaceBorder/40 hover:bg-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Настройки мастера">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+          </div>
+        `;
+
+        list.appendChild(card);
+      });
+    }
+
+    async function toggleShift(barberId) {
+      try {
+        const res = await fetch(`/api/barbers/${barberId}/toggle-shift`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+          fetchBarbers();
+        } else {
+          alert(data.error || 'Ошибка смены статуса');
+        }
+      } catch (e) {
+        alert('Ошибка связи с сервером');
+      }
+    }
+
+    function toggleWorkDay(btn) {
+      btn.classList.toggle('selected');
+      if (btn.classList.contains('selected')) {
+        btn.classList.remove('border-surfaceBorder', 'text-gray-400');
+        btn.classList.add('bg-accent', 'text-white', 'border-accent');
+      } else {
+        btn.classList.remove('bg-accent', 'text-white', 'border-accent');
+        btn.classList.add('border-surfaceBorder', 'text-gray-400');
+      }
+    }
+
+    function openBarberModal(barberId = null) {
+      const modal = document.getElementById('barber-modal');
+      const title = document.getElementById('barber-modal-title');
+      const delBtn = document.getElementById('brb-delete-btn');
+
+      document.getElementById('brb-id').value = barberId || '';
+
+      const dayBtns = document.querySelectorAll('#brb-days-grid .day-btn');
+      dayBtns.forEach(btn => {
+        btn.classList.remove('selected', 'bg-accent', 'text-white', 'border-accent');
+        btn.classList.add('border-surfaceBorder', 'text-gray-400');
+      });
+
+      if (barberId) {
+        const b = allBarbers.find(item => item.id === barberId);
+        if (b) {
+          title.textContent = 'Редактировать мастера';
+          document.getElementById('brb-name').value = b.name;
+          document.getElementById('brb-role').value = b.role || '';
+          document.getElementById('brb-phone').value = b.phone || '';
+          document.getElementById('brb-tg-id').value = b.telegram_id || '';
+          document.getElementById('brb-avatar').value = b.avatar_url || '';
+          delBtn.classList.remove('hidden');
+
+          const workDays = (b.work_days || '0,1,2,3,4,5,6').split(',').map(d => d.trim());
+          dayBtns.forEach(btn => {
+            if (workDays.includes(btn.dataset.day)) {
+              toggleWorkDay(btn);
+            }
+          });
+        }
+      } else {
+        title.textContent = 'Новый мастер';
+        document.getElementById('brb-name').value = '';
+        document.getElementById('brb-role').value = 'Топ-барбер';
+        document.getElementById('brb-phone').value = '';
+        document.getElementById('brb-tg-id').value = '';
+        document.getElementById('brb-avatar').value = '/static/avatars/ibrohim.svg';
+        delBtn.classList.add('hidden');
+
+        // Все дни по умолчанию активны
+        dayBtns.forEach(btn => toggleWorkDay(btn));
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeBarberModal() {
+      document.getElementById('barber-modal').classList.add('hidden');
+    }
+
+    async function saveBarber() {
+      const bId = document.getElementById('brb-id').value;
+      const name = document.getElementById('brb-name').value.trim();
+      const role = document.getElementById('brb-role').value.trim();
+      const phone = document.getElementById('brb-phone').value.trim();
+      const tgId = document.getElementById('brb-tg-id').value.trim();
+      const avatarUrl = document.getElementById('brb-avatar').value.trim();
+
+      if (!name) {
+        alert('Пожалуйста, введите имя барбера');
+        return;
+      }
+
+      const selectedDays = [];
+      document.querySelectorAll('#brb-days-grid .day-btn.selected').forEach(btn => {
+        selectedDays.push(btn.dataset.day);
+      });
+      const workDaysStr = selectedDays.sort().join(',');
+
+      const btn = document.getElementById('brb-save-btn');
+      btn.disabled = true;
+      btn.textContent = 'Сохранение...';
+
+      const payload = {
+        name,
+        role: role || 'Барбер',
+        phone: phone || null,
+        telegram_id: tgId ? parseInt(tgId) : null,
+        avatar_url: avatarUrl || null,
+        work_days: workDaysStr || '0,1,2,3,4,5,6',
+        is_on_shift: 1
+      };
+
+      const url = bId ? `/api/barbers/${bId}/update` : '/api/barbers';
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeBarberModal();
+          fetchBarbers();
+          if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        } else {
+          alert(data.error || 'Ошибка при сохранении мастера');
+        }
+      } catch (e) {
+        alert('Ошибка связи с сервером');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Сохранить';
+      }
+    }
+
+    async function deleteBarber() {
+      const bId = document.getElementById('brb-id').value;
+      if (!bId) return;
+      if (!confirm('Вы точно хотите удалить этого мастера?')) return;
+
+      try {
+        const res = await fetch(`/api/barbers/${bId}/delete`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          closeBarberModal();
+          fetchBarbers();
+        } else {
+          alert(data.error || 'Ошибка при удалении');
+        }
+      } catch (e) {
+        alert('Ошибка при удалении');
       }
     }
 

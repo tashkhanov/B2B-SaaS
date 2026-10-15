@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Black Beard — Рабочее место мастера</title>
+  
+  <!-- Telegram Web App SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bgDark: '#0d1117',
+            surface: '#161b22',
+            surfaceHover: '#1c2128',
+            surfaceBorder: '#30363d',
+            accent: '#ff6b00',
+            accentHover: '#e66000',
+            gold: '#D4AF37'
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      background-color: #0d1117;
+      color: #f0f6fc;
+    }
+    .pulse-dot {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+  </style>
+</head>
+<body class="bg-bgDark text-gray-100 min-h-screen pb-24 pt-4 px-4 select-none">
+
+  <!-- ЭКРАН НЕАВТОРИЗОВАННОГО ПОЛЬЗОВАТЕЛЯ (скрыт по умолчанию) -->
+  <div id="unauthorized-screen" class="hidden max-w-md mx-auto w-full px-4 pt-16 text-center space-y-4">
+    <div class="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/10">
+      <svg class="w-7 h-7 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <line x1="17" y1="8" x2="23" y2="14"/>
+        <line x1="23" y1="8" x2="17" y2="14"/>
+      </svg>
+    </div>
+    <h2 class="text-base font-semibold text-white">Вы не зарегистрированы как мастер</h2>
+    <p class="text-xs text-gray-400 max-w-xs mx-auto">
+      Этот раздел доступен только для мастеров барбершопа Black Beard. Попросите управляющего привязать ваш Telegram ID в панели администратора.
+    </p>
+    <div class="pt-4">
+      <a href="/book" class="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-semibold text-xs bg-accent text-white hover:bg-accentHover transition shadow-lg shadow-accent/20">
+        <span>Перейти к онлайн-записи</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- ОСНОВНОЙ КОНТЕЙНЕР РАБОЧЕГО МЕСТА МАСТЕРА -->
+  <div id="barber-container" class="max-w-md mx-auto hidden">
+
+    <!-- Шапка (Header) -->
+    <header class="flex items-center justify-between mb-4 pb-3.5 border-b border-surfaceBorder/80">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center text-accent shadow-sm shadow-accent/10">
+          <svg class="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="3"/>
+            <circle cx="6" cy="18" r="3"/>
+            <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+            <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+            <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
+            <span>Black Beard Master</span>
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
+          </h1>
+          <p class="text-[11px] text-gray-400 font-normal">Рабочее место мастера • Смена</p>
+        </div>
+      </div>
+      <button onclick="fetchSchedule()" class="p-2 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Обновить">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
+    </header>
+
+    <!-- КАРТОЧКА ПРОФИЛЯ МАСТЕРА И ПЕРЕКЛЮЧАТЕЛЬ СМЕНЫ -->
+    <div class="bg-surface border border-surfaceBorder rounded-2xl p-4 mb-4 shadow-md space-y-3.5">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <img id="m-avatar" src="/static/avatars/ibrohim.svg" alt="Avatar" class="w-12 h-12 rounded-2xl object-cover border border-surfaceBorder bg-bgDark" onerror="this.src='/static/avatars/ibrohim.svg'" />
+          <div>
+            <h2 id="m-name" class="font-bold text-white text-base">Имя мастера</h2>
+            <div class="flex items-center gap-1.5 mt-0.5">
+              <span id="m-role" class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gold/15 text-gold border border-gold/30">Топ-барбер</span>
+              <span id="m-phone" class="text-xs text-gray-400"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Кнопка смены статуса (1-клик) -->
+      <button id="shift-toggle-btn" onclick="toggleMyShift()" class="w-full py-3 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm active:scale-95">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-dot"></span>
+        <span id="shift-btn-text">На смене (принимаю записи)</span>
+      </button>
+    </div>
+
+    <!-- ТАБЫ: СЕГОДНЯ ИЛИ ПРЕДСТОЯЩИЕ -->
+    <div class="flex items-center p-1 bg-surface border border-surfaceBorder rounded-xl mb-4 text-xs font-medium">
+      <button onclick="switchView('today')" id="tab-today" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20">
+        Сегодня (<span id="today-count">0</span>)
+      </button>
+      <button onclick="switchView('upcoming')" id="tab-upcoming" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">
+        Все записи (<span id="upcoming-count">0</span>)
+      </button>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    <div id="loader" class="py-10 text-center text-gray-400 text-xs">
+      <div class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-accent border-t-transparent mb-2"></div>
+      <div>Загрузка графика...</div>
+    </div>
+
+    <!-- СПИСОК КЛИЕНТОВ -->
+    <div id="bookings-list" class="space-y-3 hidden"></div>
+
+    <!-- Заглушка, если пусто -->
+    <div id="empty-state" class="py-10 text-center text-gray-500 hidden bg-surface/40 border border-surfaceBorder/60 rounded-2xl p-6">
+      <div class="w-12 h-12 rounded-xl bg-surfaceBorder/40 border border-surfaceBorder flex items-center justify-center mx-auto mb-2 text-gray-400">
+        <svg class="w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <p class="text-sm font-semibold text-gray-300">Записей нет</p>
+      <p class="text-xs text-gray-500 mt-1">На этот период у вас пока нет запланированных клиентов.</p>
+    </div>
+
+  </div>
+
+  <!-- Футер -->
+  <footer class="w-full py-3.5 text-center border-t border-surfaceBorder/80 bg-bgDark/95 backdrop-blur fixed bottom-0 left-0 z-10">
+    <a href="https://asatkhanov.uz" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200">
+      <svg class="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="currentColor">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+      </svg>
+      <span>Powered by <strong class="text-gray-200 font-semibold">Khan</strong></span>
+    </a>
+  </footer>
+
+  <script>
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    let barberData = null;
+    let currentSchedule = [];
+    let currentView = 'today';
+
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchSchedule();
+    });
+
+    async function fetchSchedule() {
+      const loader = document.getElementById('loader');
+      const list = document.getElementById('bookings-list');
+      const emptyState = document.getElementById('empty-state');
+      loader.classList.remove('hidden');
+      list.classList.add('hidden');
+      emptyState.classList.add('hidden');
+
+      let tgId = null;
+      if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+        tgId = tg.initDataUnsafe.user.id;
+      }
+
+      // Для тестирования в браузере поддерживаем параметр ?telegram_id=...
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('telegram_id')) {
+        tgId = parseInt(urlParams.get('telegram_id'));
+      }
+
+      if (!tgId) {
+        // Проверим первого доступного барбера, если открыто в dev режиме
+        try {
+          const bListRes = await fetch('/api/barbers');
+          const bList = await bListRes.json();
+          if (bList && bList.length > 0 && bList[0].telegram_id) {
+            tgId = bList[0].telegram_id;
+          }
+        } catch (e) {}
+      }
+
+      try {
+        const res = await fetch(`/api/barber/my-schedule?telegram_id=${tgId || 0}`);
+        const data = await res.json();
+
+        if (res.status === 404 || !data.barber) {
+          document.getElementById('barber-container').classList.add('hidden');
+          document.getElementById('unauthorized-screen').classList.remove('hidden');
+          return;
+        }
+
+        document.getElementById('unauthorized-screen').classList.add('hidden');
+        document.getElementById('barber-container').classList.remove('hidden');
+
+        barberData = data.barber;
+        currentSchedule = data.schedule || [];
+
+        renderProfile();
+        renderBookings();
+      } catch (e) {
+        console.error("Ошибка загрузки расписания мастера:", e);
+      } finally {
+        loader.classList.add('hidden');
+      }
+    }
+
+    function renderProfile() {
+      if (!barberData) return;
+      document.getElementById('m-name').textContent = barberData.name;
+      document.getElementById('m-role').textContent = barberData.role || 'Барбер';
+      document.getElementById('m-phone').textContent = barberData.phone || '';
+      if (barberData.avatar_url) {
+        document.getElementById('m-avatar').src = barberData.avatar_url;
+      }
+
+      updateShiftBtn(barberData.is_on_shift);
+    }
+
+    function updateShiftBtn(isOnShift) {
+      const btn = document.getElementById('shift-toggle-btn');
+      const text = document.getElementById('shift-btn-text');
+
+      if (isOnShift) {
+        btn.className = 'w-full py-3 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 active:scale-95';
+        btn.innerHTML = `
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-dot"></span>
+          <span>На смене (принимаю клиентов)</span>
+        `;
+      } else {
+        btn.className = 'w-full py-3 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 bg-gray-500/15 text-gray-400 border border-gray-500/30 hover:bg-gray-500/25 active:scale-95';
+        btn.innerHTML = `
+          <span class="w-2.5 h-2.5 rounded-full bg-gray-500"></span>
+          <span>Выходной (запись закрыта)</span>
+        `;
+      }
+    }
+
+    async function toggleMyShift() {
+      if (!barberData) return;
+      try {
+        const res = await fetch(`/api/barbers/${barberData.id}/toggle-shift`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          barberData.is_on_shift = data.is_on_shift;
+          updateShiftBtn(barberData.is_on_shift);
+          if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+        } else {
+          alert(data.error || 'Ошибка смены смены');
+        }
+      } catch (e) {
+        alert('Ошибка связи с сервером');
+      }
+    }
+
+    function switchView(view) {
+      currentView = view;
+      const tabToday = document.getElementById('tab-today');
+      const tabUpcoming = document.getElementById('tab-upcoming');
+
+      if (view === 'today') {
+        tabToday.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20';
+        tabUpcoming.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white';
+      } else {
+        tabUpcoming.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20';
+        tabToday.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white';
+      }
+
+      renderBookings();
+    }
+
+    function renderBookings() {
+      const list = document.getElementById('bookings-list');
+      const emptyState = document.getElementById('empty-state');
+      list.innerHTML = '';
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      const todayBookings = currentSchedule.filter(b => {
+        const t = (b.booking_time || '').toLowerCase();
+        return t.includes('сегодня') || t.includes(todayStr) || t.includes('bugun');
+      });
+
+      document.getElementById('today-count').textContent = todayBookings.length;
+      document.getElementById('upcoming-count').textContent = currentSchedule.length;
+
+      const filtered = currentView === 'today' ? todayBookings : currentSchedule;
+
+      if (filtered.length === 0) {
+        emptyState.classList.remove('hidden');
+        list.classList.add('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      list.classList.remove('hidden');
+
+      filtered.forEach(b => {
+        const card = document.createElement('div');
+        card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-4 shadow-sm';
+
+        let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">Новая</span>';
+        if (b.status === 'confirmed') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Подтверждена</span>';
+        } else if (b.status === 'completed') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-500/10 text-gray-400 border border-gray-500/30">Завершена</span>';
+        }
+
+        const phone = b.phone ? b.phone.trim() : null;
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between mb-2">
+            <div>
+              <div class="font-bold text-white text-sm">${escapeHtml(b.full_name || 'Гость')}</div>
+              <div class="text-xs text-accent font-medium mt-0.5">${escapeHtml(b.service || 'Стрижка')}</div>
+            </div>
+            <div>${statusBadge}</div>
+          </div>
+
+          <div class="bg-bgDark/60 rounded-xl p-2.5 my-2.5 border border-surfaceBorder/40 space-y-1.5 text-xs">
+            <div class="flex items-center text-gray-300 gap-2">
+              <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span class="text-gray-400 w-14 shrink-0">Время:</span>
+              <span class="font-bold text-white">${escapeHtml(b.booking_time || '—')}</span>
+            </div>
+            ${phone ? `
+              <div class="flex items-center text-gray-300 gap-2">
+                <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                </svg>
+                <span class="text-gray-400 w-14 shrink-0">Телефон:</span>
+                <span class="font-medium text-white">${escapeHtml(phone)}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          ${phone ? `
+            <div class="pt-1 border-t border-surfaceBorder/40">
+              <a href="tel:${phone}" class="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-xl bg-surface hover:bg-surfaceBorder text-xs font-semibold text-white border border-surfaceBorder transition active:scale-95">
+                <svg class="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                </svg>
+                <span>Позвонить клиенту</span>
+              </a>
+            </div>
+          ` : ''}
+        `;
+
+        list.appendChild(card);
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>
