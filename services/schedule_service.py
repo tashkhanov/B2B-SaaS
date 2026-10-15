@@ -244,3 +244,35 @@ def build_schedule_context_for_prompt(bookings: List[Dict]) -> str:
     ])
 
     return "\n".join(lines)
+
+
+def get_slots_for_date(target_date: date, existing_bookings: List[Dict]) -> List[Dict]:
+    """
+    Возвращает список почасовых слотов для указанной даты с 10:00 до 21:00 включительно.
+    Для каждого слота указывается статус доступности (с учетом правила 1 часа и занятости).
+    """
+    now = get_now_tashkent()
+    slots = []
+
+    for hour in range(WORK_START_HOUR, WORK_END_HOUR):
+        slot_dt = datetime(target_date.year, target_date.month, target_date.day, hour, 0, tzinfo=TASHKENT_TZ)
+        time_str = f"{hour:02d}:00"
+
+        # Если время уже прошло
+        if slot_dt < now:
+            slots.append({
+                "time": time_str,
+                "is_available": False,
+                "reason": "Время уже прошло"
+            })
+            continue
+
+        is_avail, reason, _ = check_slot_availability(slot_dt, existing_bookings)
+        slots.append({
+            "time": time_str,
+            "is_available": is_avail,
+            "reason": reason if not is_avail else None
+        })
+
+    return slots
+

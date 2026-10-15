@@ -25,7 +25,13 @@ from config import settings
 from database import init_db
 from bot.handlers import router
 from web_app import start_web_server
-from aiogram.types import BotCommand, MenuButtonWebApp, MenuButtonCommands, WebAppInfo
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeChat,
+    MenuButtonWebApp,
+    MenuButtonCommands,
+    WebAppInfo,
+)
 
 # Настройка подробного логирования в консоль
 logging.basicConfig(
@@ -39,27 +45,64 @@ logger = logging.getLogger("BarberAdminBot")
 async def setup_bot_commands(bot: Bot) -> None:
     """
     Очищает старые сторонние команды в Telegram и устанавливает аккуратное меню барбершопа.
-    Также настраивает официальную кнопку меню (Menu Button) в поле ввода Telegram.
+    Настраивает дифференцированные кнопки Menu Button:
+    - Для клиентов: кнопка '💈 Записаться' (Client TMA: /book)
+    - Для администратора: кнопка '📊 Админка' (Admin TMA: /admin)
     """
-    commands = [
-        BotCommand(command="start", description="💈 Главное меню / Запуск"),
+    # 1. Общедоступные команды для клиентов
+    client_commands = [
+        BotCommand(command="start", description="💈 Главное меню / Запись"),
         BotCommand(command="price", description="✂️ Прайс-лист услуг"),
-        BotCommand(command="admin", description="📊 Панель записей (TMA)"),
-        BotCommand(command="about", description="⚡ О разработчике (Khan AI)"),
+        BotCommand(command="about", description="⚡ О разработчике (Khan)"),
         BotCommand(command="reset", description="🔄 Сбросить диалог"),
     ]
-    await bot.set_my_commands(commands)
+    await bot.set_my_commands(client_commands)
+
+    # 2. Персональные команды для управляющего
+    if settings.ADMIN_CHAT_ID:
+        admin_commands = [
+            BotCommand(command="start", description="💈 Главное меню / Запуск"),
+            BotCommand(command="admin", description="📊 Панель управления (TMA)"),
+            BotCommand(command="price", description="✂️ Прайс-лист услуг"),
+            BotCommand(command="about", description="⚡ О разработчике (Khan)"),
+            BotCommand(command="reset", description="🔄 Сбросить диалог"),
+        ]
+        try:
+            await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=settings.ADMIN_CHAT_ID))
+        except Exception as e:
+            logger.warning(f"Не удалось установить персональные команды для админа: {e}")
+
     logger.info("Список команд бота в Telegram успешно обновлен.")
 
-    # Если задан HTTPS URL — устанавливаем постоянную кнопку Mini App в поле ввода Telegram
+    # 3. Настройка кнопок Menu Button в поле ввода Telegram
     if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://"):
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(
-                text="💈 Записи",
-                web_app=WebAppInfo(url=settings.WEBAPP_URL),
-            )
+        base_url = settings.WEBAPP_URL.rstrip("/")
+
+        # Глобальная кнопка для клиентов -> онлайн-запись (/book)
+        client_menu_btn = MenuButtonWebApp(
+            text="💈 Записаться",
+            web_app=WebAppInfo(url=f"{base_url}/book"),
         )
-        logger.info("Кнопка Menu Button (Mini App '💈 Записи') установлена в поле ввода Telegram.")
+        await bot.set_chat_menu_button(menu_button=client_menu_btn)
+        logger.info("Кнопка Menu Button ('💈 Записаться' -> /book) установлена для всех клиентов.")
+
+        # Персональная кнопка для администратора -> дашборд (/admin)
+        if settings.ADMIN_CHAT_ID:
+            admin_menu_btn = MenuButtonWebApp(
+                text="📊 Админка",
+                web_app=WebAppInfo(url=f"{base_url}/admin"),
+            )
+            try:
+                await bot.set_chat_menu_button(
+                    chat_id=settings.ADMIN_CHAT_ID,
+                    menu_button=admin_menu_btn,
+                )
+                logger.info(
+                    "Персональная кнопка Menu Button ('📊 Админка' -> /admin) установлена для админа (%s).",
+                    settings.ADMIN_CHAT_ID,
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось установить персональную кнопку меню для админа: {e}")
     else:
         await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
@@ -91,19 +134,20 @@ async def main() -> None:
     await init_db(settings.DB_NAME)
     logger.info("База данных успешно инициализирована.")
 
-    # 3. Запуск встроенного веб-сервера для Telegram Mini App (TMA)
-    web_runner = await start_web_server(
-        host=settings.WEBAPP_HOST,
-        port=settings.WEBAPP_PORT,
-    )
-
-    # 4. Инициализация объекта бота Telegram
+    # 3. Инициализация объекта бота Telegram
     bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
     )
 
-    # 5. Установка актуального меню команд и кнопки Mini App в Telegram
+    # 4. Запуск встроенного веб-сервера TMA с передачей бота для уведомлений
+    web_runner = await start_web_server(
+        host=settings.WEBAPP_HOST,
+        port=settings.WEBAPP_PORT,
+        bot=bot,
+    )
+
+    # 5. Установка актуального меню команд и кнопок Mini App в Telegram
     await setup_bot_commands(bot)
 
     # 6. Инициализация диспетчера aiogram 3.x
@@ -114,9 +158,13 @@ async def main() -> None:
 
     # 8. Сброс старых накопившихся обновлений и запуск опроса (polling)
     await bot.delete_webhook(drop_pending_updates=True)
+    base_url = (settings.WEBAPP_URL or "http://localhost:8000").rstrip("/")
     logger.info(
-        "🚀 Бот 'Иброхим (Black Beard)' запущен! Mini App: %s",
-        settings.WEBAPP_URL,
+        "🚀 Бот 'Иброхим (Black Beard)' запущен!\n"
+        "   👉 Онлайн-запись для клиентов: %s/book\n"
+        "   👉 Панель управляющего:         %s/admin",
+        base_url,
+        base_url,
     )
 
     try:

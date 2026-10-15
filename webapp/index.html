@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Black Beard — Панель управления</title>
+  <title>Black Beard — Панель администратора</title>
   
-  <!-- Telegram WebApp SDK -->
+  <!-- Telegram Web App SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  
+
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -20,23 +20,18 @@
             surface: '#161b22',
             surfaceBorder: '#30363d',
             accent: '#ff6b00',
-            accentHover: '#e05d00',
+            accentHover: '#e66000',
           }
         }
       }
     }
   </script>
 
-  <!-- Google Fonts: Inter -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
   <style>
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background-color: #0d1117;
       color: #f0f6fc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       -webkit-tap-highlight-color: transparent;
     }
     .custom-scrollbar::-webkit-scrollbar {
@@ -60,8 +55,24 @@
 
 <body class="min-h-screen flex flex-col justify-between selection:bg-accent selection:text-white">
 
-  <!-- Контейнер приложения -->
-  <div class="max-w-md mx-auto w-full px-4 pt-4 pb-20 flex-1">
+  <!-- ЭКРАН ЗАПРЕТА ДОСТУПА ДЛЯ КЛИЕНТОВ (скрыт по умолчанию) -->
+  <div id="access-denied-screen" class="hidden max-w-md mx-auto w-full px-4 pt-16 text-center space-y-4">
+    <div class="w-16 h-16 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center text-3xl mx-auto shadow-lg shadow-rose-500/10">
+      🔒
+    </div>
+    <h2 class="text-lg font-bold text-white">Доступ ограничен</h2>
+    <p class="text-xs text-gray-400 max-w-xs mx-auto">
+      Эта панель предназначена только для управляющего барбершопом Black Beard.
+    </p>
+    <div class="pt-4">
+      <a href="/book" class="inline-block w-full py-3 px-4 rounded-xl font-bold text-xs bg-accent text-white hover:bg-accentHover transition shadow-lg shadow-accent/20">
+        Перейти к онлайн-записи 💈
+      </a>
+    </div>
+  </div>
+
+  <!-- КОНТЕЙНЕР АДМИНИСТРАТОРА -->
+  <div id="admin-container" class="max-w-md mx-auto w-full px-4 pt-4 pb-20 flex-1">
     
     <!-- Шапка (Header) -->
     <header class="flex items-center justify-between pb-4 border-b border-surfaceBorder mb-4">
@@ -77,11 +88,17 @@
           <p class="text-xs text-gray-400">Панель администратора • Ташкент</p>
         </div>
       </div>
-      <button onclick="fetchBookings()" class="p-2 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Обновить">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      </button>
+      <div class="flex items-center space-x-2">
+        <button onclick="openManualBookingModal()" class="flex items-center gap-1 py-1.5 px-3 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accentHover transition shadow-sm shadow-accent/20 active:scale-95">
+          <span>+</span>
+          <span>Записать</span>
+        </button>
+        <button onclick="fetchBookings()" class="p-2 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Обновить">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <!-- Сводная статистика -->
@@ -127,6 +144,69 @@
 
   </div>
 
+  <!-- МОДАЛЬНОЕ ОКНО РУЧНОЙ ЗАПИСИ КЛИЕНТА АДМИНИСТРАТОРОМ -->
+  <div id="manual-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-surface border border-surfaceBorder rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between pb-2 border-b border-surfaceBorder">
+        <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+          <span>➕</span> Новая запись клиента
+        </h3>
+        <button onclick="closeManualBookingModal()" class="text-gray-400 hover:text-white text-lg font-bold">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-gray-400 mb-1">Имя клиента *</label>
+          <input type="text" id="m-name" placeholder="Например: Сардор" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1">Телефон</label>
+          <input type="tel" id="m-phone" placeholder="+998 90 ..." class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1">Услуга</label>
+          <select id="m-service" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent">
+            <option value="Комплекс 'Black Beard'">Комплекс "Black Beard" (130 000 сум)</option>
+            <option value="Мужская стрижка">Мужская стрижка (100 000 сум)</option>
+            <option value="Оформление бороды">Оформление бороды (50 000 сум)</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-gray-400 mb-1">Дата *</label>
+            <input type="date" id="m-date" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-accent" />
+          </div>
+          <div>
+            <label class="block text-gray-400 mb-1">Время *</label>
+            <select id="m-time" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-2 py-2 text-white focus:outline-none focus:border-accent">
+              <option value="10:00">10:00</option>
+              <option value="11:00">11:00</option>
+              <option value="12:00">12:00</option>
+              <option value="13:00">13:00</option>
+              <option value="14:00">14:00</option>
+              <option value="15:00">15:00</option>
+              <option value="16:00">16:00</option>
+              <option value="17:00">17:00</option>
+              <option value="18:00">18:00</option>
+              <option value="19:00">19:00</option>
+              <option value="20:00">20:00</option>
+              <option value="21:00">21:00</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-2 flex gap-2">
+        <button onclick="closeManualBookingModal()" class="flex-1 py-2.5 rounded-xl border border-surfaceBorder text-gray-300 hover:text-white text-xs font-semibold transition">
+          Отмена
+        </button>
+        <button id="m-submit-btn" onclick="submitManualBooking()" class="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accentHover text-white text-xs font-bold transition shadow-md shadow-accent/20">
+          Сохранить
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Стильный брендинг в футере -->
   <footer class="w-full py-4 text-center border-t border-surfaceBorder/80 bg-bgDark/95 backdrop-blur fixed bottom-0 left-0 z-10">
     <a href="https://asatkhanov.uz" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200 group">
@@ -138,43 +218,69 @@
   <!-- Клиентская логика -->
   <script>
     // Инициализация Telegram Mini App
-    if (window.Telegram && window.Telegram.WebApp) {
-      window.Telegram.WebApp.ready();
-      window.Telegram.WebApp.expand();
-      if (window.Telegram.WebApp.setHeaderColor) {
-        window.Telegram.WebApp.setHeaderColor('#0d1117');
-      }
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    if (tg) {
+      tg.ready();
+      tg.expand();
     }
 
     let allBookings = [];
     let currentFilter = 'all';
 
+    // 1. Проверка прав администратора
+    async function checkAdminAccess() {
+      try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        const adminId = data.admin_chat_id;
+
+        if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+          const currentUserId = tg.initDataUnsafe.user.id;
+          if (adminId && currentUserId !== adminId) {
+            document.getElementById('admin-container').classList.add('hidden');
+            document.getElementById('access-denied-screen').classList.remove('hidden');
+            return false;
+          }
+        }
+      } catch (e) {
+        console.warn("Config check error:", e);
+      }
+      return true;
+    }
+
+    // 2. Получение записей с бэкенда
     async function fetchBookings() {
-      const loading = document.getElementById('loading');
+      const isAllowed = await checkAdminAccess();
+      if (!isAllowed) return;
+
+      const loader = document.getElementById('loading');
       const list = document.getElementById('bookings-list');
       const emptyState = document.getElementById('empty-state');
 
-      loading.classList.remove('hidden');
+      loader.classList.remove('hidden');
       list.classList.add('hidden');
       emptyState.classList.add('hidden');
 
       try {
         const response = await fetch('/api/bookings');
-        if (!response.ok) throw new Error('Ошибка сети');
+        if (!response.ok) throw new Error('Network error');
         allBookings = await response.json();
+
         updateStats();
         renderBookings();
-      } catch (err) {
-        console.error('Ошибка загрузки данных:', err);
-        loading.innerHTML = '<span class="text-rose-400">Не удалось загрузить данные</span>';
+      } catch (error) {
+        console.error('Ошибка загрузки записей:', error);
+        loader.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        emptyState.querySelector('p').textContent = 'Ошибка загрузки данных';
       } finally {
-        loading.classList.add('hidden');
+        loader.classList.add('hidden');
       }
     }
 
     function updateStats() {
       document.getElementById('stat-total').textContent = allBookings.length;
-      
+
       const todayStr = new Date().toISOString().slice(0, 10);
       const todayCount = allBookings.filter(b => {
         const d = (b.booking_time || b.created_at || '').toLowerCase();
@@ -189,7 +295,7 @@
     function setFilter(filter) {
       currentFilter = filter;
       ['all', 'today', 'upcoming'].forEach(f => {
-        const btn = document.getElementById(`filter-all` === `filter-${f}` ? 'filter-all' : `filter-${f}`);
+        const btn = document.getElementById(`filter-${f}`);
         if (f === filter) {
           btn.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20';
         } else {
@@ -231,7 +337,6 @@
 
         const cleanUsername = (booking.username || '').replace('@', '').trim();
         const tgLink = cleanUsername ? `https://t.me/${cleanUsername}` : null;
-        const tgResolve = cleanUsername ? `tg://resolve?domain=${cleanUsername}` : null;
         const phone = booking.phone ? booking.phone.trim() : null;
 
         let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">Новая</span>';
@@ -249,41 +354,45 @@
                 ${cleanUsername ? `<span class="text-xs font-normal text-accent">@${escapeHtml(cleanUsername)}</span>` : ''}
               </div>
               <div class="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-                <span class="text-accent">✂️</span> ${escapeHtml(booking.service || 'Стрижка / Комплекс')}
+                <span>✂️ ${escapeHtml(booking.service || 'Стрижка / Комплекс')}</span>
               </div>
             </div>
-            <div>${statusBadge}</div>
-          </div>
-
-          <div class="bg-bgDark/60 border border-surfaceBorder/60 rounded-xl p-2.5 text-xs text-gray-300 mb-3 flex items-center gap-2">
-            <span class="text-accent text-sm">⏰</span>
             <div>
-              <span class="text-gray-400">Время записи:</span>
-              <strong class="text-white ml-1">${escapeHtml(booking.booking_time || 'Уточняется')}</strong>
+              ${statusBadge}
             </div>
           </div>
 
-          ${booking.details ? `
-            <div class="text-[11px] text-gray-400 italic mb-3 line-clamp-2 bg-surfaceBorder/20 p-2 rounded-lg">
-              "${escapeHtml(booking.details)}"
+          <div class="bg-bgDark/60 rounded-xl p-2.5 mb-3 border border-surfaceBorder/50 space-y-1 text-xs">
+            <div class="flex items-center text-gray-300">
+              <span class="text-gray-500 w-16">⏰ Время:</span>
+              <span class="font-semibold text-accent">${escapeHtml(booking.booking_time || 'Не указано')}</span>
             </div>
-          ` : ''}
-
-          <!-- Кнопки действий -->
-          <div class="flex items-center gap-2 pt-1 border-t border-surfaceBorder/50">
             ${phone ? `
-              <a href="tel:${escapeHtml(phone)}" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surfaceBorder/60 hover:bg-surfaceBorder text-xs font-semibold text-gray-200 transition active:scale-95">
+              <div class="flex items-center text-gray-300">
+                <span class="text-gray-500 w-16">📞 Телефон:</span>
+                <span class="font-medium text-white">${escapeHtml(phone)}</span>
+              </div>
+            ` : ''}
+            <div class="flex items-center text-gray-400 text-[11px] pt-0.5 border-t border-surfaceBorder/30">
+              <span class="text-gray-500 w-16">Создано:</span>
+              <span>${escapeHtml(booking.created_at || '—')}</span>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-2 pt-1 border-t border-surfaceBorder/40">
+            ${phone ? `
+              <a href="tel:${phone}" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface hover:bg-surfaceBorder text-xs font-semibold text-white border border-surfaceBorder transition active:scale-95">
                 📞 Позвонить
               </a>
             ` : `
-              <button onclick="alert('Клиент не указал номер телефона')" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surfaceBorder/30 text-xs font-semibold text-gray-500">
+              <button disabled class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surfaceBorder/30 text-xs font-semibold text-gray-500 cursor-not-allowed">
                 📞 Нет тел.
               </button>
             `}
 
             ${cleanUsername ? `
               <a href="${tgLink}" target="_blank" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-accent hover:bg-accentHover text-xs font-semibold text-white transition active:scale-95 shadow-sm shadow-accent/20">
-                💬 Написать в TG
+                💬 Написать
               </a>
             ` : `
               <button onclick="alert('У клиента нет публичного @username')" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surfaceBorder/30 text-xs font-semibold text-gray-500">
@@ -291,7 +400,6 @@
               </button>
             `}
 
-            <!-- Смена статуса -->
             <button onclick="toggleStatus(${booking.id}, '${booking.status}')" class="p-2 rounded-xl bg-surfaceBorder/40 hover:bg-surfaceBorder text-gray-400 hover:text-white transition" title="Сменить статус">
               ✓
             </button>
@@ -313,6 +421,71 @@
         fetchBookings();
       } catch (e) {
         alert('Ошибка при смене статуса');
+      }
+    }
+
+    // 3. Ручное создание записи
+    function openManualBookingModal() {
+      const modal = document.getElementById('manual-modal');
+      modal.classList.remove('hidden');
+      const dateInput = document.getElementById('m-date');
+      if (!dateInput.value) {
+        dateInput.value = new Date().toISOString().slice(0, 10);
+      }
+    }
+
+    function closeManualBookingModal() {
+      document.getElementById('manual-modal').classList.add('hidden');
+    }
+
+    async function submitManualBooking() {
+      const name = document.getElementById('m-name').value.trim();
+      const phone = document.getElementById('m-phone').value.trim();
+      const service = document.getElementById('m-service').value;
+      const bDate = document.getElementById('m-date').value;
+      const bTime = document.getElementById('m-time').value;
+
+      if (!name) {
+        alert('Пожалуйста, введите имя клиента');
+        return;
+      }
+      if (!bDate || !bTime) {
+        alert('Пожалуйста, выберите дату и время');
+        return;
+      }
+
+      const btn = document.getElementById('m-submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'Сохранение...';
+
+      try {
+        const res = await fetch('/api/bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            full_name: name,
+            phone: phone || null,
+            service: service,
+            booking_time: `${bDate} ${bTime}`,
+            details: 'Ручная запись администратором через TMA'
+          })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.ok) {
+          closeManualBookingModal();
+          document.getElementById('m-name').value = '';
+          document.getElementById('m-phone').value = '';
+          fetchBookings();
+          if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        } else {
+          alert(data.error || 'Ошибка при сохранении записи.');
+        }
+      } catch (e) {
+        alert('Ошибка соединения с сервером.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Сохранить';
       }
     }
 
