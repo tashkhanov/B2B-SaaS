@@ -43,13 +43,16 @@ def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
         [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="🔄 Сбросить диалог")],
     ]
     if is_admin:
-        # Для администратора добавляем кнопку WebApp
-        keyboard.append([
-            KeyboardButton(
-                text="📊 Панель записей (TMA)",
-                web_app=WebAppInfo(url=settings.WEBAPP_URL),
-            )
-        ])
+        # Telegram Bot API требует исключительно HTTPS для кнопок WebApp
+        if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://"):
+            keyboard.append([
+                KeyboardButton(
+                    text="📊 Панель записей (TMA)",
+                    web_app=WebAppInfo(url=settings.WEBAPP_URL),
+                )
+            ])
+        else:
+            keyboard.append([KeyboardButton(text="📊 Панель записей (/admin)")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, is_persistent=True)
 
 
@@ -102,30 +105,55 @@ async def handle_about(message: Message):
 
 
 @router.message(Command("admin"))
+@router.message(F.text == "📊 Панель записей (/admin)")
 async def handle_admin(message: Message):
     """
     Команда /admin для вызова Telegram Mini App панели управления
     """
-    if settings.ADMIN_CHAT_ID and message.from_user.id != settings.ADMIN_CHAT_ID:
+    user_id = message.from_user.id if message.from_user else 0
+    if settings.ADMIN_CHAT_ID and user_id != settings.ADMIN_CHAT_ID:
         await message.answer("Братан, эта команда только для управляющего барбершопом!")
         return
 
-    admin_keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📊 Открыть панель записей (TMA)",
-                    web_app=WebAppInfo(url=settings.WEBAPP_URL),
-                )
+    if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://"):
+        admin_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📊 Открыть панель записей (TMA)",
+                        web_app=WebAppInfo(url=settings.WEBAPP_URL),
+                    )
+                ]
             ]
-        ]
-    )
-    await message.answer(
-        "🛠 **Панель управления барбершопом Black Beard:**\n"
-        "Нажмите кнопку ниже, чтобы открыть Telegram Mini App со всеми актуальными записями клиентов.",
-        reply_markup=admin_keyboard,
-        parse_mode="Markdown",
-    )
+        )
+        await message.answer(
+            "🛠 **Панель управления барбершопом Black Beard:**\n"
+            "Нажмите кнопку ниже, чтобы открыть Telegram Mini App со всеми актуальными записями клиентов.",
+            reply_markup=admin_keyboard,
+            parse_mode="Markdown",
+        )
+    else:
+        admin_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🌐 Открыть панель в браузере",
+                        url=settings.WEBAPP_URL,
+                    )
+                ]
+            ]
+        )
+        await message.answer(
+            "🛠 **Панель управления барбершопом Black Beard:**\n\n"
+            f"🔗 Локальный адрес панели: `{settings.WEBAPP_URL}`\n\n"
+            "💡 *Telegram требует HTTPS для встраивания кнопок Mini App.*\n"
+            "Чтобы панель открывалась прямо внутри Telegram:\n"
+            "1. Запустите в новом терминале бесплатный туннель: `ngrok http 8000` (или `npx localtunnel --port 8000`)\n"
+            "2. Скопируйте полученную https-ссылку (например, `https://xyz.ngrok-free.app`)\n"
+            "3. Укажите её в `.env`: `WEBAPP_URL=https://xyz.ngrok-free.app` и перезапустите бота.",
+            reply_markup=admin_keyboard,
+            parse_mode="Markdown",
+        )
 
 
 @router.message(Command("reset"))
