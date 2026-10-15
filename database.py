@@ -126,6 +126,30 @@ async def save_booking(
         return cursor.lastrowid
 
 
+async def has_recent_booking(
+    user_id: int,
+    booking_time: str,
+    db_path: Optional[str] = None
+) -> bool:
+    """
+    Проверяет, создавал ли данный пользователь запись на такое же время за последние 15 минут,
+    чтобы исключить дублирование записей при продолжении диалога.
+    """
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        async with db.execute(
+            """
+            SELECT id FROM bookings 
+            WHERE user_id = ? AND booking_time = ? 
+              AND datetime(created_at) >= datetime('now', '-15 minutes')
+            LIMIT 1
+            """,
+            (user_id, booking_time)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row is not None
+
+
 async def get_all_bookings(db_path: Optional[str] = None) -> List[Dict]:
     """
     Получение всех записей для панели администратора (TMA).

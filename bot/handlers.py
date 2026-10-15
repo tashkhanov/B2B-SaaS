@@ -13,7 +13,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 
 from config import settings
-from database import clear_history, save_booking
+from database import clear_history, save_booking, has_recent_booking
 from services.gemini_service import GeminiService
 
 logger = logging.getLogger(__name__)
@@ -275,35 +275,47 @@ async def handle_user_text(message: Message):
 async def process_booking_intent(message: Message, client_query: str, ai_reply: str) -> None:
     """
     Интеллектуальная проверка и фиксация структурированной записи:
-    Анализирует последние реплики диалога (до 6 сообщений), чтобы объединить данные,
-    названные клиентом в разных сообщениях (например, время в первом ГС, а имя во втором).
+    Анализирует диалог через Gemini. Запись создается ТОЛЬКО если
+    в диалоге согласованы ОБА параметра: имя клиента и дата/время.
     """
     user_id = message.from_user.id
-    booking_signals = [
-        "записал", "жду вас", "ждем вас", "бронь подтверждена",
-        "записал вас", "kutamiz", "yozib qo'ydim", "kelishingiz mumkin", "договорились"
-    ]
 
-    has_signal = any(sig in ai_reply.lower() for sig in booking_signals)
-    if not has_signal:
+    # Проверяем, затрагивает ли диалог тему записи или времени
+    combined = f"{client_query} {ai_reply}".lower()
+    booking_triggers = [
+        "запис", "бронь", "жд", "время", "имя", "завтра", "сегодня", "ок", "договор",
+        "yoz", "kut", "soat", "ism", "kun", "ertaga", "bugun", "kel", "vaqt",
+        "00", "30", "1", "2", "3", "4", "5", "6", "7", "8", "9"
+    ]
+    if not any(t in combined for t in booking_triggers):
         return
 
-    # Запускаем структурированное извлечение через Gemini на базе последних реплик диалога
+    # Извлекаем последние реплики диалога
     recent_msgs = await get_recent_messages(user_id=user_id, limit=6)
     dialog_lines = [f"{'Клиент' if m['role'] == 'user' else 'Иброхим'}: {m['text']}" for m in recent_msgs]
     dialog_sample = "\n".join(dialog_lines) if dialog_lines else f"Клиент: {client_query}\nИброхим: {ai_reply}"
-    
+
+    # Структурированный анализ через Gemini
     extracted = await gemini_service.extract_booking_info(dialog_sample)
+    
+    # КРИТИЧЕСКАЯ ПРОВЕРКА: фиксируем запись ТОЛЬКО если подтверждено и имя, и время!
+    if not extracted or not extracted.is_booking_confirmed:
+        return
 
     full_name = (
-        (extracted and extracted.customer_name)
+        extracted.customer_name
         or f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
         or "Гость"
     )
     username = f"@{message.from_user.username}" if message.from_user.username else None
-    phone = (extracted and extracted.phone) or None
-    service = (extracted and extracted.service) or "Стрижка / Комплекс"
-    booking_time = (extracted and extracted.booking_time) or "Уточнено в диалоге"
+    phone = extracted.phone or None
+    service = extracted.service or "Стрижка / Комплекс"
+    booking_time = extracted.booking_time or "Уточнено в диалоге"
+
+    # Защита от дублей: если за последние 15 минут уже есть запись на это время
+    if await has_recent_booking(user_id=user_id, booking_time=booking_time):
+        logger.info(f"Запись на {booking_time} для user_id {user_id} уже была сохранена ранее.")
+        return
 
     # Сохраняем в SQLite таблицу bookings со структурированными колонками
     await save_booking(

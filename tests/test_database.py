@@ -56,3 +56,22 @@ async def test_update_booking_status():
 
     bookings = await get_all_bookings(db_path=TEST_DB)
     assert bookings[0]["status"] == "confirmed"
+
+@pytest.mark.asyncio
+async def test_has_recent_booking():
+    from database import has_recent_booking
+
+    assert await has_recent_booking(user_id=333, booking_time="Завтра в 15:00", db_path=TEST_DB) is False
+
+    await save_booking(
+        user_id=333,
+        username="@abdulaziz",
+        full_name="Абдулазиз",
+        details="Стрижка",
+        booking_time="Завтра в 15:00",
+        db_path=TEST_DB
+    )
+
+    assert await has_recent_booking(user_id=333, booking_time="Завтра в 15:00", db_path=TEST_DB) is True
+    assert await has_recent_booking(user_id=333, booking_time="Послезавтра 18:00", db_path=TEST_DB) is False
+
