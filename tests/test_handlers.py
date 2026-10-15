@@ -5,15 +5,20 @@ from bot.handlers import handle_start, handle_about, handle_admin, handle_price,
 
 @pytest.mark.asyncio
 async def test_handle_start():
+    from aiogram.types import InlineKeyboardMarkup
+
     message = MagicMock(spec=Message)
     message.from_user = User(id=12345, is_bot=False, first_name="Алишер")
     message.answer = AsyncMock()
 
     await handle_start(message)
     message.answer.assert_called_once()
-    args, _ = message.answer.call_args
+    args, kwargs = message.answer.call_args
     assert "Салам алейкум, Алишер!" in args[0]
     assert "Black Beard" in args[0]
+    markup = kwargs.get("reply_markup")
+    assert isinstance(markup, InlineKeyboardMarkup)
+    assert "Открыть меню записи" in str(markup)
 
 @pytest.mark.asyncio
 async def test_handle_about():

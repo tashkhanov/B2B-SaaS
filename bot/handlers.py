@@ -152,10 +152,44 @@ async def update_chat_menu_button(message: Message, role: str):
         logger.debug(f"Не удалось обновить menu button: {e}")
 
 
+def get_start_inline_keyboard(role: str = "client", barber: dict = None) -> InlineKeyboardMarkup:
+    """
+    Генерация прозрачной inline-кнопки, прикрепленной прямо под сообщением /start,
+    для открытия соответствующего Telegram Mini App меню.
+    """
+    base_url = (settings.WEBAPP_URL or "").rstrip("/")
+    has_https = base_url.startswith("https://")
+
+    if role == "admin":
+        url = f"{base_url}/admin" if base_url else "http://localhost:8000/admin"
+        btn = (
+            InlineKeyboardButton(text="📊 Открыть панель управления", web_app=WebAppInfo(url=url))
+            if has_https
+            else InlineKeyboardButton(text="📊 Открыть панель управления", url=url)
+        )
+    elif role == "barber":
+        url = f"{base_url}/barber" if base_url else "http://localhost:8000/barber"
+        btn = (
+            InlineKeyboardButton(text="💈 Моя смена (Кабинет)", web_app=WebAppInfo(url=url))
+            if has_https
+            else InlineKeyboardButton(text="💈 Моя смена (Кабинет)", url=url)
+        )
+    else:
+        url = f"{base_url}/book" if base_url else "http://localhost:8000/book"
+        btn = (
+            InlineKeyboardButton(text="✂️ Открыть меню записи", web_app=WebAppInfo(url=url))
+            if has_https
+            else InlineKeyboardButton(text="✂️ Открыть меню записи", url=url)
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message):
     """
-    Обработчик команды /start с автоопределением роли (админ, барбер, клиент).
+    Обработчик команды /start с автоопределением роли (админ, барбер, клиент)
+    и прозрачной inline-кнопкой под сообщением для открытия веб-меню.
     """
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
@@ -165,14 +199,14 @@ async def handle_start(message: Message):
         welcome_text = (
             "Салам алейкум, Управляющий! 👑\n\n"
             "Вы вошли в систему как **Администратор** барбершопа Black Beard.\n"
-            "Вам доступно голосовое и текстовое управление записями, а также кнопка **«📊 Панель записей (TMA)»** ниже!"
+            "Вам доступно голосовое и текстовое управление записями, а также кнопка **«📊 Открыть панель управления»** прямо под этим сообщением!"
         )
     elif role == "barber":
         b_role = barber.get("role_title") or barber.get("role") or "Барбер"
         welcome_text = (
             f"Салам алейкум, {barber['name']}! 💈\n\n"
             f"Вы авторизованы как мастер барбершопа Black Beard (**{b_role}**).\n\n"
-            "Внизу для вас активирована кнопка **«💈 Моя смена (Кабинет)»** — "
+            "Прямо под этим сообщением для вас доступна кнопка **«💈 Моя смена (Кабинет)»** — "
             "нажмите её, чтобы посмотреть очередь клиентов на сегодня или изменить статус смены!"
         )
     else:
@@ -180,13 +214,13 @@ async def handle_start(message: Message):
         welcome_text = (
             f"Салам алейкум, {user_name}! 🤝\n\n"
             "Добро пожаловать в премиум-барбершоп **Black Beard** в Ташкенте!\n"
-            "Я Иброхим — администратор. Чем могу помочь, ака?\n\n"
-            "Подсказать по прайсу или сразу подобрать удобное время для записи?"
+            "Я Иброхим — администратор. Нажмите кнопку **«✂️ Открыть меню записи»** под сообщением, "
+            "чтобы выбрать мастера и время, либо напишите или отправьте голосовое сообщение прямо сюда в чат!"
         )
 
     await message.answer(
         welcome_text,
-        reply_markup=get_main_keyboard(role=role, barber=barber),
+        reply_markup=get_start_inline_keyboard(role=role, barber=barber),
         parse_mode="Markdown"
     )
 
