@@ -246,19 +246,28 @@ def build_schedule_context_for_prompt(bookings: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-def get_slots_for_date(target_date: date, existing_bookings: List[Dict]) -> List[Dict]:
+def get_slots_for_date(
+    target_date: date, existing_bookings: List[Dict], step_minutes: int = 30
+) -> List[Dict]:
     """
-    Возвращает список почасовых слотов для указанной даты с 10:00 до 21:00 включительно.
+    Возвращает список слотов с шагом step_minutes (по умолчанию 30 мин)
+    с 10:00 до 21:00 включительно.
     Для каждого слота указывается статус доступности (с учетом правила 1 часа и занятости).
     """
     now = get_now_tashkent()
     slots = []
 
-    for hour in range(WORK_START_HOUR, WORK_END_HOUR):
-        slot_dt = datetime(target_date.year, target_date.month, target_date.day, hour, 0, tzinfo=TASHKENT_TZ)
-        time_str = f"{hour:02d}:00"
+    # Генерируем слоты с 10:00 до 21:00 с шагом 30 минут
+    start_min = WORK_START_HOUR * 60
+    end_min = (WORK_END_HOUR - 1) * 60  # 21:00 - последний слот на 1 час работы
 
-        # Если время уже прошло
+    for total_m in range(start_min, end_min + 1, step_minutes):
+        hour = total_m // 60
+        minute = total_m % 60
+        slot_dt = datetime(target_date.year, target_date.month, target_date.day, hour, minute, tzinfo=TASHKENT_TZ)
+        time_str = f"{hour:02d}:{minute:02d}"
+
+        # Если время уже прошло (для сегодняшнего дня)
         if slot_dt < now:
             slots.append({
                 "time": time_str,
@@ -275,4 +284,5 @@ def get_slots_for_date(target_date: date, existing_bookings: List[Dict]) -> List
         })
 
     return slots
+
 
