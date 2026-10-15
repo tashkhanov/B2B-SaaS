@@ -13,8 +13,13 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 
 from config import settings
-from database import clear_history, save_booking, has_recent_booking, get_recent_messages
+from database import clear_history, save_booking, has_recent_booking, get_recent_messages, get_active_bookings
 from services.gemini_service import GeminiService
+from services.schedule_service import (
+    parse_booking_datetime,
+    format_booking_datetime,
+    check_slot_availability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +315,27 @@ async def process_booking_intent(message: Message, client_query: str, ai_reply: 
     username = f"@{message.from_user.username}" if message.from_user.username else None
     phone = extracted.phone or None
     service = extracted.service or "Стрижка / Комплекс"
-    booking_time = extracted.booking_time or "Уточнено в диалоге"
+    raw_booking_time = extracted.booking_time or "Уточнено в диалоге"
+    target_dt = parse_booking_datetime(raw_booking_time)
+
+    if target_dt:
+        # Проверяем доступность слота в базе данных (1 час на стрижку)
+        active_bookings = await get_active_bookings()
+        is_avail, error_msg, _ = check_slot_availability(target_dt, active_bookings)
+        if not is_avail:
+            logger.warning(
+                f"Отклонена запись на занятое время user_id={user_id}: {raw_booking_time} ({error_msg})"
+            )
+            await message.answer(
+                f"⚠️ **Ака, на это время ({raw_booking_time}) записать не могу!**\n\n"
+                f"{error_msg}\n\n"
+                "Выбери, пожалуйста, другое свободное время, и мы с радостью всё оформим! 💈",
+                parse_mode="Markdown",
+            )
+            return
+        booking_time = format_booking_datetime(target_dt)
+    else:
+        booking_time = raw_booking_time
 
     # Защита от дублей: если за последние 15 минут уже есть запись на это время
     if await has_recent_booking(user_id=user_id, booking_time=booking_time):

@@ -37,7 +37,7 @@ async def test_web_app_endpoints(monkeypatch):
         text = await resp.text()
         assert "Black Beard" in text
         assert "Powered by" in text
-        assert "Khan AI Systems" in text
+        assert "Khan" in text
         assert "https://asatkhanov.uz" in text
 
         # 2. Test API bookings

@@ -168,6 +168,25 @@ async def get_all_bookings(db_path: Optional[str] = None) -> List[Dict]:
             return [dict(row) for row in rows]
 
 
+async def get_active_bookings(db_path: Optional[str] = None) -> List[Dict]:
+    """
+    Получение всех активных (не отмененных) записей для проверки пересечений и расписания.
+    """
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT id, user_id, username, full_name, phone, service, booking_time, status, details, created_at 
+            FROM bookings 
+            WHERE status != 'cancelled' AND booking_time IS NOT NULL AND booking_time != ''
+            ORDER BY id ASC
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+
 async def update_booking_status(booking_id: int, status: str, db_path: Optional[str] = None) -> bool:
     """
     Обновление статуса записи (new -> confirmed -> cancelled).

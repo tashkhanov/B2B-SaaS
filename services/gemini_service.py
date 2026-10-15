@@ -7,8 +7,12 @@ from google import genai
 from google.genai import types
 
 from config import settings
-from database import get_recent_messages, add_message
+from database import get_recent_messages, add_message, get_active_bookings
 from prompts import SYSTEM_PROMPT, FALLBACK_RESPONSE
+from services.schedule_service import (
+    build_schedule_context_for_prompt,
+    format_tashkent_now_for_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +148,14 @@ class GeminiService:
                 raw_history=raw_history, current_message=user_message
             )
 
+            # Получаем актуальный график занятости из SQLite для полной осведомленности ИИ
+            active_bookings = await get_active_bookings()
+            schedule_context = build_schedule_context_for_prompt(active_bookings)
+            dynamic_system_prompt = f"{SYSTEM_PROMPT}\n\n{schedule_context}"
+
             config = types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.5,
+                system_instruction=dynamic_system_prompt,
+                temperature=0.4,
             )
 
             response = await self.client.aio.models.generate_content(
@@ -173,7 +182,7 @@ class GeminiService:
         """
         Прямая обработка голосового сообщения через Google GenAI SDK:
         1. Распознает точный текст клиента (user_transcript) на русском или узбекском.
-        2. Формирует естественный ответ Иброхима (bot_reply) без оговорок о 'не слышу голос'.
+        2. Формирует естественный ответ Иброхима (bot_reply) с проверкой базы занятости.
         3. Сохраняет реальный текст в историю SQLite для сквозной памяти между сообщениями.
         Возвращает кортеж (bot_reply, user_transcript).
         """
@@ -187,9 +196,9 @@ class GeminiService:
                 text=(
                     "Ты — администратор Иброхим барбершопа Black Beard. Клиент прислал это голосовое сообщение. "
                     "1. В поле user_transcript укажи точный распознанный текст слов клиента на русском или узбекском языке. "
-                    "2. В поле bot_reply дай ответ от имени Иброхима с учетом всей предыдущей истории диалога. "
+                    "2. В поле bot_reply дай ответ от имени Иброхима с учетом всей предыдущей истории диалога и графика занятых окон. "
                     "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО говорить 'я не слышу голосовые'! Ты прекрасно всё слышишь. "
-                    "ВНИМАНИЕ: Если клиент в прошлых репликах УЖЕ называл время (например, на 15:00), а сейчас назвал имя — зафиксируй бронь и НЕ переспрашивай время заново!"
+                    "ВНИМАНИЕ: Сверяйся с занятыми окнами! Длительность процедуры 1 час. Если время занято — вежливо откажи и предложи свободные часы."
                 )
             )
 
@@ -200,8 +209,13 @@ class GeminiService:
                 )
             )
 
+            # Получаем актуальный график занятости из SQLite для голосовых сообщений
+            active_bookings = await get_active_bookings()
+            schedule_context = build_schedule_context_for_prompt(active_bookings)
+            dynamic_system_prompt = f"{SYSTEM_PROMPT}\n\n{schedule_context}"
+
             config = types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=dynamic_system_prompt,
                 response_mime_type="application/json",
                 response_schema=VoiceResult,
                 temperature=0.3,
@@ -237,19 +251,26 @@ class GeminiService:
 
     async def extract_booking_info(self, dialog_context: str) -> Optional[ExtractedBooking]:
         """
-        Структурированное извлечение данных записи (имя, услуга, время, телефон)
-        с использованием response_schema в Gemini 2.5 Flash.
+        Структурированное извлечение данных записи (имя, услуга, точное время, телефон)
+        с использованием response_schema в Gemini 2.5 Flash с точным вычислением даты по Ташкенту.
         """
         try:
+            now_str = format_tashkent_now_for_prompt()
             prompt = (
-                "Ты — система фиксации бронирований барбершопа Black Beard. "
-                "Проанализируй диалог клиента и администратора:\n\n"
-                f"{dialog_context}\n\n"
-                "Определи, состоялась ли запись клиента. "
+                "Ты — система фиксации бронирований барбершопа Black Beard.\n"
+                f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n"
+                f"Проанализируй диалог клиента и администратора:\n\n{dialog_context}\n\n"
+                "Определи, состоялась ли запись клиента.\n"
                 "СТРОГОЕ ПРАВИЛО: is_booking_confirmed = true ТОЛЬКО ЕСЛИ в диалоге РЕАЛЬНО названы ОБА параметра: "
                 "1) имя клиента И 2) желаемый день или время (например: 'завтра в 15:00'). "
                 "Если клиент назвал только время (а имя еще не известно или администратор только спросил имя) — установи is_booking_confirmed = false! "
-                "Если клиент назвал и имя, и время — установи is_booking_confirmed = true и извлеки customer_name, booking_time, service, phone."
+                "Если клиент назвал и имя, и время — установи is_booking_confirmed = true и извлеки customer_name, booking_time, service, phone.\n\n"
+                "КРИТИЧЕСКИ ВАЖНО ДЛЯ booking_time:\n"
+                "Никогда не пиши относительные слова вроде 'завтра', 'сегодня', 'bugun', 'ertaga'. "
+                "Вычисли ТОЧНУЮ календарную дату по текущему времени Ташкента и запиши в каноническом формате:\n"
+                "'YYYY-MM-DD HH:MM (ДеньНедели)'.\n"
+                "Например, если сейчас 2026-10-15 (Четверг) и клиент говорит 'завтра в 15:00', то booking_time должен быть строго:\n"
+                "'2026-10-16 15:00 (Пятница)'."
             )
 
             config = types.GenerateContentConfig(

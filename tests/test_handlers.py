@@ -91,12 +91,14 @@ async def test_process_booking_intent_flow():
         mock_get_recent.assert_called_once_with(user_id=777, limit=6)
         mock_save.assert_not_called()
 
-    # Case 2: Booking confirmed (both name and time present)
+    # Case 2: Booking confirmed (both name and time present and slot is available)
     with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
          patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
          patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_active, \
          patch("bot.handlers.has_recent_booking", new_callable=AsyncMock) as mock_has_recent:
         
+        mock_active.return_value = []
         mock_get_recent.return_value = [
             {"role": "user", "text": "запиши на завтра в 15:00"},
             {"role": "user", "text": "Бабур"}
@@ -104,7 +106,7 @@ async def test_process_booking_intent_flow():
         mock_extract.return_value = ExtractedBooking(
             is_booking_confirmed=True,
             customer_name="Бабур",
-            booking_time="завтра в 15:00",
+            booking_time="2026-10-16 15:00 (Пятница)",
             service="Стрижка"
         )
         mock_has_recent.return_value = False
@@ -119,4 +121,38 @@ async def test_process_booking_intent_flow():
         mock_save.assert_called_once()
         message.answer.assert_called_once()
         assert "Мы ценим ваше доверие" in message.answer.call_args[0][0]
+
+    # Case 3: Slot conflict (trying to book 15:30 when 15:00 is occupied)
+    message.answer.reset_mock()
+    with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
+         patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_active:
+        
+        mock_active.return_value = [
+            {
+                "id": 1,
+                "full_name": "Абдулазиз",
+                "booking_time": "2026-10-16 15:00 (Пятница)",
+                "status": "new"
+            }
+        ]
+        mock_extract.return_value = ExtractedBooking(
+            is_booking_confirmed=True,
+            customer_name="Тимур",
+            booking_time="2026-10-16 15:30 (Пятница)",
+            service="Стрижка"
+        )
+
+        await process_booking_intent(
+            message=message,
+            client_query="Тимур",
+            ai_reply="Записал на 15:30"
+        )
+
+        mock_save.assert_not_called()
+        message.answer.assert_called_once()
+        args, _ = message.answer.call_args
+        assert "записать не могу" in args[0]
+        assert "15:00" in args[0]
 
