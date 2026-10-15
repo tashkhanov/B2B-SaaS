@@ -403,17 +403,35 @@
       element.classList.add('border-accent/80', 'border-2', 'shadow-sm', 'shadow-accent/10');
     }
 
-    // 3. Загрузка свободных окон с сервера (шаг 30 минут)
+    let currentSlotsRequestId = 0;
+    let slotsAbortController = null;
+
+    // 3. Загрузка свободных окон с сервера (шаг 30 минут) с защитой от Race Condition
     async function loadSlots(isoDate) {
+      const requestId = ++currentSlotsRequestId;
+
+      if (slotsAbortController) {
+        try { slotsAbortController.abort(); } catch (e) {}
+      }
+      slotsAbortController = new AbortController();
+      const signal = slotsAbortController.signal;
+
       const grid = document.getElementById('slots-grid');
       const loader = document.getElementById('slots-loader');
       loader.classList.remove('hidden');
       grid.innerHTML = '';
 
       try {
-        const res = await fetch(`/api/slots?date=${isoDate}`);
+        const res = await fetch(`/api/slots?date=${isoDate}`, { signal });
         const data = await res.json();
+
+        // Защита от дублей: если пока шел запрос, пользователь переключил день
+        if (requestId !== currentSlotsRequestId || selectedDate !== isoDate) {
+          return;
+        }
+
         loader.classList.add('hidden');
+        grid.innerHTML = '';
 
         if (!data.slots || data.slots.length === 0) {
           grid.innerHTML = '<div class="col-span-4 text-xs text-gray-500 py-3 text-center">Окон на этот день нет</div>';
@@ -436,8 +454,13 @@
         });
 
       } catch (e) {
-        loader.classList.add('hidden');
-        grid.innerHTML = '<div class="col-span-4 text-xs text-rose-400 py-3 text-center">Ошибка загрузки расписания</div>';
+        if (e.name === 'AbortError') {
+          return; // Запрос штатно отменен новым кликом
+        }
+        if (requestId === currentSlotsRequestId) {
+          loader.classList.add('hidden');
+          grid.innerHTML = '<div class="col-span-4 text-xs text-rose-400 py-3 text-center">Ошибка загрузки расписания</div>';
+        }
       }
     }
 
