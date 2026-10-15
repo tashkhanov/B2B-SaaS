@@ -40,12 +40,6 @@ B2B-SaaS/
 ├── bot/
 │   └── handlers.py           # Маршрутизация Telegram-событий (aiogram 3.x)
 │
-├── tests/                    # Набор автотестов (pytest)
-│   ├── test_config.py
-│   ├── test_database.py
-│   ├── test_gemini_service.py
-│   └── test_handlers.py
-│
 └── main.py                   # Точка входа: запуск бота и фонового polling
 ```
 
@@ -83,15 +77,7 @@ copy .env.example .env
 - `GEMINI_API_KEY` — бесплатный ключ в [Google AI Studio](https://aistudio.google.com/).
 - `ADMIN_CHAT_ID` — (необязательно) ваш числовой Telegram Chat ID для получения заявок о записи. Узнать свой ID можно в [@userinfobot](https://t.me/userinfobot).
 
-### 3. Запуск тестов
-
-Для проверки работоспособности всех модулей выполните:
-
-```bash
-pytest tests/
-```
-
-### 4. Запуск бота
+### 3. Запуск бота
 
 ```bash
 python main.py
