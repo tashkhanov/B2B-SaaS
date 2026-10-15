@@ -377,8 +377,22 @@ async def handle_get_barber_my_schedule(request: web.Request) -> web.Response:
         barber = None
         if tg_id_raw and tg_id_raw.isdigit():
             barber = await get_barber_by_telegram_id(int(tg_id_raw))
-        elif b_id_raw and b_id_raw.isdigit():
+
+        if not barber and b_id_raw and b_id_raw.isdigit():
             barber = await get_barber_by_id(int(b_id_raw))
+
+        # Если мастер не найден, но запрос от администратора салона (для тестирования/просмотра)
+        if not barber and tg_id_raw and tg_id_raw.isdigit():
+            if settings.ADMIN_CHAT_ID and int(tg_id_raw) == settings.ADMIN_CHAT_ID:
+                barbers = await get_barbers()
+                if barbers:
+                    barber = barbers[0]
+
+        # Если всё еще не найден и нет ID (dev-режим в браузере)
+        if not barber and not tg_id_raw and not b_id_raw:
+            barbers = await get_barbers()
+            if barbers:
+                barber = barbers[0]
 
         if not barber:
             return web.json_response({"error": "Мастер не найден"}, status=404)
@@ -387,7 +401,8 @@ async def handle_get_barber_my_schedule(request: web.Request) -> web.Response:
         return web.json_response({
             "ok": True,
             "barber": barber,
-            "bookings": bookings
+            "bookings": bookings,
+            "schedule": bookings
         })
     except Exception as e:
         logger.error(f"Ошибка при получении расписания мастера: {e}")

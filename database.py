@@ -533,7 +533,7 @@ async def get_bookings_for_barber(
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
                    barber_id, barber_name, service_id, created_at
             FROM bookings
-            WHERE barber_id = ?
+            WHERE (barber_id = ? OR barber_id IS NULL)
         """
         params = [barber_id]
         if target_date:

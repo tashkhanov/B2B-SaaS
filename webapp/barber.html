@@ -234,7 +234,7 @@
         document.getElementById('barber-container').classList.remove('hidden');
 
         barberData = data.barber;
-        currentSchedule = data.schedule || [];
+        currentSchedule = data.schedule || data.bookings || [];
 
         renderProfile();
         renderBookings();
@@ -314,7 +314,8 @@
       const emptyState = document.getElementById('empty-state');
       list.innerHTML = '';
 
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
       const todayBookings = currentSchedule.filter(b => {
         const t = (b.booking_time || '').toLowerCase();
@@ -323,6 +324,17 @@
 
       document.getElementById('today-count').textContent = todayBookings.length;
       document.getElementById('upcoming-count').textContent = currentSchedule.length;
+
+      // Если на сегодня записей нет, но есть записи на другие дни — автоматически переключаем на вкладку "Все записи"
+      if (todayBookings.length === 0 && currentSchedule.length > 0 && currentView === 'today') {
+        currentView = 'upcoming';
+        const tabToday = document.getElementById('tab-today');
+        const tabUpcoming = document.getElementById('tab-upcoming');
+        if (tabToday && tabUpcoming) {
+          tabUpcoming.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20';
+          tabToday.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white';
+        }
+      }
 
       const filtered = currentView === 'today' ? todayBookings : currentSchedule;
 
