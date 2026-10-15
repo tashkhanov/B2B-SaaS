@@ -181,6 +181,28 @@ async def test_web_app_endpoints(monkeypatch):
         assert sched_data["ok"] is True
         assert sched_data["barber"]["id"] == first_barber["id"]
 
+        # 14. Test User Role endpoint (/api/user-role)
+        # 14.1 Admin role
+        resp_admin_role = await client.get("/api/user-role?user_id=999888")
+        assert resp_admin_role.status == 200
+        role_data = await resp_admin_role.json()
+        assert role_data["role"] == "admin"
+
+        # 14.2 Barber role
+        barber_with_tg = next((b for b in barbers_data if b.get("telegram_id")), None)
+        if barber_with_tg:
+            resp_b_role = await client.get(f"/api/user-role?user_id={barber_with_tg['telegram_id']}")
+            assert resp_b_role.status == 200
+            b_role_data = await resp_b_role.json()
+            assert b_role_data["role"] == "barber"
+            assert b_role_data["barber"]["name"] == barber_with_tg["name"]
+
+        # 14.3 Client role
+        resp_client_role = await client.get("/api/user-role?user_id=555444333")
+        assert resp_client_role.status == 200
+        c_role_data = await resp_client_role.json()
+        assert c_role_data["role"] == "client"
+
     finally:
         await client.close()
         if os.path.exists(TEST_DB):

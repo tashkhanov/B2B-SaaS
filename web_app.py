@@ -234,7 +234,6 @@ async def handle_get_barbers(request: web.Request) -> web.Response:
         barbers = await get_barbers(active_only=active_only)
         for b in barbers:
             b["role"] = b.get("role_title", "Барбер")
-            b["avatar_url"] = b.get("photo_url")
             b["is_on_shift"] = bool(b.get("is_working_today", 1))
             if target_date:
                 b["is_working_on_date"] = is_barber_working_on_date(b, target_date)
@@ -253,7 +252,6 @@ async def handle_create_barber(request: web.Request) -> web.Response:
         data = await request.json()
         name = (data.get("name") or "").strip()
         role_title = (data.get("role_title") or data.get("role") or "Барбер").strip()
-        photo_url = (data.get("photo_url") or data.get("avatar_url") or "").strip() or None
         phone = (data.get("phone") or "").strip() or None
         telegram_id_raw = data.get("telegram_id")
         telegram_id = int(telegram_id_raw) if telegram_id_raw else None
@@ -266,7 +264,6 @@ async def handle_create_barber(request: web.Request) -> web.Response:
         b_id = await create_barber(
             name=name,
             role_title=role_title,
-            photo_url=photo_url,
             phone=phone,
             telegram_id=telegram_id,
             work_days=work_days,
@@ -285,7 +282,6 @@ async def handle_update_barber(request: web.Request) -> web.Response:
         data = await request.json()
         name = (data.get("name") or "").strip()
         role_title = (data.get("role_title") or data.get("role") or "Барбер").strip()
-        photo_url = (data.get("photo_url") or data.get("avatar_url") or "").strip() or None
         phone = (data.get("phone") or "").strip() or None
         telegram_id_raw = data.get("telegram_id")
         telegram_id = int(telegram_id_raw) if telegram_id_raw else None
@@ -300,7 +296,6 @@ async def handle_update_barber(request: web.Request) -> web.Response:
             barber_id=b_id,
             name=name,
             role_title=role_title,
-            photo_url=photo_url,
             phone=phone,
             telegram_id=telegram_id,
             work_days=work_days,
@@ -311,6 +306,33 @@ async def handle_update_barber(request: web.Request) -> web.Response:
     except Exception as e:
         logger.error(f"Ошибка при обновлении барбера: {e}")
         return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_get_user_role(request: web.Request) -> web.Response:
+    """API: Определение роли пользователя (admin, barber, client) по user_id"""
+    try:
+        user_id_raw = request.query.get("user_id")
+        if not user_id_raw:
+            return web.json_response({"role": "client"})
+
+        user_id = int(user_id_raw)
+        if settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID:
+            return web.json_response({"role": "admin"})
+
+        barber = await get_barber_by_telegram_id(user_id)
+        if barber:
+            return web.json_response({
+                "role": "barber",
+                "barber": {
+                    "id": barber["id"],
+                    "name": barber["name"],
+                    "role": barber.get("role_title", "Барбер")
+                }
+            })
+        return web.json_response({"role": "client"})
+    except Exception as e:
+        logger.error(f"Ошибка при определении роли: {e}")
+        return web.json_response({"role": "client"})
 
 
 async def handle_toggle_barber_shift(request: web.Request) -> web.Response:
@@ -658,6 +680,7 @@ def create_web_app(bot: Bot = None) -> web.Application:
 
     # API маршруты
     app.router.add_get("/api/config", handle_get_config)
+    app.router.add_get("/api/user-role", handle_get_user_role)
     app.router.add_get("/api/slots", handle_get_slots)
 
     # Услуги

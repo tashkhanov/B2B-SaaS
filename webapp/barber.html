@@ -113,7 +113,9 @@
     <div class="bg-surface border border-surfaceBorder rounded-2xl p-4 mb-4 shadow-md space-y-3.5">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <img id="m-avatar" src="/static/avatars/ibrohim.svg" alt="Avatar" class="w-12 h-12 rounded-2xl object-cover border border-surfaceBorder bg-bgDark" onerror="this.src='/static/avatars/ibrohim.svg'" />
+          <div id="m-profile-badge" class="w-12 h-12 rounded-2xl bg-gold/15 border border-gold/30 text-gold flex items-center justify-center font-bold text-sm tracking-wider shadow-sm">
+            BB
+          </div>
           <div>
             <h2 id="m-name" class="font-bold text-white text-base">Имя мастера</h2>
             <div class="flex items-center gap-1.5 mt-0.5">
@@ -248,9 +250,9 @@
       document.getElementById('m-name').textContent = barberData.name;
       document.getElementById('m-role').textContent = barberData.role || 'Барбер';
       document.getElementById('m-phone').textContent = barberData.phone || '';
-      if (barberData.avatar_url) {
-        document.getElementById('m-avatar').src = barberData.avatar_url;
-      }
+      const initials = (barberData.name || 'BB').trim().slice(0, 2).toUpperCase();
+      const badge = document.getElementById('m-profile-badge');
+      if (badge) badge.textContent = initials;
 
       updateShiftBtn(barberData.is_on_shift);
     }

@@ -95,6 +95,28 @@
       </div>
     </header>
 
+    <!-- БАННЕР ДЛЯ БАРБЕРА (если вошел мастер) -->
+    <div id="barber-role-banner" class="hidden mb-4 bg-surface border border-gold/40 rounded-2xl p-3.5 shadow-lg shadow-gold/5 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-xl bg-gold/15 border border-gold/30 text-gold flex items-center justify-center text-xs font-bold">
+          💈
+        </div>
+        <div>
+          <div class="text-xs font-bold text-white flex items-center gap-1.5">
+            <span>Вы мастер:</span>
+            <span id="barber-banner-name" class="text-gold"></span>
+          </div>
+          <div class="text-[11px] text-gray-400">Управляйте своими сменами и записями</div>
+        </div>
+      </div>
+      <a href="/barber" class="px-3 py-1.5 rounded-xl bg-gold text-bgDark hover:bg-gold/90 font-bold text-xs transition shadow-sm active:scale-95 flex items-center gap-1">
+        <span>Кабинет</span>
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </a>
+    </div>
+
     <!-- КАРТОЧКА АКТИВНОЙ БРОНИ КЛИЕНТА (если есть) -->
     <div id="my-booking-banner" class="hidden mb-5 bg-surface border border-accent/40 rounded-2xl p-4 shadow-lg shadow-accent/5">
       <div class="flex items-center justify-between mb-2 pb-2 border-b border-surfaceBorder/60">
@@ -335,6 +357,18 @@
         if (nameInput && !nameInput.value) {
           nameInput.value = `${u.first_name || ''} ${u.last_name || ''}`.trim();
         }
+
+        try {
+          const roleRes = await fetch(`/api/user-role?user_id=${u.id}`);
+          const roleData = await roleRes.json();
+          if (roleData.role === 'barber' && roleData.barber) {
+            const bBanner = document.getElementById('barber-role-banner');
+            if (bBanner) {
+              bBanner.classList.remove('hidden');
+              document.getElementById('barber-banner-name').textContent = roleData.barber.name;
+            }
+          }
+        } catch (e) {}
       }
 
       await loadServices();
@@ -429,17 +463,19 @@
           card.onclick = () => selectBarber(b.id, b.name, card);
           card.className = 'barber-card cursor-pointer bg-surface border border-surfaceBorder rounded-xl p-3 flex items-center justify-between transition-all duration-150 hover:border-gray-500';
 
-          const avatarSrc = b.avatar_url || '/static/avatars/ibrohim.svg';
+          const initials = (b.name || 'М').trim().slice(0, 2).toUpperCase();
           const shiftBadge = b.is_on_shift 
             ? '<span class="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot"></span>На смене</span>'
             : '<span class="text-[10px] font-medium text-gray-400 bg-surfaceBorder/40 px-2 py-0.5 rounded-full">Выходной</span>';
 
           card.innerHTML = `
             <div class="flex items-center gap-3">
-              <img src="${avatarSrc}" alt="${escapeHtml(b.name)}" class="w-10 h-10 rounded-xl object-cover border border-surfaceBorder bg-bgDark" onerror="this.src='/static/avatars/ibrohim.svg'" />
+              <div class="w-10 h-10 rounded-xl bg-gold/10 border border-gold/25 text-gold flex items-center justify-center font-bold text-xs tracking-wider shadow-sm">
+                ${escapeHtml(initials)}
+              </div>
               <div>
                 <div class="font-semibold text-xs text-white">${escapeHtml(b.name)}</div>
-                <div class="text-[11px] text-gold font-medium">${escapeHtml(b.role || 'Барбер')}</div>
+                <div class="text-[11px] text-gold/90 font-medium">${escapeHtml(b.role || 'Барбер')}</div>
               </div>
             </div>
             <div>

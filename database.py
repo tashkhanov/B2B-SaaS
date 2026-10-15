@@ -54,7 +54,6 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 role_title TEXT NOT NULL DEFAULT 'Барбер',
-                photo_url TEXT,
                 phone TEXT,
                 telegram_id INTEGER,
                 work_days TEXT DEFAULT '0,1,2,3,4,5,6',
@@ -122,14 +121,14 @@ async def init_db(db_path: Optional[str] = None) -> None:
         barbers_count = (await cursor.fetchone())[0]
         if barbers_count == 0:
             default_barbers = [
-                ("Иброхим", "Шеф-мастер", "/static/avatars/ibrohim.svg", "+998 90 123 45 67", None, "0,1,2,3,4,5,6", 1, 1),
-                ("Сардор", "Топ-барбер", "/static/avatars/sardor.svg", "+998 90 234 56 78", None, "0,1,2,3,4,5", 1, 1),
-                ("Жасур", "Барбер-стилист", "/static/avatars/jasur.svg", "+998 90 345 67 89", None, "1,2,3,4,5,6", 1, 1),
+                ("Иброхим", "Шеф-мастер", "+998 90 123 45 67", None, "0,1,2,3,4,5,6", 1, 1),
+                ("Сардор", "Топ-барбер", "+998 90 234 56 78", None, "0,1,2,3,4,5", 1, 1),
+                ("Жасур", "Барбер-стилист", "+998 90 345 67 89", None, "1,2,3,4,5,6", 1, 1),
             ]
             await db.executemany(
                 """
-                INSERT INTO barbers (name, role_title, photo_url, phone, telegram_id, work_days, is_working_today, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 default_barbers
             )
@@ -307,7 +306,6 @@ async def get_barber_by_telegram_id(telegram_id: int, db_path: Optional[str] = N
 async def create_barber(
     name: str,
     role_title: str = "Барбер",
-    photo_url: Optional[str] = None,
     phone: Optional[str] = None,
     telegram_id: Optional[int] = None,
     work_days: str = "0,1,2,3,4,5,6",
@@ -320,10 +318,10 @@ async def create_barber(
     async with aiosqlite.connect(target_db) as db:
         cursor = await db.execute(
             """
-            INSERT INTO barbers (name, role_title, photo_url, phone, telegram_id, work_days, is_working_today, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (name.strip(), role_title.strip(), photo_url, phone, telegram_id, work_days, is_working_today, is_active)
+            (name.strip(), role_title.strip(), phone, telegram_id, work_days, is_working_today, is_active)
         )
         await db.commit()
         return cursor.lastrowid
@@ -333,7 +331,6 @@ async def update_barber(
     barber_id: int,
     name: str,
     role_title: str = "Барбер",
-    photo_url: Optional[str] = None,
     phone: Optional[str] = None,
     telegram_id: Optional[int] = None,
     work_days: str = "0,1,2,3,4,5,6",
@@ -347,11 +344,11 @@ async def update_barber(
         cursor = await db.execute(
             """
             UPDATE barbers 
-            SET name = ?, role_title = ?, photo_url = ?, phone = ?, telegram_id = ?, 
+            SET name = ?, role_title = ?, phone = ?, telegram_id = ?, 
                 work_days = ?, is_working_today = ?, is_active = ?
             WHERE id = ?
             """,
-            (name.strip(), role_title.strip(), photo_url, phone, telegram_id, work_days, is_working_today, is_active, barber_id)
+            (name.strip(), role_title.strip(), phone, telegram_id, work_days, is_working_today, is_active, barber_id)
         )
         await db.commit()
         return cursor.rowcount > 0

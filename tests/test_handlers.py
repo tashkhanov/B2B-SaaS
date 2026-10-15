@@ -189,3 +189,59 @@ async def test_handle_barber():
         assert "Мою Смену" in str(kwargs.get("reply_markup"))
 
 
+@pytest.mark.asyncio
+async def test_get_user_role():
+    from bot.handlers import get_user_role
+
+    with patch("bot.handlers.settings.ADMIN_CHAT_ID", 111222), \
+         patch("bot.handlers.get_barber_by_telegram_id", new_callable=AsyncMock) as mock_get_b:
+
+        mock_get_b.return_value = None
+
+        # Admin
+        role, barber = await get_user_role(111222)
+        assert role == "admin"
+        assert barber is None
+
+        # Barber
+        mock_get_b.return_value = {"id": 1, "name": "Иброхим", "role": "Шеф-мастер"}
+        role, barber = await get_user_role(333444)
+        assert role == "barber"
+        assert barber["name"] == "Иброхим"
+
+        # Client
+        mock_get_b.return_value = None
+        role, barber = await get_user_role(999000)
+        assert role == "client"
+        assert barber is None
+
+
+@pytest.mark.asyncio
+async def test_barber_auto_detected_on_start():
+    """Verify that a barber typing /start is automatically recognized without needing /barber"""
+    from bot.handlers import handle_start
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=333444, is_bot=False, first_name="Иброхим")
+    message.answer = AsyncMock()
+    message.bot = AsyncMock()
+
+    with patch("bot.handlers.settings.ADMIN_CHAT_ID", 111222), \
+         patch("bot.handlers.get_barber_by_telegram_id", new_callable=AsyncMock) as mock_get_b:
+
+        mock_get_b.return_value = {"id": 1, "name": "Иброхим", "role": "Шеф-мастер", "telegram_id": 333444}
+
+        await handle_start(message)
+
+        message.answer.assert_called_once()
+        args, kwargs = message.answer.call_args
+        # Greeted as master
+        assert "Иброхим" in args[0]
+        assert "Шеф-мастер" in args[0]
+        # Keyboard has barber button
+        markup_str = str(kwargs.get("reply_markup"))
+        assert "Моя смена" in markup_str
+        assert "/barber" in markup_str
+
+
+

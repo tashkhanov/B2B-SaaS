@@ -8,6 +8,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     WebAppInfo,
+    MenuButtonWebApp,
 )
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
@@ -50,12 +51,27 @@ AI_BUSINESS_KEYBOARD = InlineKeyboardMarkup(
 )
 
 
-def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
-    """Генерация основной клавиатуры для клиентов и администратора"""
+async def get_user_role(user_id: int):
+    """Определение роли: 'admin', 'barber', или 'client'."""
+    if settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID:
+        return "admin", None
+    barber = await get_barber_by_telegram_id(user_id)
+    if barber:
+        return "barber", barber
+    return "client", None
+
+
+def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool = None) -> ReplyKeyboardMarkup:
+    """Генерация основной клавиатуры для клиентов, администратора и мастеров (барберов)"""
+    if is_admin is not None:
+        role = "admin" if is_admin else (role or "client")
+    if not role:
+        role = "client"
+
     base_url = (settings.WEBAPP_URL or "").rstrip("/")
     has_https = base_url.startswith("https://")
 
-    if is_admin:
+    if role == "admin":
         keyboard = [
             [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
             [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="🔄 Сбросить диалог")],
@@ -69,6 +85,26 @@ def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
             ])
         else:
             keyboard.append([KeyboardButton(text="📊 Панель записей (/admin)")])
+
+    elif role == "barber":
+        # Для барбера — прямая кнопка в его личный кабинет (Моя смена)
+        if has_https:
+            keyboard = [
+                [
+                    KeyboardButton(
+                        text="💈 Моя смена (Кабинет)",
+                        web_app=WebAppInfo(url=f"{base_url}/barber"),
+                    ),
+                    KeyboardButton(text="✂️ Прайс-лист"),
+                ],
+                [KeyboardButton(text="📍 Где мы находимся?"), KeyboardButton(text="🔄 Сбросить диалог")],
+            ]
+        else:
+            keyboard = [
+                [KeyboardButton(text="💈 Моя смена (/barber)"), KeyboardButton(text="✂️ Прайс-лист")],
+                [KeyboardButton(text="📍 Где мы находимся?"), KeyboardButton(text="🔄 Сбросить диалог")],
+            ]
+
     else:
         # Для обычных клиентов — кнопка онлайн-записи через Client Mini App
         if has_https:
@@ -91,24 +127,66 @@ def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, is_persistent=True)
 
 
+async def update_chat_menu_button(message: Message, role: str):
+    """Настройка постоянной кнопки 'Menu' в левом нижнем углу Telegram под роль пользователя"""
+    base_url = (settings.WEBAPP_URL or "").rstrip("/")
+    if not base_url.startswith("https://") or not message.bot or not hasattr(message.bot, "set_chat_menu_button"):
+        return
+    try:
+        if role == "admin":
+            await message.bot.set_chat_menu_button(
+                chat_id=message.chat.id,
+                menu_button=MenuButtonWebApp(text="Панель", web_app=WebAppInfo(url=f"{base_url}/admin"))
+            )
+        elif role == "barber":
+            await message.bot.set_chat_menu_button(
+                chat_id=message.chat.id,
+                menu_button=MenuButtonWebApp(text="Моя смена", web_app=WebAppInfo(url=f"{base_url}/barber"))
+            )
+        else:
+            await message.bot.set_chat_menu_button(
+                chat_id=message.chat.id,
+                menu_button=MenuButtonWebApp(text="Записаться", web_app=WebAppInfo(url=f"{base_url}/book"))
+            )
+    except Exception as e:
+        logger.debug(f"Не удалось обновить menu button: {e}")
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message):
     """
-    Обработчик команды /start.
-    Приветствие от имени Иброхима и показ клавиатуры.
+    Обработчик команды /start с автоопределением роли (админ, барбер, клиент).
     """
-    user_name = message.from_user.first_name or "братан"
-    is_admin = bool(settings.ADMIN_CHAT_ID and message.from_user.id == settings.ADMIN_CHAT_ID)
-    
-    welcome_text = (
-        f"Салам алейкум, {user_name}! 🤝\n\n"
-        "Добро пожаловать в премиум-барбершоп **Black Beard** в Ташкенте!\n"
-        "Я Иброхим — администратор. Чем могу помочь, ака?\n\n"
-        "Подсказать по прайсу или сразу подобрать удобное время для записи?"
-    )
+    user_id = message.from_user.id if message.from_user else 0
+    role, barber = await get_user_role(user_id)
+    await update_chat_menu_button(message, role)
+
+    if role == "admin":
+        welcome_text = (
+            "Салам алейкум, Управляющий! 👑\n\n"
+            "Вы вошли в систему как **Администратор** барбершопа Black Beard.\n"
+            "Вам доступно голосовое и текстовое управление записями, а также кнопка **«📊 Панель записей (TMA)»** ниже!"
+        )
+    elif role == "barber":
+        b_role = barber.get("role_title") or barber.get("role") or "Барбер"
+        welcome_text = (
+            f"Салам алейкум, {barber['name']}! 💈\n\n"
+            f"Вы авторизованы как мастер барбершопа Black Beard (**{b_role}**).\n\n"
+            "Внизу для вас активирована кнопка **«💈 Моя смена (Кабинет)»** — "
+            "нажмите её, чтобы посмотреть очередь клиентов на сегодня или изменить статус смены!"
+        )
+    else:
+        user_name = message.from_user.first_name if message.from_user else "братан"
+        welcome_text = (
+            f"Салам алейкум, {user_name}! 🤝\n\n"
+            "Добро пожаловать в премиум-барбершоп **Black Beard** в Ташкенте!\n"
+            "Я Иброхим — администратор. Чем могу помочь, ака?\n\n"
+            "Подсказать по прайсу или сразу подобрать удобное время для записи?"
+        )
+
     await message.answer(
         welcome_text,
-        reply_markup=get_main_keyboard(is_admin=is_admin),
+        reply_markup=get_main_keyboard(role=role, barber=barber),
         parse_mode="Markdown"
     )
 
@@ -250,11 +328,12 @@ async def handle_reset(message: Message):
     """
     Очистка контекста диалога текущего пользователя в базе данных.
     """
-    is_admin = bool(settings.ADMIN_CHAT_ID and message.from_user.id == settings.ADMIN_CHAT_ID)
-    await clear_history(message.from_user.id)
+    user_id = message.from_user.id if message.from_user else 0
+    role, barber = await get_user_role(user_id)
+    await clear_history(user_id)
     await message.answer(
         "История диалога очищена, братан! Начнем с чистого листа. О чем поболтаем? 💈",
-        reply_markup=get_main_keyboard(is_admin=is_admin),
+        reply_markup=get_main_keyboard(role=role, barber=barber),
     )
 
 
@@ -265,7 +344,7 @@ async def handle_price(message: Message):
     Быстрый просмотр прайс-листа без ожидания нейросети.
     """
     user_id = message.from_user.id if message.from_user else 0
-    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
+    role, barber = await get_user_role(user_id)
     price_text = (
         "🔥 **Прайс-лист барбершопа 'Black Beard' (Ташкент):**\n\n"
         "✂️ **Мужская стрижка:** 100 000 сум\n"
@@ -274,7 +353,7 @@ async def handle_price(message: Message):
         "_В каждую услугу включены мытье головы, премиум-стайлинг и ароматный кофе или чай._ ☕\n\n"
         "На какой день и время вас записать, ака?"
     )
-    await message.answer(price_text, parse_mode="Markdown", reply_markup=get_main_keyboard(is_admin=is_admin))
+    await message.answer(price_text, parse_mode="Markdown", reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 @router.message(F.text == "📍 Где мы находимся?")
@@ -283,26 +362,26 @@ async def handle_location(message: Message):
     Информация о локации барбершопа.
     """
     user_id = message.from_user.id if message.from_user else 0
-    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
+    role, barber = await get_user_role(user_id)
     location_text = (
         "📍 Мы находимся в центре Ташкента: ул. Амира Темура (ориентир — гостиница 'Узбекистан').\n\n"
         "Работаем ежедневно с 10:00 до 22:00 без выходных. Ждем в гости, ака!"
     )
-    await message.answer(location_text, reply_markup=get_main_keyboard(is_admin=is_admin))
+    await message.answer(location_text, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 @router.message(F.voice)
 async def handle_voice_message(message: Message):
     """
-    Обработчик голосовых сообщений клиента:
+    Обработчик голосовых сообщений:
     1. Скачивает аудиофайл (OGG Opus) в память.
     2. Передает байты напрямую в Google GenAI SDK (Gemini).
-    3. Отправляет клиенту сгенерированный голосовой ответ Иброхима.
-    4. Очищает временные данные из памяти.
-    5. Проверяет наличие намерения записи.
+    3. Отправляет клиенту/мастеру/админу сгенерированный ответ.
+    4. Проверяет наличие намерения записи или управления.
     """
-    user_id = message.from_user.id
-    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
+    user_id = message.from_user.id if message.from_user else 0
+    role, barber = await get_user_role(user_id)
+    is_admin = role == "admin"
 
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.RECORD_VOICE)
 
@@ -320,7 +399,7 @@ async def handle_voice_message(message: Message):
     finally:
         file_bytes_io.close()
 
-    # 2. Обработка голоса через Gemini 2.5 Flash с учетом роли
+    # 2. Обработка голоса через Gemini с учетом роли
     ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
         user_id=user_id,
         voice_bytes=voice_data,
@@ -329,7 +408,7 @@ async def handle_voice_message(message: Message):
     )
 
     # 3. Отправка ответа пользователю
-    await message.answer(ai_reply, reply_markup=get_main_keyboard(is_admin=is_admin))
+    await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
     # 4. Проверка и выполнение интента (для клиента или администратора)
     if is_admin:
@@ -345,11 +424,12 @@ async def handle_user_text(message: Message):
     1. Показывает статус 'печатает...' (typing action) в Telegram.
     2. Отправляет запрос в GeminiService с историей сообщений и учетом роли.
     3. Отправляет ответ пользователю.
-    4. При фиксации намерения выполняет соответствующее действие (бронь, отмена, подтверждение).
+    4. При фиксации намерения выполняет соответствующее действие.
     """
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
     user_text = message.text.strip()
-    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
+    role, barber = await get_user_role(user_id)
+    is_admin = role == "admin"
 
     # 1. Индикация "печатает..." во время запроса к AI
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
@@ -358,7 +438,7 @@ async def handle_user_text(message: Message):
     ai_reply = await gemini_service.generate_response(user_id=user_id, user_message=user_text, is_admin=is_admin)
 
     # 3. Отправка ответа пользователю
-    await message.answer(ai_reply, reply_markup=get_main_keyboard(is_admin=is_admin))
+    await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
     # 4. Проверка и выполнение намерения
     if is_admin:
