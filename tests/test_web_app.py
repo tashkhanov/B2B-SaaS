@@ -100,6 +100,24 @@ async def test_web_app_endpoints(monkeypatch):
         res_status = await resp_status.json()
         assert res_status.get("ok") is True
 
+        # 9. Test /api/my-booking
+        resp_my = await client.get("/api/my-booking?user_id=123")
+        assert resp_my.status == 200
+        my_data = await resp_my.json()
+        assert my_data["booking"] is not None
+        assert my_data["booking"]["id"] == booking_id
+
+        # 10. Test /api/my-booking/cancel
+        resp_cancel = await client.post("/api/my-booking/cancel", json={"user_id": 123, "booking_id": booking_id})
+        assert resp_cancel.status == 200
+        cancel_data = await resp_cancel.json()
+        assert cancel_data["ok"] is True
+
+        # Verify it's no longer active
+        resp_my_after = await client.get("/api/my-booking?user_id=123")
+        my_after_data = await resp_my_after.json()
+        assert my_after_data["booking"] is None
+
     finally:
         await client.close()
         if os.path.exists(TEST_DB):

@@ -100,3 +100,28 @@ def test_build_schedule_context_for_prompt():
     assert "15:00 — 16:00" in ctx
     assert "Абдулазиз" in ctx
     assert "15:30" in ctx
+
+
+def test_7_days_horizon_limit():
+    now = get_now_tashkent()
+    existing = []
+
+    # 3 days ahead -> should be allowed
+    t_3days = (now + timedelta(days=3)).replace(hour=14, minute=0, second=0, microsecond=0)
+    is_avail, err, _ = check_slot_availability(t_3days, existing)
+    assert is_avail is True
+
+    # 8 days ahead -> should be rejected
+    t_8days = (now + timedelta(days=8)).replace(hour=14, minute=0, second=0, microsecond=0)
+    is_avail2, err2, _ = check_slot_availability(t_8days, existing)
+    assert is_avail2 is False
+    assert "максимум на 7 дней" in err2
+
+
+def test_is_booking_past():
+    from services.schedule_service import is_booking_past
+
+    assert is_booking_past("2020-01-01 12:00") is True
+    # Future year 2099
+    assert is_booking_past("2099-01-01 12:00") is False
+

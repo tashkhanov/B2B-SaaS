@@ -261,18 +261,22 @@ async def handle_voice_message(message: Message):
     finally:
         file_bytes_io.close()
 
-    # 2. Обработка голоса через Gemini 2.5 Flash (распознавание + генерация ответа)
+    # 2. Обработка голоса через Gemini 2.5 Flash с учетом роли
     ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
         user_id=user_id,
         voice_bytes=voice_data,
-        mime_type="audio/ogg"
+        mime_type="audio/ogg",
+        is_admin=is_admin,
     )
 
-    # 3. Отправка ответа клиенту
+    # 3. Отправка ответа пользователю
     await message.answer(ai_reply, reply_markup=get_main_keyboard(is_admin=is_admin))
 
-    # 4. Проверка и сохранение записи с реальным текстом из голосового сообщения
-    await process_booking_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+    # 4. Проверка и выполнение интента (для клиента или администратора)
+    if is_admin:
+        await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+    else:
+        await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
 
 
 @router.message(F.text)
@@ -280,127 +284,259 @@ async def handle_user_text(message: Message):
     """
     Основной обработчик текстовых сообщений:
     1. Показывает статус 'печатает...' (typing action) в Telegram.
-    2. Отправляет запрос в GeminiService с историей сообщений пользователя.
-    3. Отправляет ответ клиенту.
-    4. При фиксации записи сохраняет структурированный лид и уведомляет администратора.
+    2. Отправляет запрос в GeminiService с историей сообщений и учетом роли.
+    3. Отправляет ответ пользователю.
+    4. При фиксации намерения выполняет соответствующее действие (бронь, отмена, подтверждение).
     """
     user_id = message.from_user.id
     user_text = message.text.strip()
     is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
 
-    # 1. Индикация "Иброхим печатает..." во время запроса к AI
+    # 1. Индикация "печатает..." во время запроса к AI
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
-    # 2. Получение ответа от Gemini с учетом истории
-    ai_reply = await gemini_service.generate_response(user_id=user_id, user_message=user_text)
+    # 2. Получение ответа от Gemini с учетом роли
+    ai_reply = await gemini_service.generate_response(user_id=user_id, user_message=user_text, is_admin=is_admin)
 
-    # 3. Отправка ответа клиенту
+    # 3. Отправка ответа пользователю
     await message.answer(ai_reply, reply_markup=get_main_keyboard(is_admin=is_admin))
 
-    # 4. Проверка и фиксация структурированной брони
-    await process_booking_intent(message, client_query=user_text, ai_reply=ai_reply)
+    # 4. Проверка и выполнение намерения
+    if is_admin:
+        await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
+    else:
+        await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
 
 
-async def process_booking_intent(message: Message, client_query: str, ai_reply: str) -> None:
+async def process_admin_intent(message: Message, admin_query: str, ai_reply: str) -> None:
     """
-    Интеллектуальная проверка и фиксация структурированной записи:
-    Анализирует диалог через Gemini. Запись создается ТОЛЬКО если
-    в диалоге согласованы ОБА параметра: имя клиента и дата/время.
+    Обработка команд администратора через естественный язык или голос:
+    1. Подтверждение записи клиента ('подтверди запись Рустама')
+    2. Отмена записи клиента ('отмени запись Рустама')
+    3. Ручное создание брони на клиента
     """
-    user_id = message.from_user.id
+    from database import find_booking_by_client_name, update_booking_status, save_booking
 
-    # Проверяем, затрагивает ли диалог тему записи или времени
-    combined = f"{client_query} {ai_reply}".lower()
-    booking_triggers = [
-        "запис", "бронь", "жд", "время", "имя", "завтра", "сегодня", "ок", "договор",
-        "yoz", "kut", "soat", "ism", "kun", "ertaga", "bugun", "kel", "vaqt",
-        "00", "30", "1", "2", "3", "4", "5", "6", "7", "8", "9"
-    ]
-    if not any(t in combined for t in booking_triggers):
+    combined = f"{admin_query} {ai_reply}".lower()
+    admin_triggers = ["подтверд", "отмен", "запиш", "бронь", "tasdiq", "bekor", "yoz"]
+    if not any(t in combined for t in admin_triggers):
         return
 
-    # Извлекаем последние реплики диалога
+    admin_action = await gemini_service.extract_admin_action(admin_query)
+    if not admin_action or admin_action.action in ("chat", "query_schedule", "get_stats"):
+        return
+
+    # 1. Администратор подтверждает запись клиента
+    if admin_action.action == "confirm_booking" and admin_action.client_query:
+        booking = await find_booking_by_client_name(admin_action.client_query)
+        if booking and booking["status"] == "new":
+            await update_booking_status(booking["id"], "confirmed")
+            # Уведомляем клиента в личку Telegram
+            if booking.get("user_id"):
+                try:
+                    await message.bot.send_message(
+                        chat_id=booking["user_id"],
+                        text=(
+                            f"✅ **Ваша запись в Black Beard подтверждена!**\n\n"
+                            f"✂️ **Услуга:** {booking['service']}\n"
+                            f"⏰ **Время:** {booking['booking_time']}\n"
+                            f"📍 **Адрес:** ул. Амира Темура\n\n"
+                            "Ждем вас, ака! 💈"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить уведомление клиенту о подтверждении: {e}")
+            await message.answer(f"✅ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** успешно подтверждена!")
+            return
+
+    # 2. Администратор отменяет запись клиента
+    if admin_action.action == "cancel_booking" and admin_action.client_query:
+        booking = await find_booking_by_client_name(admin_action.client_query)
+        if booking and booking["status"] != "cancelled":
+            await update_booking_status(booking["id"], "cancelled")
+            # Уведомляем клиента в личку Telegram
+            if booking.get("user_id"):
+                try:
+                    await message.bot.send_message(
+                        chat_id=booking["user_id"],
+                        text=(
+                            f"❌ **Ваша запись на {booking['booking_time']} была отменена администратором.**\n\n"
+                            "Если у вас изменились планы, вы всегда можете выбрать другое время через онлайн-меню! 💈"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить уведомление клиенту об отмене: {e}")
+            await message.answer(f"❌ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** отменена. Окно свободно!")
+            return
+
+    # 3. Администратор вручную создает запись на клиента
+    if admin_action.action == "create_booking" and admin_action.booking_time and admin_action.client_query:
+        target_dt = parse_booking_datetime(admin_action.booking_time)
+        if target_dt:
+            active_bookings = await get_active_bookings()
+            is_avail, error_msg, _ = check_slot_availability(target_dt, active_bookings)
+            if not is_avail:
+                await message.answer(f"⚠️ Шеф, на это время записать нельзя: {error_msg}")
+                return
+
+            normalized_time = format_booking_datetime(target_dt)
+            await save_booking(
+                user_id=0,
+                username=None,
+                full_name=admin_action.client_query,
+                details="Ручная запись администратором через чат с ИИ",
+                phone=admin_action.phone,
+                service=admin_action.service or "Стрижка / Комплекс",
+                booking_time=normalized_time,
+                status="confirmed",
+            )
+            await message.answer(
+                f"💈 Запись клиента **{admin_action.client_query}** на **{normalized_time}** ({admin_action.service or 'Стрижка'}) успешно зафиксирована в графике!"
+            )
+
+
+async def process_client_intent(message: Message, client_query: str, ai_reply: str) -> None:
+    """
+    Интеллектуальная обработка намерений клиента:
+    1. Отмена своей брони ('отмени запись', 'не смогу прийти')
+    2. Проверка своей брони ('когда я записан?')
+    3. Создание новой записи с защитой от спама и горизонтом 7 дней
+    """
+    from database import (
+        get_user_active_booking,
+        cancel_user_booking,
+        has_recent_booking,
+    )
+
+    user_id = message.from_user.id
+    combined = f"{client_query} {ai_reply}".lower()
+    client_triggers = [
+        "запис", "бронь", "жд", "время", "имя", "завтра", "сегодня", "ок", "договор",
+        "отмен", "не смогу", "не приду", "yoz", "kut", "soat", "ism", "kun",
+        "ertaga", "bugun", "kel", "vaqt", "bekor", "00", "30"
+    ]
+    if not any(t in combined for t in client_triggers):
+        return
+
+    # Извлекаем контекст последних сообщений
     recent_msgs = await get_recent_messages(user_id=user_id, limit=6)
     dialog_lines = [f"{'Клиент' if m['role'] == 'user' else 'Иброхим'}: {m['text']}" for m in recent_msgs]
     dialog_sample = "\n".join(dialog_lines) if dialog_lines else f"Клиент: {client_query}\nИброхим: {ai_reply}"
 
-    # Структурированный анализ через Gemini
-    extracted = await gemini_service.extract_booking_info(dialog_sample)
-    
-    # КРИТИЧЕСКАЯ ПРОВЕРКА: фиксируем запись ТОЛЬКО если подтверждено и имя, и время!
-    if not extracted or not extracted.is_booking_confirmed:
+    client_action = await gemini_service.extract_client_action(dialog_sample)
+    if not client_action:
         return
 
-    full_name = (
-        extracted.customer_name
-        or f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
-        or "Гость"
-    )
-    username = f"@{message.from_user.username}" if message.from_user.username else None
-    phone = extracted.phone or None
-    service = extracted.service or "Стрижка / Комплекс"
-    raw_booking_time = extracted.booking_time or "Уточнено в диалоге"
-    target_dt = parse_booking_datetime(raw_booking_time)
+    # 1. КЛИЕНТ ОТМЕНЯЕТ СВОЮ ЗАПИСЬ
+    if client_action.action == "cancel_my_booking":
+        cancelled = await cancel_user_booking(user_id)
+        if cancelled:
+            logger.info(f"Клиент {user_id} отменил запись {cancelled['id']} ({cancelled['booking_time']})")
+            # Уведомляем администратора в личку
+            if settings.ADMIN_CHAT_ID:
+                try:
+                    await message.bot.send_message(
+                        chat_id=settings.ADMIN_CHAT_ID,
+                        text=(
+                            f"🔔 **ОТМЕНА ЗАПИСИ (через чат с ИИ):**\n\n"
+                            f"👤 **Клиент:** {cancelled['full_name']} (@{message.from_user.username or 'нет'})\n"
+                            f"✂️ **Услуга:** {cancelled['service']}\n"
+                            f"⏰ **Было забронировано:** {cancelled['booking_time']}\n\n"
+                            "🟢 _Окно снова открыто для записи!_"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить уведомление админу об отмене: {e}")
+        return
 
-    if target_dt:
-        # Проверяем доступность слота в базе данных (1 час на стрижку)
+    # 2. КЛИЕНТ СОЗДАЕТ НОВУЮ ЗАПИСЬ
+    if client_action.action == "create_booking" and client_action.is_booking_confirmed:
+        raw_booking_time = client_action.booking_time or "Уточнено в диалоге"
+        target_dt = parse_booking_datetime(raw_booking_time)
+
+        if not target_dt:
+            return
+
+        # ЗАЩИТА ОТ СПАМА: проверяем, нет ли уже активной предстоящей брони у этого клиента
+        active_user_b = await get_user_active_booking(user_id)
+        if active_user_b:
+            b_time = active_user_b.get("booking_time", "")
+            # Если это та же самая бронь (повтор в диалоге), не дублируем
+            if b_time == raw_booking_time or await has_recent_booking(user_id=user_id, booking_time=b_time):
+                return
+            # Если клиент хочет другое время, вежливо предупреждаем
+            await message.answer(
+                f"ℹ️ **Ака, у вас уже есть активная запись на {b_time} ({active_user_b.get('service')})!**\n\n"
+                "Если хотите перенести её на другое время, просто напишите мне: *«Перенеси на другое время»* или *«Отмени старую запись»*, и я всё сделаю! 💈",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Проверяем доступность слота (1 час длительность + максимум 7 дней горизонт)
         active_bookings = await get_active_bookings()
         is_avail, error_msg, _ = check_slot_availability(target_dt, active_bookings)
         if not is_avail:
-            logger.warning(
-                f"Отклонена запись на занятое время user_id={user_id}: {raw_booking_time} ({error_msg})"
-            )
+            logger.warning(f"Отклонена запись на {raw_booking_time}: {error_msg}")
             await message.answer(
                 f"⚠️ **Ака, на это время ({raw_booking_time}) записать не могу!**\n\n"
                 f"{error_msg}\n\n"
-                "Выбери, пожалуйста, другое свободное время, и мы с радостью всё оформим! 💈",
+                "Выбери другое свободное окошко на этой неделе, и мы всё оформим! 💈",
                 parse_mode="Markdown",
             )
             return
+
         booking_time = format_booking_datetime(target_dt)
-    else:
-        booking_time = raw_booking_time
-
-    # Защита от дублей: если за последние 15 минут уже есть запись на это время
-    if await has_recent_booking(user_id=user_id, booking_time=booking_time):
-        logger.info(f"Запись на {booking_time} для user_id {user_id} уже была сохранена ранее.")
-        return
-
-    # Сохраняем в SQLite таблицу bookings со структурированными колонками
-    await save_booking(
-        user_id=user_id,
-        username=username,
-        full_name=full_name,
-        details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]}",
-        phone=phone,
-        service=service,
-        booking_time=booking_time,
-        status="new",
-    )
-
-    # Отправляем уведомление администратору в личку (если настроен ADMIN_CHAT_ID)
-    if settings.ADMIN_CHAT_ID:
-        admin_card = (
-            "💈 **НОВАЯ ЗАПИСЬ В БАРБЕРШОП BLACK BEARD!**\n\n"
-            f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
-            f"✂️ **Услуга:** {service}\n"
-            f"⏰ **Время:** {booking_time}\n"
-            f"📞 **Телефон:** {phone or 'Не указан'}\n"
-            f"🆔 **Telegram ID:** `{user_id}`\n\n"
-            f"💬 **Контекст:** _{client_query}_\n\n"
-            "📱 _Запись доступна в панели управления (TMA)!_"
+        full_name = (
+            client_action.customer_name
+            or f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
+            or "Гость"
         )
-        try:
-            await message.bot.send_message(
-                chat_id=settings.ADMIN_CHAT_ID,
-                text=admin_card,
-                parse_mode="Markdown",
-            )
-        except Exception as e:
-            logger.warning(f"Не удалось отправить уведомление администратору: {e}")
+        username = f"@{message.from_user.username}" if message.from_user.username else None
+        phone = client_action.phone or None
+        service = client_action.service or "Стрижка / Комплекс"
 
-    # Предлагаем аккуратную кнопку брендинга разработчика
-    await message.answer(
-        "🤝 Мы ценим ваше доверие! До встречи в Black Beard.",
-        reply_markup=AI_BUSINESS_KEYBOARD,
-    )
+        # Сохранение в базу
+        await save_booking(
+            user_id=user_id,
+            username=username,
+            full_name=full_name,
+            details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]}",
+            phone=phone,
+            service=service,
+            booking_time=booking_time,
+            status="new",
+        )
+
+        # Отправляем уведомление администратору в личку
+        if settings.ADMIN_CHAT_ID:
+            admin_card = (
+                "💈 **НОВАЯ ЗАПИСЬ В БАРБЕРШОП BLACK BEARD!**\n\n"
+                f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
+                f"✂️ **Услуга:** {service}\n"
+                f"⏰ **Время:** {booking_time}\n"
+                f"📞 **Телефон:** {phone or 'Не указан'}\n"
+                f"🆔 **Telegram ID:** `{user_id}`\n\n"
+                "📱 _Запись доступна в панели управления (TMA)!_"
+            )
+            try:
+                await message.bot.send_message(
+                    chat_id=settings.ADMIN_CHAT_ID,
+                    text=admin_card,
+                    parse_mode="Markdown",
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить уведомление администратору: {e}")
+
+        # Предлагаем аккуратную кнопку брендинга разработчика
+        await message.answer(
+            "🤝 Мы ценим ваше доверие! До встречи в Black Beard.",
+            reply_markup=AI_BUSINESS_KEYBOARD,
+        )
+
+
+# Для обратной совместимости
+process_booking_intent = process_client_intent
+

@@ -150,11 +150,49 @@ async def has_recent_booking(
             return row is not None
 
 
+async def auto_complete_past_bookings(db_path: Optional[str] = None) -> int:
+    """
+    Автоматически переводит все брони со статусом 'new' или 'confirmed'
+    в статус 'completed', если время окончания процедуры (начало + 60 мин) уже прошло.
+    Возвращает количество обновленных записей.
+    """
+    from services.schedule_service import is_booking_past
+
+    target_db = get_db_path(db_path)
+    updated_count = 0
+
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, booking_time FROM bookings WHERE status IN ('new', 'confirmed')"
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        expired_ids = []
+        for row in rows:
+            raw_time = row["booking_time"]
+            if raw_time and is_booking_past(raw_time):
+                expired_ids.append(row["id"])
+
+        if expired_ids:
+            placeholders = ",".join("?" for _ in expired_ids)
+            cursor = await db.execute(
+                f"UPDATE bookings SET status = 'completed' WHERE id IN ({placeholders})",
+                expired_ids
+            )
+            await db.commit()
+            updated_count = cursor.rowcount
+
+    return updated_count
+
+
 async def get_all_bookings(db_path: Optional[str] = None) -> List[Dict]:
     """
     Получение всех записей для панели администратора (TMA).
+    Предварительно актуализирует статусы прошедших записей ('completed').
     Сортировка по ID по убыванию (новые сверху).
     """
+    await auto_complete_past_bookings(db_path)
     target_db = get_db_path(db_path)
     async with aiosqlite.connect(target_db) as db:
         db.row_factory = aiosqlite.Row
@@ -170,8 +208,10 @@ async def get_all_bookings(db_path: Optional[str] = None) -> List[Dict]:
 
 async def get_active_bookings(db_path: Optional[str] = None) -> List[Dict]:
     """
-    Получение всех активных (не отмененных) записей для проверки пересечений и расписания.
+    Получение всех активных (не отмененных и не завершенных) записей для проверки пересечений и расписания.
+    Предварительно актуализирует статусы прошедших записей ('completed').
     """
+    await auto_complete_past_bookings(db_path)
     target_db = get_db_path(db_path)
     async with aiosqlite.connect(target_db) as db:
         db.row_factory = aiosqlite.Row
@@ -179,7 +219,7 @@ async def get_active_bookings(db_path: Optional[str] = None) -> List[Dict]:
             """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details, created_at 
             FROM bookings 
-            WHERE status != 'cancelled' AND booking_time IS NOT NULL AND booking_time != ''
+            WHERE status IN ('new', 'confirmed') AND booking_time IS NOT NULL AND booking_time != ''
             ORDER BY id ASC
             """
         ) as cursor:
@@ -189,7 +229,7 @@ async def get_active_bookings(db_path: Optional[str] = None) -> List[Dict]:
 
 async def update_booking_status(booking_id: int, status: str, db_path: Optional[str] = None) -> bool:
     """
-    Обновление статуса записи (new -> confirmed -> cancelled).
+    Обновление статуса записи (new -> confirmed -> cancelled -> completed).
     """
     target_db = get_db_path(db_path)
     async with aiosqlite.connect(target_db) as db:
@@ -199,3 +239,91 @@ async def update_booking_status(booking_id: int, status: str, db_path: Optional[
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def get_booking_by_id(booking_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+    """
+    Получение конкретной записи по её ID.
+    """
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, user_id, username, full_name, phone, service, booking_time, status, details, created_at FROM bookings WHERE id = ?",
+            (booking_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_user_active_booking(user_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+    """
+    Получение ближайшей активной (предстоящей) брони пользователя.
+    """
+    await auto_complete_past_bookings(db_path)
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT id, user_id, username, full_name, phone, service, booking_time, status, details, created_at
+            FROM bookings 
+            WHERE user_id = ? AND status IN ('new', 'confirmed')
+            ORDER BY id DESC LIMIT 1
+            """,
+            (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def cancel_user_booking(user_id: int, booking_id: Optional[int] = None, db_path: Optional[str] = None) -> Optional[Dict]:
+    """
+    Отмена активной брони пользователя (клиентом).
+    Возвращает словарь отмененной брони или None, если активной брони не найдено.
+    """
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        if booking_id:
+            query = "SELECT * FROM bookings WHERE id = ? AND user_id = ? AND status IN ('new', 'confirmed')"
+            params = (booking_id, user_id)
+        else:
+            query = "SELECT * FROM bookings WHERE user_id = ? AND status IN ('new', 'confirmed') ORDER BY id DESC LIMIT 1"
+            params = (user_id,)
+
+        async with db.execute(query, params) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            booking = dict(row)
+
+        await db.execute("UPDATE bookings SET status = 'cancelled' WHERE id = ?", (booking["id"],))
+        await db.commit()
+        booking["status"] = "cancelled"
+        return booking
+
+
+async def find_booking_by_client_name(query: str, db_path: Optional[str] = None) -> Optional[Dict]:
+    """
+    Поиск активной брони клиента по имени или @username (для голосовых/текстовых команд администратора).
+    """
+    await auto_complete_past_bookings(db_path)
+    clean_query = query.strip().replace("@", "").lower()
+    target_db = get_db_path(db_path)
+
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT id, user_id, username, full_name, phone, service, booking_time, status, details, created_at
+            FROM bookings 
+            WHERE status IN ('new', 'confirmed')
+              AND (LOWER(full_name) LIKE ? OR LOWER(username) LIKE ?)
+            ORDER BY id DESC LIMIT 1
+            """,
+            (f"%{clean_query}%", f"%{clean_query}%")
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+

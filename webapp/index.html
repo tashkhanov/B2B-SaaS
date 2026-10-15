@@ -366,7 +366,7 @@
           return t.includes('сегодня') || t.includes(todayStr) || t.includes('bugun');
         });
       } else if (currentFilter === 'upcoming') {
-        filtered = allBookings.filter(b => b.status !== 'cancelled');
+        filtered = allBookings.filter(b => b.status !== 'cancelled' && b.status !== 'completed');
       }
 
       if (filtered.length === 0) {
@@ -389,8 +389,43 @@
         let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">Новая</span>';
         if (booking.status === 'confirmed') {
           statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Подтверждена</span>';
+        } else if (booking.status === 'completed') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-500/10 text-gray-400 border border-gray-500/30">Завершена</span>';
         } else if (booking.status === 'cancelled') {
           statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">Отменена</span>';
+        }
+
+        let actionsHtml = '';
+        if (booking.status === 'new') {
+          actionsHtml = `
+            <div class="flex items-center gap-2 pt-2 border-t border-surfaceBorder/40 mt-2">
+              <button onclick="updateBookingStatus(${booking.id}, 'confirmed')" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition active:scale-95">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                <span>Подтвердить</span>
+              </button>
+              <button onclick="confirmCancelBooking(${booking.id})" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-semibold transition active:scale-95">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+                <span>Отменить</span>
+              </button>
+            </div>
+          `;
+        } else if (booking.status === 'confirmed') {
+          actionsHtml = `
+            <div class="flex items-center gap-2 pt-2 border-t border-surfaceBorder/40 mt-2">
+              <button onclick="confirmCancelBooking(${booking.id})" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 text-xs font-semibold transition active:scale-95">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+                <span>Отменить бронь</span>
+              </button>
+            </div>
+          `;
         }
 
         card.innerHTML = `
@@ -468,31 +503,38 @@
                 <span>Нет TG</span>
               </button>
             `}
-
-            <button onclick="toggleStatus(${booking.id}, '${booking.status}')" class="p-2 rounded-xl bg-surfaceBorder/40 hover:bg-surfaceBorder text-gray-400 hover:text-white transition" title="Сменить статус">
-              <svg class="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </button>
           </div>
+          ${actionsHtml}
         `;
 
         list.appendChild(card);
       });
     }
 
-    async function toggleStatus(id, current) {
-      const nextStatus = current === 'confirmed' ? 'cancelled' : 'confirmed';
+    async function updateBookingStatus(id, newStatus) {
       try {
-        await fetch(`/api/bookings/${id}/status`, {
+        const res = await fetch(`/api/bookings/${id}/status`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({status: nextStatus})
+          body: JSON.stringify({status: newStatus})
         });
-        fetchBookings();
+        const data = await res.json();
+        if (data.ok) {
+          if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+          fetchBookings();
+        } else {
+          alert(data.error || 'Ошибка при обновлении статуса');
+        }
       } catch (e) {
         alert('Ошибка при смене статуса');
       }
+    }
+
+    function confirmCancelBooking(id) {
+      if (!confirm('Вы уверены, что хотите отменить эту запись? Клиент получит уведомление в Telegram.')) {
+        return;
+      }
+      updateBookingStatus(id, 'cancelled');
     }
 
     // 3. Ручное создание записи

@@ -123,8 +123,27 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             status="new",
         )
 
-        # Уведомление в Telegram администратору
         bot = request.app.get(BOT_KEY)
+
+        # 1. Мгновенное подтверждение клиенту в личный чат Telegram
+        if bot and user_id and user_id != 0:
+            client_msg = (
+                "💈 **Вы успешно записаны в барбершоп Black Beard!**\n\n"
+                f"✂️ **Услуга:** {service}\n"
+                f"⏰ **Время:** {normalized_time}\n"
+                "📍 **Адрес:** ул. Амира Темура (ориентир — гостиница 'Узбекистан')\n\n"
+                "Ждем вас! Если потребуется отменить или перенести запись — вы можете сделать это прямо через онлайн-меню или написав мне сюда в чат."
+            )
+            try:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=client_msg,
+                    parse_mode="Markdown",
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить подтверждение клиенту {user_id}: {e}")
+
+        # 2. Уведомление в Telegram администратору
         if bot and settings.ADMIN_CHAT_ID:
             admin_msg = (
                 "💈 **НОВАЯ ОНЛАЙН-ЗАПИСЬ (из Web App)!**\n\n"
@@ -155,16 +174,120 @@ async def handle_create_booking(request: web.Request) -> web.Response:
 
 
 async def handle_update_status(request: web.Request) -> web.Response:
-    """API: Смена статуса записи (new, confirmed, cancelled)"""
+    """API: Смена статуса записи (new, confirmed, cancelled) с авто-уведомлением клиенту"""
+    from database import get_booking_by_id
+
     try:
         booking_id = int(request.match_info.get("id", 0))
         data = await request.json()
         new_status = data.get("status", "confirmed")
 
+        booking = await get_booking_by_id(booking_id)
         success = await update_booking_status(booking_id, new_status)
+
+        bot = request.app.get(BOT_KEY)
+        if bot and booking and booking.get("user_id"):
+            client_chat_id = booking["user_id"]
+            if new_status == "confirmed":
+                try:
+                    await bot.send_message(
+                        chat_id=client_chat_id,
+                        text=(
+                            f"✅ **Ваша запись в Black Beard подтверждена администратором!**\n\n"
+                            f"✂️ **Услуга:** {booking['service']}\n"
+                            f"⏰ **Время:** {booking['booking_time']}\n"
+                            f"📍 **Адрес:** ул. Амира Темура\n\n"
+                            "Ждем вас в назначенное время, ака! 💈"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось уведомить клиента о подтверждении: {e}")
+            elif new_status == "cancelled":
+                try:
+                    await bot.send_message(
+                        chat_id=client_chat_id,
+                        text=(
+                            f"❌ **Ваша запись на {booking['booking_time']} была отменена.**\n\n"
+                            "Если у вас изменились планы, вы всегда можете выбрать другое время через онлайн-меню! 💈"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось уведомить клиента об отмене: {e}")
+
         return web.json_response({"ok": success, "id": booking_id, "status": new_status})
     except Exception as e:
         logger.error(f"Ошибка при смене статуса записи: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_get_my_booking(request: web.Request) -> web.Response:
+    """API: Получение активной предстоящей брони клиента"""
+    from database import get_user_active_booking
+
+    try:
+        user_id_str = request.query.get("user_id")
+        if not user_id_str:
+            return web.json_response({"booking": None})
+        user_id = int(user_id_str)
+        booking = await get_user_active_booking(user_id)
+        return web.json_response({"booking": booking})
+    except Exception as e:
+        logger.error(f"Ошибка при получении брони пользователя: {e}")
+        return web.json_response({"booking": None, "error": str(e)}, status=500)
+
+
+async def handle_cancel_my_booking(request: web.Request) -> web.Response:
+    """API: Отмена своей брони клиентом через Client TMA"""
+    from database import cancel_user_booking
+
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id") or 0)
+        booking_id = data.get("booking_id")
+        if not user_id:
+            return web.json_response({"error": "user_id обязателен"}, status=400)
+
+        cancelled = await cancel_user_booking(user_id=user_id, booking_id=booking_id)
+        if not cancelled:
+            return web.json_response({"error": "Активная бронь не найдена"}, status=404)
+
+        bot = request.app.get(BOT_KEY)
+        if bot:
+            # Уведомляем клиента в личный чат
+            try:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=(
+                        f"❌ **Ваша запись на {cancelled['booking_time']} ({cancelled['service']}) успешно отменена.**\n\n"
+                        "Будем рады видеть вас в другой удобный день! 💈"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить подтверждение клиенту об отмене: {e}")
+
+            # Уведомляем администратора
+            if settings.ADMIN_CHAT_ID:
+                try:
+                    await bot.send_message(
+                        chat_id=settings.ADMIN_CHAT_ID,
+                        text=(
+                            f"🔔 **ОТМЕНА ЗАПИСИ (через Client TMA):**\n\n"
+                            f"👤 **Клиент:** {cancelled['full_name']} (@{cancelled.get('username') or 'нет'})\n"
+                            f"✂️ **Услуга:** {cancelled['service']}\n"
+                            f"⏰ **Было забронировано:** {cancelled['booking_time']}\n\n"
+                            "🟢 _Окно снова открыто для записи!_"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить уведомление админу: {e}")
+
+        return web.json_response({"ok": True, "cancelled": cancelled})
+    except Exception as e:
+        logger.error(f"Ошибка при отмене брони через API: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
 
@@ -187,6 +310,8 @@ def create_web_app(bot: Bot = None) -> web.Application:
     app.router.add_get("/api/bookings", handle_get_bookings)
     app.router.add_post("/api/bookings", handle_create_booking)
     app.router.add_post("/api/bookings/{id}/status", handle_update_status)
+    app.router.add_get("/api/my-booking", handle_get_my_booking)
+    app.router.add_post("/api/my-booking/cancel", handle_cancel_my_booking)
 
     return app
 

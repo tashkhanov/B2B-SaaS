@@ -46,7 +46,7 @@ async def test_update_booking_status():
         full_name="Рустам",
         details="Комплекс",
         service="Комплекс",
-        booking_time="Сегодня 19:00",
+        booking_time="Завтра в 19:00",
         status="new",
         db_path=TEST_DB
     )
@@ -56,6 +56,42 @@ async def test_update_booking_status():
 
     bookings = await get_all_bookings(db_path=TEST_DB)
     assert bookings[0]["status"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_auto_complete_past_bookings():
+    from database import auto_complete_past_bookings, get_booking_by_id
+
+    # Запись в прошлом (Сегодня в 10:00)
+    past_id = await save_booking(
+        user_id=777,
+        username="@past",
+        full_name="Прошедший Клиент",
+        details="Стрижка",
+        booking_time="2020-01-01 10:00",
+        status="new",
+        db_path=TEST_DB
+    )
+
+    # Запись в будущем (Завтра в 15:00)
+    future_id = await save_booking(
+        user_id=888,
+        username="@future",
+        full_name="Будущий Клиент",
+        details="Борода",
+        booking_time="Завтра в 15:00",
+        status="new",
+        db_path=TEST_DB
+    )
+
+    completed_count = await auto_complete_past_bookings(db_path=TEST_DB)
+    assert completed_count >= 1
+
+    past_b = await get_booking_by_id(past_id, db_path=TEST_DB)
+    assert past_b["status"] == "completed"
+
+    future_b = await get_booking_by_id(future_id, db_path=TEST_DB)
+    assert future_b["status"] == "new"
 
 @pytest.mark.asyncio
 async def test_has_recent_booking():

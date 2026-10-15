@@ -118,6 +118,22 @@ def is_slot_overlapping(
     return diff_seconds < (duration_minutes * 60)
 
 
+# Максимальный горизонт бронирования вперед (7 дней)
+MAX_BOOKING_DAYS_AHEAD = 7
+
+
+def is_booking_past(raw_booking_time: str, grace_minutes: int = SERVICE_DURATION_MINUTES) -> bool:
+    """
+    Проверяет, завершилась ли процедура записи (время начала + длительность 60 мин < текущее время Ташкента).
+    """
+    dt = parse_booking_datetime(raw_booking_time)
+    if not dt:
+        return False
+    now = get_now_tashkent()
+    end_time = dt + timedelta(minutes=grace_minutes)
+    return end_time < now
+
+
 def check_slot_availability(
     target_dt: datetime,
     existing_bookings: List[Dict],
@@ -126,18 +142,33 @@ def check_slot_availability(
     """
     Проверяет, свободно ли желаемое время target_dt:
     1. Попадает ли в рабочие часы (10:00 - 22:00, последняя запись в 21:00).
-    2. Не пересекается ли с существующими активными бронями (длительность 1 час).
+    2. Не превышает ли горизонт планирования (максимум 7 дней вперед).
+    3. Не находится ли в прошлом.
+    4. Не пересекается ли с существующими активными бронями (длительность 1 час).
     
     Возвращает (is_available, error_message, conflicting_booking).
     """
     target = target_dt.astimezone(TASHKENT_TZ) if target_dt.tzinfo else target_dt.replace(tzinfo=TASHKENT_TZ)
     now = get_now_tashkent()
 
-    # Проверка на прошедшее время
+    # 1. Проверка на прошедшее время
     if target < now - timedelta(minutes=15):
         return False, "Выбранное время уже прошло.", None
 
-    # Проверка рабочих часов (10:00 - 22:00)
+    # 2. Проверка горизонта планирования (максимум 7 дней вперед)
+    diff_days = (target.date() - now.date()).days
+    if diff_days > MAX_BOOKING_DAYS_AHEAD:
+        max_allowed_date = now.date() + timedelta(days=MAX_BOOKING_DAYS_AHEAD)
+        max_month = MONTHS_RU[max_allowed_date.month] if max_allowed_date.month < len(MONTHS_RU) else ""
+        max_str = f"{max_allowed_date.day} {max_month}"
+        return (
+            False,
+            f"Запись открыта максимум на 7 дней вперед (до {max_str}). "
+            f"Пожалуйста, выберите удобный день на ближайшей неделе, ака!",
+            None,
+        )
+
+    # 3. Проверка рабочих часов (10:00 - 22:00)
     # Так как процедура длится 1 час, последняя возможная запись - в 21:00
     if target.hour < WORK_START_HOUR or (target.hour == WORK_END_HOUR and target.minute > 0) or target.hour > WORK_END_HOUR:
         return False, f"Барбершоп работает с {WORK_START_HOUR}:00 до {WORK_END_HOUR}:00. Выберите время в этом интервале.", None
