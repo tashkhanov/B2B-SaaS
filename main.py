@@ -25,6 +25,7 @@ from config import settings
 from database import init_db
 from bot.handlers import router
 from web_app import start_web_server
+from aiogram.types import BotCommand, MenuButtonWebApp, MenuButtonCommands, WebAppInfo
 
 # Настройка подробного логирования в консоль
 logging.basicConfig(
@@ -33,6 +34,34 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("BarberAdminBot")
+
+
+async def setup_bot_commands(bot: Bot) -> None:
+    """
+    Очищает старые сторонние команды в Telegram и устанавливает аккуратное меню барбершопа.
+    Также настраивает официальную кнопку меню (Menu Button) в поле ввода Telegram.
+    """
+    commands = [
+        BotCommand(command="start", description="💈 Главное меню / Запуск"),
+        BotCommand(command="price", description="✂️ Прайс-лист услуг"),
+        BotCommand(command="admin", description="📊 Панель записей (TMA)"),
+        BotCommand(command="about", description="⚡ О разработчике (Khan AI)"),
+        BotCommand(command="reset", description="🔄 Сбросить диалог"),
+    ]
+    await bot.set_my_commands(commands)
+    logger.info("Список команд бота в Telegram успешно обновлен.")
+
+    # Если задан HTTPS URL — устанавливаем постоянную кнопку Mini App в поле ввода Telegram
+    if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://"):
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="💈 Записи",
+                web_app=WebAppInfo(url=settings.WEBAPP_URL),
+            )
+        )
+        logger.info("Кнопка Menu Button (Mini App '💈 Записи') установлена в поле ввода Telegram.")
+    else:
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
 async def main() -> None:
@@ -74,13 +103,16 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
     )
 
-    # 5. Инициализация диспетчера aiogram 3.x
+    # 5. Установка актуального меню команд и кнопки Mini App в Telegram
+    await setup_bot_commands(bot)
+
+    # 6. Инициализация диспетчера aiogram 3.x
     dp = Dispatcher()
 
-    # 6. Подключение маршрутизатора с обработчиками текста, голоса и команд
+    # 7. Подключение маршрутизатора с обработчиками текста, голоса и команд
     dp.include_router(router)
 
-    # 7. Сброс старых накопившихся обновлений и запуск опроса (polling)
+    # 8. Сброс старых накопившихся обновлений и запуск опроса (polling)
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info(
         "🚀 Бот 'Иброхим (Black Beard)' запущен! Mini App: %s",
