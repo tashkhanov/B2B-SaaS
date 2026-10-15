@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Black Beard — Панель управления</title>
+  
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bgDark: '#0d1117',
+            surface: '#161b22',
+            surfaceBorder: '#30363d',
+            accent: '#ff6b00',
+            accentHover: '#e05d00',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #0d1117;
+      color: #f0f6fc;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .custom-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .pulse-dot {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+  </style>
+</head>
+
+<body class="min-h-screen flex flex-col justify-between selection:bg-accent selection:text-white">
+
+  <!-- Контейнер приложения -->
+  <div class="max-w-md mx-auto w-full px-4 pt-4 pb-20 flex-1">
+    
+    <!-- Шапка (Header) -->
+    <header class="flex items-center justify-between pb-4 border-b border-surfaceBorder mb-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-accent/15 border border-accent/40 flex items-center justify-center text-accent text-xl font-bold shadow-lg shadow-accent/10">
+          💈
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-white tracking-tight flex items-center gap-1.5">
+            Black Beard
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
+          </h1>
+          <p class="text-xs text-gray-400">Панель администратора • Ташкент</p>
+        </div>
+      </div>
+      <button onclick="fetchBookings()" class="p-2 rounded-lg bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Обновить">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
+    </header>
+
+    <!-- Сводная статистика -->
+    <div class="grid grid-cols-3 gap-2.5 mb-5">
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
+        <div class="text-xs text-gray-400 mb-0.5">Всего</div>
+        <div id="stat-total" class="text-lg font-bold text-white">0</div>
+      </div>
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
+        <div class="text-xs text-gray-400 mb-0.5">Сегодня</div>
+        <div id="stat-today" class="text-lg font-bold text-accent">0</div>
+      </div>
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 text-center">
+        <div class="text-xs text-gray-400 mb-0.5">Новые</div>
+        <div id="stat-new" class="text-lg font-bold text-emerald-400">0</div>
+      </div>
+    </div>
+
+    <!-- Фильтры списка -->
+    <div class="flex items-center space-x-1.5 bg-surface p-1 rounded-xl border border-surfaceBorder mb-4 text-xs font-medium">
+      <button onclick="setFilter('all')" id="filter-all" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold">Все</button>
+      <button onclick="setFilter('today')" id="filter-today" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">Сегодня</button>
+      <button onclick="setFilter('upcoming')" id="filter-upcoming" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">Предстоящие</button>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    <div id="loading" class="py-12 text-center text-gray-400 text-sm">
+      <div class="inline-block animate-spin rounded-full h-7 w-7 border-2 border-accent border-t-transparent mb-2"></div>
+      <div>Синхронизация записей...</div>
+    </div>
+
+    <!-- Список записей -->
+    <div id="bookings-list" class="space-y-3 hidden">
+      <!-- Карточки генерируются скриптом -->
+    </div>
+
+    <!-- Заглушка, если записей нет -->
+    <div id="empty-state" class="py-12 text-center text-gray-500 hidden bg-surface/50 border border-surfaceBorder/60 rounded-2xl p-6">
+      <div class="text-3xl mb-2">📅</div>
+      <p class="text-sm font-medium text-gray-300">Записей пока нет</p>
+      <p class="text-xs text-gray-500 mt-1">Клиенты еще не подтвердили бронь через бота.</p>
+    </div>
+
+  </div>
+
+  <!-- Стильный брендинг в футере -->
+  <footer class="w-full py-4 text-center border-t border-surfaceBorder/80 bg-bgDark/95 backdrop-blur fixed bottom-0 left-0 z-10">
+    <a href="https://asatkhanov.uz" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200 group">
+      <span class="text-accent group-hover:scale-110 transition-transform">⚡</span>
+      <span>Powered by <strong class="text-gray-200 group-hover:text-accent font-semibold">Khan AI Systems</strong></span>
+    </a>
+  </footer>
+
+  <!-- Клиентская логика -->
+  <script>
+    // Инициализация Telegram Mini App
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+      if (window.Telegram.WebApp.setHeaderColor) {
+        window.Telegram.WebApp.setHeaderColor('#0d1117');
+      }
+    }
+
+    let allBookings = [];
+    let currentFilter = 'all';
+
+    async function fetchBookings() {
+      const loading = document.getElementById('loading');
+      const list = document.getElementById('bookings-list');
+      const emptyState = document.getElementById('empty-state');
+
+      loading.classList.remove('hidden');
+      list.classList.add('hidden');
+      emptyState.classList.add('hidden');
+
+      try {
+        const response = await fetch('/api/bookings');
+        if (!response.ok) throw new Error('Ошибка сети');
+        allBookings = await response.json();
+        updateStats();
+        renderBookings();
+      } catch (err) {
+        console.error('Ошибка загрузки данных:', err);
+        loading.innerHTML = '<span class="text-rose-400">Не удалось загрузить данные</span>';
+      } finally {
+        loading.classList.add('hidden');
+      }
+    }
+
+    function updateStats() {
+      document.getElementById('stat-total').textContent = allBookings.length;
+      
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayCount = allBookings.filter(b => {
+        const d = (b.booking_time || b.created_at || '').toLowerCase();
+        return d.includes('сегодня') || d.includes(todayStr) || d.includes('bugun');
+      }).length;
+      document.getElementById('stat-today').textContent = todayCount;
+
+      const newCount = allBookings.filter(b => b.status === 'new').length;
+      document.getElementById('stat-new').textContent = newCount;
+    }
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      ['all', 'today', 'upcoming'].forEach(f => {
+        const btn = document.getElementById(`filter-all` === `filter-${f}` ? 'filter-all' : `filter-${f}`);
+        if (f === filter) {
+          btn.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20';
+        } else {
+          btn.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white';
+        }
+      });
+      renderBookings();
+    }
+
+    function renderBookings() {
+      const list = document.getElementById('bookings-list');
+      const emptyState = document.getElementById('empty-state');
+      list.innerHTML = '';
+
+      let filtered = allBookings;
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      if (currentFilter === 'today') {
+        filtered = allBookings.filter(b => {
+          const t = (b.booking_time || b.created_at || '').toLowerCase();
+          return t.includes('сегодня') || t.includes(todayStr) || t.includes('bugun');
+        });
+      } else if (currentFilter === 'upcoming') {
+        filtered = allBookings.filter(b => b.status !== 'cancelled');
+      }
+
+      if (filtered.length === 0) {
+        emptyState.classList.remove('hidden');
+        list.classList.add('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      list.classList.remove('hidden');
+
+      filtered.forEach(booking => {
+        const card = document.createElement('div');
+        card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-4 transition hover:border-surfaceBorder/90 shadow-md shadow-black/20';
+
+        const cleanUsername = (booking.username || '').replace('@', '').trim();
+        const tgLink = cleanUsername ? `https://t.me/${cleanUsername}` : null;
+        const tgResolve = cleanUsername ? `tg://resolve?domain=${cleanUsername}` : null;
+        const phone = booking.phone ? booking.phone.trim() : null;
+
+        let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">Новая</span>';
+        if (booking.status === 'confirmed') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Подтверждена</span>';
+        } else if (booking.status === 'cancelled') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">Отменена</span>';
+        }
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between mb-2.5">
+            <div>
+              <div class="font-bold text-white text-sm flex items-center gap-1.5">
+                ${escapeHtml(booking.full_name || 'Гость')}
+                ${cleanUsername ? `<span class="text-xs font-normal text-accent">@${escapeHtml(cleanUsername)}</span>` : ''}
+              </div>
+              <div class="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                <span class="text-accent">✂️</span> ${escapeHtml(booking.service || 'Стрижка / Комплекс')}
+              </div>
+            </div>
+            <div>${statusBadge}</div>
+          </div>
+
+          <div class="bg-bgDark/60 border border-surfaceBorder/60 rounded-xl p-2.5 text-xs text-gray-300 mb-3 flex items-center gap-2">
+            <span class="text-accent text-sm">⏰</span>
+            <div>
+              <span class="text-gray-400">Время записи:</span>
+              <strong class="text-white ml-1">${escapeHtml(booking.booking_time || 'Уточняется')}</strong>
+            </div>
+          </div>
+
+          ${booking.details ? `
+            <div class="text-[11px] text-gray-400 italic mb-3 line-clamp-2 bg-surfaceBorder/20 p-2 rounded-lg">
+              "${escapeHtml(booking.details)}"
+            </div>
+          ` : ''}
+
+          <!-- Кнопки действий -->
+          <div class="flex items-center gap-2 pt-1 border-t border-surfaceBorder/50">
+            ${phone ? `
+              <a href="tel:${escapeHtml(phone)}" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surfaceBorder/60 hover:bg-surfaceBorder text-xs font-semibold text-gray-200 transition active:scale-95">
+                📞 Позвонить
+              </a>
+            ` : `
+              <button onclick="alert('Клиент не указал номер телефона')" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surfaceBorder/30 text-xs font-semibold text-gray-500">
+                📞 Нет тел.
+              </button>
+            `}
+
+            ${cleanUsername ? `
+              <a href="${tgLink}" target="_blank" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-accent hover:bg-accentHover text-xs font-semibold text-white transition active:scale-95 shadow-sm shadow-accent/20">
+                💬 Написать в TG
+              </a>
+            ` : `
+              <button onclick="alert('У клиента нет публичного @username')" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surfaceBorder/30 text-xs font-semibold text-gray-500">
+                💬 Нет TG
+              </button>
+            `}
+
+            <!-- Смена статуса -->
+            <button onclick="toggleStatus(${booking.id}, '${booking.status}')" class="p-2 rounded-xl bg-surfaceBorder/40 hover:bg-surfaceBorder text-gray-400 hover:text-white transition" title="Сменить статус">
+              ✓
+            </button>
+          </div>
+        `;
+
+        list.appendChild(card);
+      });
+    }
+
+    async function toggleStatus(id, current) {
+      const nextStatus = current === 'confirmed' ? 'cancelled' : 'confirmed';
+      try {
+        await fetch(`/api/bookings/${id}/status`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({status: nextStatus})
+        });
+        fetchBookings();
+      } catch (e) {
+        alert('Ошибка при смене статуса');
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Первый запуск
+    fetchBookings();
+  </script>
+</body>
+</html>

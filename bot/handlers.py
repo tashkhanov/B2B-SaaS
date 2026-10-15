@@ -1,6 +1,14 @@
+import io
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    Message,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    WebAppInfo,
+)
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 
@@ -15,15 +23,34 @@ router = Router(name="main_router")
 # Инициализация сервиса Gemini
 gemini_service = GeminiService()
 
-# Удобная клавиатура быстрых действий для клиента
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    keyboard=[
+# Инлайн-кнопка для брендинга после записи
+AI_BUSINESS_KEYBOARD = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="🤖 Подключить ИИ в свой бизнес",
+                url="https://t.me/asatkhanov",
+            )
+        ]
+    ]
+)
+
+
+def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
+    """Генерация основной клавиатуры для клиентов и администратора"""
+    keyboard = [
         [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
         [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="🔄 Сбросить диалог")],
-    ],
-    resize_keyboard=True,
-    is_persistent=True,
-)
+    ]
+    if is_admin:
+        # Для администратора добавляем кнопку WebApp
+        keyboard.append([
+            KeyboardButton(
+                text="📊 Панель записей (TMA)",
+                web_app=WebAppInfo(url=settings.WEBAPP_URL),
+            )
+        ])
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, is_persistent=True)
 
 
 @router.message(CommandStart())
@@ -33,13 +60,72 @@ async def handle_start(message: Message):
     Приветствие от имени Иброхима и показ клавиатуры.
     """
     user_name = message.from_user.first_name or "братан"
+    is_admin = bool(settings.ADMIN_CHAT_ID and message.from_user.id == settings.ADMIN_CHAT_ID)
+    
     welcome_text = (
         f"Салам алейкум, {user_name}! 🤝\n\n"
         "Добро пожаловать в премиум-барбершоп **Black Beard** в Ташкенте!\n"
         "Я Иброхим — администратор. Чем могу помочь, ака?\n\n"
         "Подсказать по прайсу или сразу подобрать удобное время для записи?"
     )
-    await message.answer(welcome_text, reply_markup=MAIN_KEYBOARD, parse_mode="Markdown")
+    await message.answer(
+        welcome_text,
+        reply_markup=get_main_keyboard(is_admin=is_admin),
+        parse_mode="Markdown"
+    )
+
+
+@router.message(Command("about"))
+async def handle_about(message: Message):
+    """
+    Информация об авторстве и коммерческой разработке AI-систем
+    """
+    about_text = (
+        "💈 **AI-Администратор для Барбершопа 'Black Beard' (Ташкент)**\n\n"
+        "Интеллектуальная B2B-система автоматизации первой линии клиентов: "
+        "консультирование по прайсу, обработка голоса на русском и узбекском языках, "
+        "интеллектуальная память контекста и панель управления Telegram Mini App.\n\n"
+        "👨‍💻 **Разработка:** Асатханов (@asatkhanov)\n"
+        "⚡ **Платформа:** Khan AI Systems\n"
+        "🌐 **Сайт / Портфолио:** [asatkhanov.uz](https://asatkhanov.uz)\n\n"
+        "_Хотите автоматизировать продажи или клиентский сервис в вашем бизнесе с помощью ИИ?_"
+    )
+    about_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💬 Написать разработчику", url="https://t.me/asatkhanov"),
+                InlineKeyboardButton(text="🌐 asatkhanov.uz", url="https://asatkhanov.uz"),
+            ]
+        ]
+    )
+    await message.answer(about_text, reply_markup=about_keyboard, parse_mode="Markdown")
+
+
+@router.message(Command("admin"))
+async def handle_admin(message: Message):
+    """
+    Команда /admin для вызова Telegram Mini App панели управления
+    """
+    if settings.ADMIN_CHAT_ID and message.from_user.id != settings.ADMIN_CHAT_ID:
+        await message.answer("Братан, эта команда только для управляющего барбершопом!")
+        return
+
+    admin_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Открыть панель записей (TMA)",
+                    web_app=WebAppInfo(url=settings.WEBAPP_URL),
+                )
+            ]
+        ]
+    )
+    await message.answer(
+        "🛠 **Панель управления барбершопом Black Beard:**\n"
+        "Нажмите кнопку ниже, чтобы открыть Telegram Mini App со всеми актуальными записями клиентов.",
+        reply_markup=admin_keyboard,
+        parse_mode="Markdown",
+    )
 
 
 @router.message(Command("reset"))
@@ -48,10 +134,11 @@ async def handle_reset(message: Message):
     """
     Очистка контекста диалога текущего пользователя в базе данных.
     """
+    is_admin = bool(settings.ADMIN_CHAT_ID and message.from_user.id == settings.ADMIN_CHAT_ID)
     await clear_history(message.from_user.id)
     await message.answer(
         "История диалога очищена, братан! Начнем с чистого листа. О чем поболтаем? 💈",
-        reply_markup=MAIN_KEYBOARD,
+        reply_markup=get_main_keyboard(is_admin=is_admin),
     )
 
 
@@ -61,6 +148,8 @@ async def handle_price(message: Message):
     """
     Быстрый просмотр прайс-листа без ожидания нейросети.
     """
+    user_id = message.from_user.id if message.from_user else 0
+    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
     price_text = (
         "🔥 **Прайс-лист барбершопа 'Black Beard' (Ташкент):**\n\n"
         "✂️ **Мужская стрижка:** 100 000 сум\n"
@@ -69,7 +158,7 @@ async def handle_price(message: Message):
         "_В каждую услугу включены мытье головы, премиум-стайлинг и ароматный кофе или чай._ ☕\n\n"
         "На какой день и время вас записать, ака?"
     )
-    await message.answer(price_text, parse_mode="Markdown", reply_markup=MAIN_KEYBOARD)
+    await message.answer(price_text, parse_mode="Markdown", reply_markup=get_main_keyboard(is_admin=is_admin))
 
 
 @router.message(F.text == "📍 Где мы находимся?")
@@ -77,11 +166,56 @@ async def handle_location(message: Message):
     """
     Информация о локации барбершопа.
     """
+    user_id = message.from_user.id if message.from_user else 0
+    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
     location_text = (
         "📍 Мы находимся в центре Ташкента: ул. Амира Темура (ориентир — гостиница 'Узбекистан').\n\n"
         "Работаем ежедневно с 10:00 до 22:00 без выходных. Ждем в гости, ака!"
     )
-    await message.answer(location_text, reply_markup=MAIN_KEYBOARD)
+    await message.answer(location_text, reply_markup=get_main_keyboard(is_admin=is_admin))
+
+
+@router.message(F.voice)
+async def handle_voice_message(message: Message):
+    """
+    Обработчик голосовых сообщений клиента:
+    1. Скачивает аудиофайл (OGG Opus) в память.
+    2. Передает байты напрямую в Google GenAI SDK (Gemini).
+    3. Отправляет клиенту сгенерированный голосовой ответ Иброхима.
+    4. Очищает временные данные из памяти.
+    5. Проверяет наличие намерения записи.
+    """
+    user_id = message.from_user.id
+    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
+
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.RECORD_VOICE)
+
+    # 1. Скачивание аудиофайла голосового сообщения
+    file_bytes_io = io.BytesIO()
+    try:
+        voice = message.voice
+        file_info = await message.bot.get_file(voice.file_id)
+        await message.bot.download_file(file_info.file_path, destination=file_bytes_io)
+        voice_data = file_bytes_io.getvalue()
+    except Exception as e:
+        logger.error(f"Не удалось скачать голосовое сообщение: {e}")
+        await message.answer("Братан, голосовое не загрузилось, отправь еще раз, пожалуйста!")
+        return
+    finally:
+        file_bytes_io.close()
+
+    # 2. Обработка голоса через Gemini 2.5 Flash
+    ai_reply = await gemini_service.generate_response_from_voice(
+        user_id=user_id,
+        voice_bytes=voice_data,
+        mime_type="audio/ogg"
+    )
+
+    # 3. Отправка ответа клиенту
+    await message.answer(ai_reply, reply_markup=get_main_keyboard(is_admin=is_admin))
+
+    # 4. Проверка и сохранение записи
+    await process_booking_intent(message, client_query="[🎙 Голосовое сообщение]", ai_reply=ai_reply)
 
 
 @router.message(F.text)
@@ -91,10 +225,11 @@ async def handle_user_text(message: Message):
     1. Показывает статус 'печатает...' (typing action) в Telegram.
     2. Отправляет запрос в GeminiService с историей сообщений пользователя.
     3. Отправляет ответ клиенту.
-    4. При фиксации записи (наличие имени и времени) сохраняет лид и уведомляет администратора.
+    4. При фиксации записи сохраняет структурированный лид и уведомляет администратора.
     """
     user_id = message.from_user.id
     user_text = message.text.strip()
+    is_admin = bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
 
     # 1. Индикация "Иброхим печатает..." во время запроса к AI
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
@@ -103,36 +238,78 @@ async def handle_user_text(message: Message):
     ai_reply = await gemini_service.generate_response(user_id=user_id, user_message=user_text)
 
     # 3. Отправка ответа клиенту
-    await message.answer(ai_reply, reply_markup=MAIN_KEYBOARD)
+    await message.answer(ai_reply, reply_markup=get_main_keyboard(is_admin=is_admin))
 
-    # 4. Проверка на признаки записи и уведомление владельца
-    booking_keywords = ["записал", "жду вас", "ждем вас", "бронь подтверждена", "записал вас", "kutamiz", "yozib qo'ydim"]
-    if any(keyword in ai_reply.lower() for keyword in booking_keywords):
-        # Фиксируем лид в SQLite
-        full_name = f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip() or "Клиент"
-        username = f"@{message.from_user.username}" if message.from_user.username else "Нет username"
-        
-        await save_booking(
-            user_id=user_id,
-            username=username,
-            full_name=full_name,
-            details=f"Запрос клиента: {user_text} | Ответ Иброхима: {ai_reply[:200]}"
+    # 4. Проверка и фиксация структурированной брони
+    await process_booking_intent(message, client_query=user_text, ai_reply=ai_reply)
+
+
+async def process_booking_intent(message: Message, client_query: str, ai_reply: str) -> None:
+    """
+    Интеллектуальная проверка и фиксация структурированной записи:
+    Если диалог завершается согласием и фиксацией времени/имени,
+    данные извлекаются в структурированный вид и сохраняются в SQLite,
+    а клиенту ненавязчиво предлагается ссылка 'Подключить ИИ в свой бизнес'.
+    """
+    user_id = message.from_user.id
+    booking_signals = [
+        "записал", "жду вас", "ждем вас", "бронь подтверждена",
+        "записал вас", "kutamiz", "yozib qo'ydim", "kelishingiz mumkin", "договорились"
+    ]
+
+    has_signal = any(sig in ai_reply.lower() for sig in booking_signals)
+    if not has_signal:
+        return
+
+    # Запускаем структурированное извлечение через Gemini
+    dialog_sample = f"Клиент: {client_query}\nИброхим (Администратор): {ai_reply}"
+    extracted = await gemini_service.extract_booking_info(dialog_sample)
+
+    full_name = (
+        (extracted and extracted.customer_name)
+        or f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
+        or "Гость"
+    )
+    username = f"@{message.from_user.username}" if message.from_user.username else None
+    phone = (extracted and extracted.phone) or None
+    service = (extracted and extracted.service) or "Стрижка / Комплекс"
+    booking_time = (extracted and extracted.booking_time) or "Уточнено в диалоге"
+
+    # Сохраняем в SQLite таблицу bookings со структурированными колонками
+    await save_booking(
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]}",
+        phone=phone,
+        service=service,
+        booking_time=booking_time,
+        status="new",
+    )
+
+    # Отправляем уведомление администратору в личку (если настроен ADMIN_CHAT_ID)
+    if settings.ADMIN_CHAT_ID:
+        admin_card = (
+            "💈 **НОВАЯ ЗАПИСЬ В БАРБЕРШОП BLACK BEARD!**\n\n"
+            f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
+            f"✂️ **Услуга:** {service}\n"
+            f"⏰ **Время:** {booking_time}\n"
+            f"📞 **Телефон:** {phone or 'Не указан'}\n"
+            f"🆔 **Telegram ID:** `{user_id}`\n\n"
+            f"💬 **Контекст:** _{client_query}_\n\n"
+            "📱 _Запись доступна в панели управления (TMA)!_"
         )
-
-        # Если задан ADMIN_CHAT_ID в .env, пересылаем уведомление администратору
-        if settings.ADMIN_CHAT_ID:
-            admin_notify_text = (
-                "🚨 **Новая запись в барбершоп Black Beard!**\n\n"
-                f"👤 **Клиент:** {full_name} ({username})\n"
-                f"🆔 **User ID:** `{user_id}`\n"
-                f"💬 **Сообщение:** {user_text}\n"
-                f"🤖 **Ответ Иброхима:** {ai_reply}"
+        try:
+            await message.bot.send_message(
+                chat_id=settings.ADMIN_CHAT_ID,
+                text=admin_card,
+                parse_mode="Markdown",
             )
-            try:
-                await message.bot.send_message(
-                    chat_id=settings.ADMIN_CHAT_ID,
-                    text=admin_notify_text,
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.warning(f"Не удалось отправить уведомление администратору: {e}")
+        except Exception as e:
+            logger.warning(f"Не удалось отправить уведомление администратору: {e}")
+
+    # Предлагаем аккуратную кнопку брендинга разработчика
+    await message.answer(
+        "🤝 Мы ценим ваше доверие! До встречи в Black Beard.",
+        reply_markup=AI_BUSINESS_KEYBOARD,
+    )

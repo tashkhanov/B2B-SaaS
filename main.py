@@ -1,15 +1,16 @@
 """
 =============================================================================
 Проект: AI-Администратор для Барбершопа "Black Beard" (Ташкент)
-Стек: Python 3.10+, aiogram 3.x, google-genai (Gemini 2.5 Flash), aiosqlite
+Стек: Python 3.10+, aiogram 3.x, google-genai (Gemini 2.5 Flash), aiosqlite, aiohttp
 =============================================================================
 Файл main.py — главная точка входа приложения.
 Здесь происходит:
-1. Загрузка конфигурации из .env (токены Telegram и Google Gemini).
+1. Загрузка конфигурации из .env (токены Telegram, Google Gemini, TMA URL).
 2. Инициализация асинхронной базы данных SQLite (хранение контекста и лидов).
-3. Создание экземпляров Bot и Dispatcher (aiogram 3.x).
-4. Регистрация маршрутизаторов (роутеров) с хэндлерами сообщений.
-5. Запуск цикла long-polling для получения обновлений из Telegram.
+3. Запуск веб-сервера Telegram Mini App (TMA) для панели администратора.
+4. Создание экземпляров Bot и Dispatcher (aiogram 3.x).
+5. Регистрация маршрутизаторов (роутеров) с хэндлерами сообщений и голоса.
+6. Параллельный запуск long-polling и HTTP-сервера.
 =============================================================================
 """
 
@@ -23,6 +24,7 @@ from aiogram.enums import ParseMode
 from config import settings
 from database import init_db
 from bot.handlers import router
+from web_app import start_web_server
 
 # Настройка подробного логирования в консоль
 logging.basicConfig(
@@ -35,7 +37,7 @@ logger = logging.getLogger("BarberAdminBot")
 
 async def main() -> None:
     """
-    Основная асинхронная функция запуска бота.
+    Основная асинхронная функция запуска бота и веб-сервера TMA.
     """
     logger.info("Запуск инициализации бота AI-Администратора 'Black Beard'...")
 
@@ -56,33 +58,40 @@ async def main() -> None:
         sys.exit(1)
 
     # 2. Инициализация структуры базы данных SQLite
-    # Создает таблицы messages (для истории диалога) и bookings (для записи клиентов)
     logger.info("Инициализация базы данных SQLite (%s)...", settings.DB_NAME)
     await init_db(settings.DB_NAME)
     logger.info("База данных успешно инициализирована.")
 
-    # 3. Инициализация объекта бота Telegram
+    # 3. Запуск встроенного веб-сервера для Telegram Mini App (TMA)
+    web_runner = await start_web_server(
+        host=settings.WEBAPP_HOST,
+        port=settings.WEBAPP_PORT,
+    )
+
+    # 4. Инициализация объекта бота Telegram
     bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
     )
 
-    # 4. Инициализация диспетчера aiogram 3.x
+    # 5. Инициализация диспетчера aiogram 3.x
     dp = Dispatcher()
 
-    # 5. Подключение маршрутизатора с обработчиками команд и сообщений
+    # 6. Подключение маршрутизатора с обработчиками текста, голоса и команд
     dp.include_router(router)
 
-    # 6. Удаление накопившихся вебхуков и запуск постоянного опроса (polling)
+    # 7. Сброс старых накопившихся обновлений и запуск опроса (polling)
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info(
-        "🚀 Бот 'Иброхим (Black Beard)' успешно запущен! Ожидание сообщений клиентов..."
+        "🚀 Бот 'Иброхим (Black Beard)' запущен! Mini App: %s",
+        settings.WEBAPP_URL,
     )
 
     try:
         await dp.start_polling(bot)
     finally:
-        logger.info("Остановка бота и закрытие сессии...")
+        logger.info("Остановка бота и веб-сервера...")
+        await web_runner.cleanup()
         await bot.session.close()
 
 
@@ -90,4 +99,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Бот выключен пользователем.")
+        logger.info("Приложение выключено пользователем.")
