@@ -1,259 +1,310 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" class="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>👑 Super-Admin Hub | Управление сетью SaaS</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Super-Admin Hub • Управление сетью SaaS</title>
+
+  <!-- Telegram Web App SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
-            bgDark: '#0f0f11',
-            surface: '#18181c',
-            surfaceBorder: '#282830',
+            bgDark: '#0a0a0c',
+            surface: '#131316',
+            surfaceHover: '#18181d',
+            surfaceBorder: '#232329',
             accent: '#c5a059',
-            accentHover: '#b58f47',
+            accentHover: '#b38f48',
             accentLight: '#dfba73',
-            danger: '#ef4444',
-            warning: '#f59e0b',
-            success: '#10b981',
+            gold: '#d4af37'
           },
           fontFamily: {
-            sans: ['Outfit', 'sans-serif'],
-            serif: ['Playfair Display', 'serif'],
+            sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
           }
         }
       }
     }
   </script>
+
   <style>
     body {
-      background-color: #0f0f11;
-      color: #f3f4f6;
-      font-family: 'Outfit', sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0a0a0c;
+      color: #f0f6fc;
       -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .pulse-dot {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+      animation: pulse 2s infinite;
+    }
+    .pulse-amber {
+      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+      animation: pulseAmber 2s infinite;
+    }
+    .pulse-red {
+      box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+      animation: pulseRed 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+    @keyframes pulseAmber {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+    @keyframes pulseRed {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
     }
     .custom-scrollbar::-webkit-scrollbar {
-      height: 6px;
-      width: 6px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-track {
-      background: #18181c;
+      height: 4px;
+      width: 4px;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #282830;
+      background: #26262b;
       border-radius: 4px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: #c5a059;
     }
   </style>
 </head>
-<body class="min-h-screen flex flex-col antialiased selection:bg-accent/20">
+<body class="bg-bgDark text-gray-100 min-h-screen pb-16 pt-3 px-3 sm:px-6 antialiased">
 
   <!-- Toast уведомления -->
-  <div id="toast" class="fixed top-5 right-5 z-50 transform transition-all duration-300 translate-y-[-100px] opacity-0 pointer-events-none">
-    <div id="toast-body" class="flex items-center gap-3 px-4 py-3 rounded-2xl bg-surface border border-surfaceBorder shadow-2xl text-xs font-semibold text-white">
-      <span id="toast-icon">✨</span>
+  <div id="toast" class="fixed top-4 right-4 z-50 transform transition-all duration-300 translate-y-[-100px] opacity-0 pointer-events-none">
+    <div id="toast-body" class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-surface border border-accent/40 shadow-xl text-xs font-semibold text-white">
+      <span id="toast-icon" class="text-accent"></span>
       <span id="toast-msg">Готово</span>
     </div>
   </div>
 
-  <!-- AUTH MODAL (Окно входа по паролю) -->
-  <div id="auth-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md hidden">
-    <div class="w-full max-w-sm bg-surface border border-surfaceBorder rounded-3xl p-6 sm:p-8 text-center shadow-2xl relative">
-      <div class="w-16 h-16 mx-auto rounded-2xl bg-accent/10 border border-accent/30 flex items-center justify-center text-3xl mb-4 text-accent">
-        👑
+  <!-- AUTH MODAL (Окно входа по мастер-паролю) -->
+  <div id="auth-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md hidden">
+    <div class="w-full max-w-sm bg-surface border border-surfaceBorder rounded-2xl p-6 text-center shadow-2xl relative">
+      <div class="w-12 h-12 mx-auto rounded-xl bg-accent/15 border border-accent/30 text-accent flex items-center justify-center mb-3 shadow-lg shadow-accent/10">
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+        </svg>
       </div>
-      <h2 class="text-xl font-bold text-white mb-1">Super-Admin Hub</h2>
-      <p class="text-xs text-gray-400 mb-6">Введите мастер-пароль суперадминистратора для доступа к управлению сетью</p>
+      <h2 class="text-base font-bold text-white mb-1">Super-Admin Hub</h2>
+      <p class="text-xs text-gray-400 mb-5">Введите мастер-пароль платформы для доступа к управлению</p>
       
-      <form onsubmit="handleAuthSubmit(event)" class="space-y-4">
-        <div>
-          <input type="password" id="auth-password" placeholder="Мастер-пароль..." required
-                 class="w-full px-4 py-3 bg-bgDark border border-surfaceBorder rounded-xl text-white text-sm focus:outline-none focus:border-accent text-center tracking-wider transition-all">
-        </div>
-        <div id="auth-error" class="text-xs text-red-400 hidden font-medium">Неверный пароль доступа</div>
+      <form onsubmit="handleAuthSubmit(event)" class="space-y-3">
+        <input type="password" id="auth-password" placeholder="Мастер-пароль..." required
+               class="w-full px-3.5 py-2.5 bg-bgDark border border-surfaceBorder rounded-xl text-white text-xs text-center focus:outline-none focus:border-accent tracking-widest transition">
+        <div id="auth-error" class="text-[11px] text-rose-400 hidden font-medium">Неверный мастер-пароль</div>
         <button type="submit" id="auth-btn"
-                class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-accent to-accentLight text-black font-bold text-sm hover:opacity-95 active:scale-[0.98] transition-all shadow-lg shadow-accent/20">
-          Войти в систему
+                class="w-full py-2.5 px-4 rounded-xl bg-accent text-bgDark font-bold text-xs hover:bg-accentHover active:scale-[0.98] transition shadow-md shadow-accent/20">
+          Войти в панель
         </button>
       </form>
-      <div class="mt-4 text-[10px] text-gray-500">Khan AI Systems • SaaS Management</div>
+      <div class="mt-4 text-[10px] text-gray-500 font-mono">Khan AI Systems • SaaS Control</div>
     </div>
   </div>
 
-  <!-- ОСНОВНОЙ КОНТЕНТ ПАНЕЛИ -->
-  <div id="main-content" class="flex-1 flex flex-col max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+  <!-- ОСНОВНОЙ КОНТЕЙНЕР ПАНЕЛИ -->
+  <div id="main-content" class="max-w-4xl w-full mx-auto">
     
     <!-- HEADER -->
-    <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-surfaceBorder">
-      <div class="flex items-center gap-3.5">
-        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-accent/20 to-accent/5 border border-accent/40 flex items-center justify-center text-2xl shadow-lg shadow-accent/10 shrink-0">
-          👑
+    <header class="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-surfaceBorder/80">
+      <div class="flex items-center space-x-3 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-surface border border-accent/40 flex items-center justify-center p-2 shadow-sm shadow-accent/10 shrink-0">
+          <svg class="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
         </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight">Super-Admin Hub</h1>
-            <span class="px-2 py-0.5 rounded-full bg-accent/15 border border-accent/30 text-[10px] font-bold text-accent uppercase tracking-wider">
-              Network Master
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <h1 class="text-sm font-bold text-white tracking-tight">Super-Admin Hub</h1>
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-accent/15 border border-accent/30 text-[9px] font-bold text-accent uppercase tracking-wider">
+              Network
             </span>
           </div>
-          <p class="text-xs text-gray-400 mt-0.5">Управление подписками, точками и контролем доступа (Kill Switch)</p>
+          <p class="text-[11px] text-gray-400 font-normal truncate">Управление подписками и точками сети</p>
         </div>
       </div>
 
-      <div class="flex items-center gap-2.5">
-        <button onclick="openNewTenantModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent to-accentLight text-black font-bold text-xs hover:opacity-95 shadow-md shadow-accent/20 active:scale-[0.98] transition-all">
-          <span>➕</span>
-          <span>Подключить салон</span>
+      <div class="flex items-center gap-2 shrink-0">
+        <button onclick="openNewTenantModal()" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-accent hover:bg-accentHover text-bgDark font-bold text-xs transition shadow-sm shadow-accent/20 active:scale-95">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span class="hidden xs:inline sm:inline">Салон</span>
         </button>
-        <button onclick="loadTenants()" title="Обновить список" class="w-10 h-10 rounded-xl bg-surface border border-surfaceBorder text-gray-300 hover:text-white hover:border-gray-500 flex items-center justify-center transition-all">
-          🔄
+        <button onclick="loadTenants()" id="reload-btn" title="Обновить" class="p-2 rounded-xl bg-surface hover:bg-surfaceHover border border-surfaceBorder text-gray-300 hover:text-white transition active:scale-95">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
         </button>
       </div>
     </header>
 
-    <!-- METRICS CARDS -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 my-6">
-      <!-- Всего заведений -->
-      <div class="bg-surface border border-surfaceBorder rounded-2xl p-4 flex flex-col justify-between">
-        <div class="flex items-center justify-between text-gray-400 mb-2">
-          <span class="text-xs font-medium">Всего заведений</span>
-          <span class="text-base">🏢</span>
+    <!-- METRICS CARDS (Компактные аккуратные карточки 2x2 на мобильном) -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+      <!-- 1. Всего заведений -->
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-gray-400 mb-1.5">
+          <span class="text-[11px] font-medium">Всего точек</span>
+          <div class="w-6 h-6 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-gray-400">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+          </div>
         </div>
-        <div class="text-2xl sm:text-3xl font-black text-white" id="stat-total">0</div>
-        <div class="text-[10px] text-gray-500 mt-1">Клиентская сеть</div>
+        <div class="text-xl sm:text-2xl font-bold text-white tracking-tight" id="stat-total">0</div>
+        <div class="text-[10px] text-gray-500 font-normal mt-0.5">В реестре SaaS</div>
       </div>
 
-      <!-- Активные -->
-      <div class="bg-surface border border-surfaceBorder rounded-2xl p-4 flex flex-col justify-between">
-        <div class="flex items-center justify-between text-success mb-2">
-          <span class="text-xs font-medium">Активные подписки</span>
-          <span class="text-base">🟢</span>
+      <!-- 2. Активные -->
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-emerald-400 mb-1.5">
+          <span class="text-[11px] font-medium">Активные</span>
+          <div class="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
         </div>
-        <div class="text-2xl sm:text-3xl font-black text-success" id="stat-active">0</div>
-        <div class="text-[10px] text-gray-500 mt-1">Штатный режим</div>
+        <div class="text-xl sm:text-2xl font-bold text-emerald-400 tracking-tight" id="stat-active">0</div>
+        <div class="text-[10px] text-gray-500 font-normal mt-0.5">Штатный режим</div>
       </div>
 
-      <!-- Grace Period / Истекают -->
-      <div class="bg-surface border border-surfaceBorder rounded-2xl p-4 flex flex-col justify-between">
-        <div class="flex items-center justify-between text-warning mb-2">
-          <span class="text-xs font-medium">Grace / Истекают</span>
-          <span class="text-base">🟡</span>
+      <!-- 3. Grace / Истекают -->
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-amber-400 mb-1.5">
+          <span class="text-[11px] font-medium">Grace / 3 дня</span>
+          <div class="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
         </div>
-        <div class="text-2xl sm:text-3xl font-black text-warning" id="stat-grace">0</div>
-        <div class="text-[10px] text-gray-500 mt-1">Требуют внимания</div>
+        <div class="text-xl sm:text-2xl font-bold text-amber-400 tracking-tight" id="stat-grace">0</div>
+        <div class="text-[10px] text-gray-500 font-normal mt-0.5">Льготный период</div>
       </div>
 
-      <!-- Заблокированные -->
-      <div class="bg-surface border border-surfaceBorder rounded-2xl p-4 flex flex-col justify-between">
-        <div class="flex items-center justify-between text-danger mb-2">
-          <span class="text-xs font-medium">Заблокировано</span>
-          <span class="text-base">🔴</span>
+      <!-- 4. Заблокировано -->
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-3 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-rose-400 mb-1.5">
+          <span class="text-[11px] font-medium">Заблокировано</span>
+          <div class="w-6 h-6 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
         </div>
-        <div class="text-2xl sm:text-3xl font-black text-danger" id="stat-locked">0</div>
-        <div class="text-[10px] text-gray-500 mt-1">Kill Switch / Просрочка</div>
+        <div class="text-xl sm:text-2xl font-bold text-rose-400 tracking-tight" id="stat-locked">0</div>
+        <div class="text-[10px] text-gray-500 font-normal mt-0.5">Kill Switch</div>
       </div>
     </div>
 
-    <!-- ТАБЛИЦА / КАРТОЧКИ САЛОНОВ -->
-    <div class="flex-1 bg-surface border border-surfaceBorder rounded-2xl overflow-hidden flex flex-col">
-      <div class="p-4 border-b border-surfaceBorder flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white/[0.02]">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-bold text-white">Реестр арендаторов (Tenants)</span>
-          <span id="tenants-count-badge" class="px-2 py-0.5 rounded-full bg-surfaceBorder text-gray-300 text-[11px] font-semibold">0</span>
-        </div>
-        <div class="relative w-full sm:w-64">
-          <input type="text" id="search-input" oninput="filterTenantsTable()" placeholder="Поиск по названию или слагу..."
-                 class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-accent">
-        </div>
+    <!-- ПОИСК И СТРОКА РЕЕСТРА -->
+    <div class="flex items-center justify-between gap-2.5 mb-3">
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs font-bold text-white uppercase tracking-wider">Клиенты сети</span>
+        <span id="tenants-count-badge" class="px-2 py-0.5 rounded-full bg-surface border border-surfaceBorder text-gray-400 text-[10px] font-mono">0</span>
       </div>
-
-      <!-- Контейнер таблицы / списка -->
-      <div class="overflow-x-auto custom-scrollbar flex-1">
-        <table class="w-full text-left text-xs">
-          <thead class="bg-white/[0.01] text-gray-400 uppercase text-[10px] font-semibold border-b border-surfaceBorder">
-            <tr>
-              <th class="py-3 px-4">Салон & Слаг</th>
-              <th class="py-3 px-4">Статус & Срок</th>
-              <th class="py-3 px-4">Контакты & ID</th>
-              <th class="py-3 px-4 text-right">Действия</th>
-            </tr>
-          </thead>
-          <tbody id="tenants-tbody" class="divide-y divide-surfaceBorder">
-            <tr>
-              <td colspan="4" class="py-12 text-center text-gray-500">Загрузка данных заведений...</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="relative w-44 sm:w-60">
+        <input type="text" id="search-input" oninput="filterTenants()" placeholder="Поиск салона..."
+               class="w-full bg-surface border border-surfaceBorder rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-accent transition">
+        <svg class="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-2.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
       </div>
     </div>
+
+    <!-- СПИСОК КАРТОЧЕК САЛОНОВ (Адаптивный реестр, не ломается на мобильных) -->
+    <div id="tenants-container" class="space-y-3">
+      <div class="py-12 text-center text-gray-500 text-xs">Загрузка данных заведений...</div>
+    </div>
+
   </div>
 
   <!-- MODAL: ПОДКЛЮЧИТЬ НОВЫЙ САЛОН -->
-  <div id="new-tenant-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm hidden">
-    <div class="w-full max-w-md bg-surface border border-surfaceBorder rounded-3xl p-6 sm:p-7 shadow-2xl relative">
-      <div class="flex items-center justify-between mb-4 pb-3 border-b border-surfaceBorder">
-        <h3 class="text-base font-bold text-white flex items-center gap-2">
-          <span>🏢</span> Подключение нового салона
-        </h3>
-        <button onclick="closeNewTenantModal()" class="w-8 h-8 rounded-xl bg-bgDark border border-surfaceBorder text-gray-400 hover:text-white flex items-center justify-center text-sm">
+  <div id="new-tenant-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm hidden">
+    <div class="w-full max-w-md bg-surface border border-surfaceBorder rounded-2xl p-5 sm:p-6 shadow-2xl relative">
+      <div class="flex items-center justify-between mb-4 pb-3 border-b border-surfaceBorder/80">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-accent/15 border border-accent/30 text-accent flex items-center justify-center">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            </svg>
+          </div>
+          <h3 class="text-sm font-bold text-white">Новый салон в сети</h3>
+        </div>
+        <button onclick="closeNewTenantModal()" class="w-7 h-7 rounded-lg bg-bgDark border border-surfaceBorder text-gray-400 hover:text-white flex items-center justify-center text-xs">
           ✕
         </button>
       </div>
 
-      <form onsubmit="handleCreateTenantSubmit(event)" class="space-y-3.5 text-xs">
+      <form onsubmit="handleCreateTenantSubmit(event)" class="space-y-3 text-xs">
         <div>
           <label class="block text-gray-400 mb-1 font-medium">Название салона / точки *</label>
           <input type="text" id="new-name" required placeholder="Например: Brohouse Barbershop"
-                 class="w-full px-3.5 py-2.5 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
+                 class="w-full px-3 py-2 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
         </div>
 
         <div>
-          <label class="block text-gray-400 mb-1 font-medium">Уникальный слаг (латиница без пробелов) *</label>
+          <label class="block text-gray-400 mb-1 font-medium">Слаг в системе (латиница) *</label>
           <input type="text" id="new-slug" required placeholder="brohouse"
-                 class="w-full px-3.5 py-2.5 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
+                 class="w-full px-3 py-2 bg-bgDark border border-surfaceBorder rounded-xl text-white font-mono focus:outline-none focus:border-accent">
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-2.5">
           <div>
             <label class="block text-gray-400 mb-1 font-medium">Telegram Chat ID админа</label>
             <input type="number" id="new-admin-id" placeholder="1243374131"
-                   class="w-full px-3.5 py-2.5 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
+                   class="w-full px-3 py-2 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
           </div>
           <div>
             <label class="block text-gray-400 mb-1 font-medium">Телефон салона</label>
             <input type="text" id="new-phone" placeholder="+998 97 012-55-55"
-                   class="w-full px-3.5 py-2.5 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
+                   class="w-full px-3 py-2 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-2.5">
           <div>
-            <label class="block text-gray-400 mb-1 font-medium">Имя управляющего</label>
+            <label class="block text-gray-400 mb-1 font-medium">Контактное лицо</label>
             <input type="text" id="new-contact-name" placeholder="Akmal / Nodir"
-                   class="w-full px-3.5 py-2.5 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
+                   class="w-full px-3 py-2 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
           </div>
           <div>
-            <label class="block text-gray-400 mb-1 font-medium">Дней подписки (старт)</label>
+            <label class="block text-gray-400 mb-1 font-medium">Дней подписки</label>
             <input type="number" id="new-days" value="30" min="1"
-                   class="w-full px-3.5 py-2.5 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
+                   class="w-full px-3 py-2 bg-bgDark border border-surfaceBorder rounded-xl text-white focus:outline-none focus:border-accent">
           </div>
         </div>
 
-        <div class="pt-3 flex gap-2">
-          <button type="button" onclick="closeNewTenantModal()" class="w-1/3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-gray-300 font-semibold hover:bg-white/5">
+        <div class="pt-2 flex gap-2">
+          <button type="button" onclick="closeNewTenantModal()" class="w-1/3 py-2 rounded-xl bg-bgDark border border-surfaceBorder text-gray-400 font-semibold hover:text-white">
             Отмена
           </button>
-          <button type="submit" id="create-tenant-btn" class="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-accent to-accentLight text-black font-bold shadow-lg shadow-accent/20 hover:opacity-95">
-            Подключить заведение
+          <button type="submit" id="create-tenant-btn" class="w-2/3 py-2 rounded-xl bg-accent text-bgDark font-bold hover:bg-accentHover shadow-md shadow-accent/20">
+            Подключить салон
           </button>
         </div>
       </form>
@@ -265,7 +316,7 @@
     let authToken = localStorage.getItem('super_admin_token') || '';
     let allTenants = [];
 
-    // Чтение токена из параметров URL (?token=...)
+    // Чтение токена из query ?token=...
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token');
     if (queryToken) {
@@ -274,24 +325,29 @@
     }
 
     // Инициализация Telegram WebApp
-    if (window.Telegram && window.Telegram.WebApp) {
-      const tg = window.Telegram.WebApp;
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
       tg.ready();
       tg.expand();
       try {
-        tg.setHeaderColor('#0f0f11');
-        tg.setBackgroundColor('#0f0f11');
+        tg.setHeaderColor('#0a0a0c');
+        tg.setBackgroundColor('#0a0a0c');
       } catch (e) {}
     }
 
-    function showToast(msg, icon = '✨') {
+    function showToast(msg, iconSvg = '') {
       const toast = document.getElementById('toast');
       document.getElementById('toast-msg').textContent = msg;
-      document.getElementById('toast-icon').textContent = icon;
+      document.getElementById('toast-icon').innerHTML = iconSvg || `
+        <svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      `;
       toast.classList.remove('translate-y-[-100px]', 'opacity-0');
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
       setTimeout(() => {
         toast.classList.add('translate-y-[-100px]', 'opacity-0');
-      }, 3000);
+      }, 2800);
     }
 
     async function checkAuthAndLoad() {
@@ -300,7 +356,6 @@
         return;
       }
 
-      // Проверка валидности токена
       try {
         const res = await fetch('/api/super/tenants', {
           headers: { 'X-Super-Admin-Token': authToken }
@@ -312,12 +367,11 @@
           return;
         }
         document.getElementById('auth-modal').classList.add('hidden');
-        const data = await res.json();
-        allTenants = data;
+        allTenants = await res.json();
         renderTenants(allTenants);
         updateKPIs(allTenants);
       } catch (e) {
-        console.error('Ошибка загрузки данных:', e);
+        console.error('Ошибка загрузки данных сети:', e);
       }
     }
 
@@ -342,22 +396,25 @@
           authToken = data.token;
           localStorage.setItem('super_admin_token', authToken);
           document.getElementById('auth-modal').classList.add('hidden');
-          showToast('Успешный вход в Super-Admin Hub', '👑');
+          showToast('Авторизован в Super-Admin Hub');
           loadTenants();
         } else {
           errEl.classList.remove('hidden');
-          errEl.textContent = data.error || 'Неверный пароль';
+          errEl.textContent = data.error || 'Неверный мастер-пароль';
         }
       } catch (err) {
         errEl.classList.remove('hidden');
-        errEl.textContent = 'Ошибка сети при авторизации';
+        errEl.textContent = 'Ошибка связи с сервером';
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Войти в систему';
+        btn.textContent = 'Войти в панель';
       }
     }
 
     async function loadTenants() {
+      const reloadBtn = document.getElementById('reload-btn');
+      if (reloadBtn) reloadBtn.classList.add('animate-spin');
+
       try {
         const res = await fetch('/api/super/tenants', {
           headers: { 'X-Super-Admin-Token': authToken }
@@ -371,9 +428,11 @@
         allTenants = await res.json();
         renderTenants(allTenants);
         updateKPIs(allTenants);
-        showToast('Данные сети обновлены', '🔄');
+        showToast('Данные сети обновлены');
       } catch (e) {
         console.error(e);
+      } finally {
+        if (reloadBtn) reloadBtn.classList.remove('animate-spin');
       }
     }
 
@@ -401,90 +460,154 @@
     }
 
     function renderTenants(tenants) {
-      const tbody = document.getElementById('tenants-tbody');
+      const container = document.getElementById('tenants-container');
       if (!tenants || tenants.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="py-12 text-center text-gray-500">Заведений не найдено</td></tr>`;
+        container.innerHTML = `
+          <div class="bg-surface border border-surfaceBorder rounded-2xl p-8 text-center text-gray-500 text-xs">
+            Заведений в сети не найдено
+          </div>
+        `;
         return;
       }
 
-      tbody.innerHTML = tenants.map(t => {
-        // Определение цвета бейджа
+      container.innerHTML = tenants.map(t => {
+        // Статус бейдж
         let badgeHtml = '';
+        let statusDot = '';
         if (t.is_locked) {
-          badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/15 border border-red-500/30 text-red-400 font-bold text-[10px]">
-            🔴 Заблокирован
-          </span>`;
+          badgeHtml = `
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 font-bold text-[10px]">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-400 pulse-red"></span>
+              <span>Заблокирован</span>
+            </span>
+          `;
         } else if (t.status === 'grace_period') {
-          badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold text-[10px]">
-            🟡 Grace: ${t.grace_hours_left || 0} ч.
-          </span>`;
+          badgeHtml = `
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold text-[10px]">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 pulse-amber"></span>
+              <span>Grace: ${t.grace_hours_left || 0} ч.</span>
+            </span>
+          `;
         } else if (t.status === 'warning') {
-          badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 font-bold text-[10px]">
-            ⚠️ ${t.days_left} дн. осталось
-          </span>`;
+          badgeHtml = `
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 font-bold text-[10px]">
+              <span class="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>
+              <span>Истекает (${t.days_left} дн.)</span>
+            </span>
+          `;
         } else {
-          badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold text-[10px]">
-            🟢 Активна (${t.days_left} дн.)
-          </span>`;
+          badgeHtml = `
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold text-[10px]">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot"></span>
+              <span>Активна (${t.days_left} дн.)</span>
+            </span>
+          `;
         }
 
-        const killSwitchText = t.is_active === 1 ? '🔒 Блокировать' : '🔓 Разблокировать';
-        const killSwitchClass = t.is_active === 1 ? 'hover:bg-red-500/10 text-red-400 border-red-500/30' : 'hover:bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+        const isLocked = t.is_locked;
+        const killBtnClass = isLocked
+          ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-400'
+          : 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/40 text-rose-400';
+        const killBtnText = isLocked ? 'Разблокировать' : 'Блокировать';
+        const killBtnIcon = isLocked
+          ? `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>`
+          : `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`;
 
         return `
-          <tr class="hover:bg-white/[0.015] transition-colors">
-            <!-- Салон & Слаг -->
-            <td class="py-3.5 px-4">
-              <div class="font-bold text-white text-sm">${t.name}</div>
-              <div class="text-[11px] text-gray-400 flex items-center gap-1.5 mt-0.5">
-                <span class="font-mono text-accent">@${t.tenant_slug}</span>
-                <span>•</span>
-                <span>ID: ${t.id}</span>
+          <div class="bg-surface border border-surfaceBorder hover:border-surfaceBorder/80 rounded-2xl p-4 transition shadow-sm">
+            
+            <!-- ВЕРХНЯЯ СТРОКА: Имя, Слаг и Статус-бейдж -->
+            <div class="flex items-start justify-between gap-2.5 mb-2.5">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <h3 class="text-sm font-bold text-white tracking-tight truncate">${t.name}</h3>
+                  <span class="px-1.5 py-0.2 rounded-md bg-white/5 border border-white/10 text-[10px] font-mono text-accent">@${t.tenant_slug}</span>
+                  <span class="text-[10px] text-gray-500 font-mono">#${t.id}</span>
+                </div>
+                <div class="text-[11px] text-gray-400 mt-1 flex items-center gap-2 flex-wrap">
+                  <span class="flex items-center gap-1">
+                    <svg class="w-3 h-3 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                    </svg>
+                    <span>${t.contact_phone || 'Без телефона'}</span>
+                  </span>
+                  ${t.contact_name ? `<span class="text-gray-500">• ${t.contact_name}</span>` : ''}
+                  ${t.admin_chat_id ? `<span class="text-gray-500">• TG: ${t.admin_chat_id}</span>` : ''}
+                </div>
               </div>
-            </td>
-
-            <!-- Статус & Срок -->
-            <td class="py-3.5 px-4">
-              <div class="mb-1">${badgeHtml}</div>
-              <div class="text-[11px] text-gray-400 font-mono">До: ${t.expires_at || 'Не задано'}</div>
-            </td>
-
-            <!-- Контакты & ID -->
-            <td class="py-3.5 px-4">
-              <div class="text-gray-200 font-medium">${t.contact_phone || 'Без телефона'}</div>
-              <div class="text-[11px] text-gray-400 mt-0.5">
-                ${t.contact_name ? `${t.contact_name} ` : ''}
-                ${t.admin_chat_id ? `<span class="text-gray-500">(TG: ${t.admin_chat_id})</span>` : ''}
+              <div class="shrink-0">
+                ${badgeHtml}
               </div>
-            </td>
+            </div>
 
-            <!-- Действия -->
-            <td class="py-3.5 px-4 text-right">
-              <div class="flex items-center justify-end gap-1.5 flex-wrap">
-                <!-- Кнопка +30 дней -->
-                <button onclick="extendTenant30(${t.id}, '${t.name}')" 
-                        class="px-2.5 py-1.5 rounded-lg bg-accent/15 border border-accent/40 text-accent font-bold hover:bg-accent hover:text-black transition-all active:scale-95 shadow-sm">
-                  ⚡ +30 дней
-                </button>
+            <!-- ИНФО-ПЛАШКА СРОКА ПОДПИСКИ -->
+            <div class="bg-bgDark/80 rounded-xl px-3 py-2 mb-3 flex items-center justify-between text-xs border border-surfaceBorder/60">
+              <div class="flex items-center gap-1.5 text-gray-400 text-[11px]">
+                <svg class="w-3.5 h-3.5 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+                <span>Срок до:</span>
+                <span class="font-semibold text-white font-mono">${t.expires_at || '—'}</span>
+              </div>
+              <div class="text-[11px] font-bold ${isLocked ? 'text-rose-400' : 'text-emerald-400'}">
+                ${isLocked ? 'Доступ закрыт' : `${t.days_left} дн. активна`}
+              </div>
+            </div>
 
-                <!-- Kill Switch Toggle -->
-                <button onclick="toggleTenantKillSwitch(${t.id}, '${t.name}', ${t.is_active})"
-                        class="px-2 py-1.5 rounded-lg bg-bgDark border ${killSwitchClass} font-semibold transition-all active:scale-95 text-[11px]">
-                  ${killSwitchText}
-                </button>
+            <!-- СТРОКА ДЕЙСТВИЙ (Аккуратные кнопки, никогда не вылезают за экран) -->
+            <div class="grid grid-cols-2 sm:flex sm:items-center sm:justify-end gap-2 pt-1 border-t border-surfaceBorder/50">
+              
+              <!-- 1. Кнопка +30 дней -->
+              <button onclick="extendTenant30(${t.id}, '${t.name}')"
+                      class="px-3 py-2 rounded-xl bg-accent/15 border border-accent/40 text-accent hover:bg-accent hover:text-bgDark font-bold text-xs transition flex items-center justify-center gap-1.5 active:scale-95 shadow-sm">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+                <span>+30 дней</span>
+              </button>
 
-                <!-- Ссылки для инспекции -->
+              <!-- 2. Kill Switch кнопка -->
+              <button onclick="toggleTenantKillSwitch(${t.id}, '${t.name}', ${t.is_active})"
+                      class="px-3 py-2 rounded-xl border ${killBtnClass} font-semibold text-xs transition flex items-center justify-center gap-1.5 active:scale-95">
+                ${killBtnIcon}
+                <span>${killBtnText}</span>
+              </button>
+
+              <!-- 3. Кнопки входа для инспекции -->
+              <div class="col-span-2 sm:col-auto flex items-center gap-2">
                 <a href="/admin?token=${encodeURIComponent(authToken)}" target="_blank"
-                   title="Войти в админку точки" class="p-1.5 rounded-lg bg-bgDark border border-surfaceBorder text-gray-300 hover:text-white hover:border-gray-500 transition-all">
-                  🛠️
+                   title="Открыть панель администратора салона"
+                   class="flex-1 sm:flex-none px-3 py-2 rounded-xl bg-bgDark hover:bg-white/5 border border-surfaceBorder text-gray-300 hover:text-white transition text-xs font-medium flex items-center justify-center gap-1.5 active:scale-95">
+                  <svg class="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="4" y1="21" x2="4" y2="14"></line>
+                    <line x1="4" y1="10" x2="4" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12" y2="3"></line>
+                    <line x1="20" y1="21" x2="20" y2="16"></line>
+                    <line x1="20" y1="12" x2="20" y2="3"></line>
+                    <line x1="1" y1="14" x2="7" y2="14"></line>
+                    <line x1="9" y1="8" x2="15" y2="8"></line>
+                    <line x1="17" y1="16" x2="23" y2="16"></line>
+                  </svg>
+                  <span>Админка</span>
                 </a>
+
                 <a href="/book?token=${encodeURIComponent(authToken)}" target="_blank"
-                   title="Просмотреть онлайн-запись точки" class="p-1.5 rounded-lg bg-bgDark border border-surfaceBorder text-gray-300 hover:text-white hover:border-gray-500 transition-all">
-                  👁️
+                   title="Открыть онлайн-запись клиента"
+                   class="flex-1 sm:flex-none px-3 py-2 rounded-xl bg-bgDark hover:bg-white/5 border border-surfaceBorder text-gray-300 hover:text-white transition text-xs font-medium flex items-center justify-center gap-1.5 active:scale-95">
+                  <svg class="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  <span>Запись</span>
                 </a>
               </div>
-            </td>
-          </tr>
+
+            </div>
+          </div>
         `;
       }).join('');
     }
@@ -498,7 +621,7 @@
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          showToast(`Подписка "${name}" продлена на 30 дней!`, '⚡');
+          showToast(`Подписка "${name}" продлена на 30 дней!`);
           loadTenants();
         } else {
           alert(data.error || 'Ошибка при продлении');
@@ -509,7 +632,7 @@
     }
 
     async function toggleTenantKillSwitch(id, name, currentActive) {
-      const actionText = currentActive === 1 ? 'ЗАБЛОКИРОВАТЬ доступ' : 'РАЗБЛОКИРОВАТЬ доступ';
+      const actionText = currentActive === 1 ? 'ЗАБЛОКИРОВАТЬ доступ (Kill Switch)' : 'РАЗБЛОКИРОВАТЬ доступ';
       if (!confirm(`Вы действительно хотите ${actionText} для "${name}"?`)) return;
 
       try {
@@ -519,7 +642,7 @@
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          showToast(`Статус Kill Switch для "${name}" обновлен`, '🔒');
+          showToast(`Kill Switch для "${name}" обновлен`);
           loadTenants();
         } else {
           alert(data.error || 'Ошибка при изменении статуса');
@@ -529,7 +652,7 @@
       }
     }
 
-    function filterTenantsTable() {
+    function filterTenants() {
       const query = document.getElementById('search-input').value.toLowerCase().trim();
       if (!query) {
         renderTenants(allTenants);
@@ -577,10 +700,13 @@
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          showToast(`Салон "${payload.name}" успешно подключен!`, '🏢');
+          showToast(`Салон "${payload.name}" успешно подключен!`);
           closeNewTenantModal();
           document.getElementById('new-name').value = '';
           document.getElementById('new-slug').value = '';
+          document.getElementById('new-admin-id').value = '';
+          document.getElementById('new-phone').value = '';
+          document.getElementById('new-contact-name').value = '';
           loadTenants();
         } else {
           alert(data.error || 'Не удалось создать заведение');
@@ -589,11 +715,11 @@
         alert('Ошибка связи с сервером');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Подключить заведение';
+        btn.textContent = 'Подключить салон';
       }
     }
 
-    // Запуск при загрузке страницы
+    // Запуск при старте
     window.addEventListener('DOMContentLoaded', checkAuthAndLoad);
   </script>
 </body>
