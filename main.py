@@ -181,10 +181,16 @@ async def main() -> None:
         base_url,
     )
 
+    # 9. Запуск фоновой задачи проверки подписок (Cron task раз в 24 часа)
+    from services.billing_service import run_billing_notifier
+    billing_task = asyncio.create_task(run_billing_notifier(bot))
+    logger.info("Фоновая служба проверки подписок и Kill Switch успешно запущена.")
+
     try:
         await dp.start_polling(bot)
     finally:
         logger.info("Остановка бота и веб-сервера...")
+        billing_task.cancel()
         await web_runner.cleanup()
         await bot.session.close()
 
