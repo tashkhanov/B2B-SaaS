@@ -213,3 +213,54 @@ async def test_web_app_endpoints(monkeypatch):
         await client.close()
         if os.path.exists(TEST_DB):
             os.remove(TEST_DB)
+
+
+@pytest.mark.asyncio
+async def test_web_app_subscription_lockout(monkeypatch):
+    from database import toggle_tenant_active, get_tenant_subscription
+    lock_db = "test_lock.db"
+    monkeypatch.setattr(settings, "DB_NAME", lock_db)
+    monkeypatch.setattr(settings, "TENANT_SLUG", "brohouse")
+    monkeypatch.setattr(settings, "SUPER_ADMIN_PASSWORD", "secret123")
+
+    if os.path.exists(lock_db):
+        os.remove(lock_db)
+    await init_db(lock_db)
+
+    # Lock the tenant
+    tenant = await get_tenant_subscription("brohouse", lock_db)
+    await toggle_tenant_active(tenant["id"], is_active=0, db_path=lock_db)
+
+    app = create_web_app()
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        # 1. API endpoint should return 403 Forbidden
+        resp_api = await client.get("/api/services")
+        assert resp_api.status == 403
+        api_data = await resp_api.json()
+        assert api_data["error"] == "subscription_expired"
+        assert "Доступ приостановлен" in api_data["message"]
+
+        # 2. HTML page (/book) should return 403 with lockout page
+        resp_page = await client.get("/book")
+        assert resp_page.status == 403
+        page_html = await resp_page.text()
+        assert "Доступ приостановлен" in page_html
+        assert "Оплатите подписку" in page_html
+
+        # 3. Super-Admin bypass with header should return 200
+        resp_bypass = await client.get("/api/services", headers={"X-Super-Admin-Token": "secret123"})
+        assert resp_bypass.status == 200
+
+        # 4. Super-Admin bypass with query param
+        resp_bypass_q = await client.get("/book?token=secret123")
+        assert resp_bypass_q.status == 200
+
+    finally:
+        await client.close()
+        if os.path.exists(lock_db):
+            os.remove(lock_db)
+

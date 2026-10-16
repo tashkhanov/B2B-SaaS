@@ -66,6 +66,132 @@ def get_booking_action_keyboard(booking_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def render_lockout_page(info: dict) -> str:
+    """Генерация премиальной полноэкранной страницы блокировки (Kill Switch / Expired)."""
+    name = info.get("name", "Brohouse Barbershop")
+    phone = info.get("contact_phone", "+998 97 012-55-55")
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Доступ приостановлен | {name}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
+  <style>
+    body {{
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #121212;
+      color: #f3f4f6;
+    }}
+    .font-serif {{
+      font-family: 'Playfair Display', serif;
+    }}
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 bg-[#121212] selection:bg-amber-500/20">
+  <div class="w-full max-w-md bg-[#1a1a1a] border border-[#2e2e2e] rounded-3xl p-6 sm:p-8 text-center shadow-2xl relative overflow-hidden">
+    <!-- Золотистый фоновый градиент-свечение -->
+    <div class="absolute -top-24 -left-24 w-48 h-48 bg-[#c5a059]/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-24 -right-24 w-48 h-48 bg-amber-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+    <!-- Иконка замка -->
+    <div class="w-20 h-20 mx-auto rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-4xl mb-6 shadow-xl shadow-amber-500/5 ring-4 ring-amber-500/5">
+      🔒
+    </div>
+
+    <!-- Заголовок -->
+    <span class="inline-block px-3 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 text-[11px] font-bold tracking-wider uppercase mb-3">
+      Kill Switch • Доступ отключен
+    </span>
+    <h1 class="text-2xl sm:text-3xl font-black text-white mb-2 tracking-tight">
+      Доступ приостановлен
+    </h1>
+    <div class="text-sm font-semibold text-[#c5a059] uppercase tracking-wider mb-4">
+      Оплатите подписку
+    </div>
+
+    <!-- Сообщение -->
+    <p class="text-gray-300 text-xs sm:text-sm leading-relaxed mb-6 font-normal">
+      Срок действия лицензии для заведения <span class="font-bold text-white">{name}</span> и льготного периода завершён.<br>
+      Онлайн-запись клиентов, личные кабинеты мастеров и панель управления временно недоступны.
+    </p>
+
+    <!-- Кнопки действий -->
+    <div class="space-y-3">
+      <a href="https://t.me/asatkhanov" target="_blank" class="w-full inline-flex items-center justify-center gap-2 py-3 px-6 rounded-2xl bg-gradient-to-r from-[#c5a059] to-[#dfba73] text-black font-bold text-sm shadow-lg shadow-[#c5a059]/25 hover:opacity-95 active:scale-[0.98] transition-all">
+        ⚡ Возобновить доступ / Оплатить
+      </a>
+
+      {f'''<a href="tel:{phone}" class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10 transition-all">
+        📞 Позвонить в салон: {phone}
+      </a>''' if phone else ''}
+    </div>
+
+    <!-- Футер -->
+    <div class="mt-8 pt-4 border-t border-white/5 text-[11px] text-gray-500 flex items-center justify-between">
+      <span>Khan AI Systems</span>
+      <span class="text-gray-400">B2B SaaS Platform</span>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+@web.middleware
+async def subscription_middleware(request: web.Request, handler):
+    """Aiohttp middleware: перехват запросов при блокировке Kill Switch"""
+    path = request.path
+
+    # 1. Белый список путей (статические файлы, суперадминка)
+    if (
+        path.startswith("/static")
+        or path.startswith("/super-admin")
+        or path.startswith("/api/super")
+    ):
+        return await handler(request)
+
+    # 2. Проверка Super-Admin bypass (токен в заголовке, query или cookie)
+    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+    auth_header = request.headers.get("X-Super-Admin-Token")
+    query_token = request.query.get("token")
+    cookie_token = request.cookies.get("super_admin_token")
+
+    if (
+        (auth_header and auth_header == super_pw)
+        or (query_token and query_token == super_pw)
+        or (cookie_token and cookie_token == super_pw)
+    ):
+        return await handler(request)
+
+    # 3. Проверка статуса подписки в БД
+    from services.billing_service import check_tenant_access
+    is_locked, status, info = await check_tenant_access(getattr(settings, "TENANT_SLUG", "brohouse"))
+
+    if not is_locked:
+        return await handler(request)
+
+    # 4. Салон заблокирован (Kill Switch или истек льготный период)
+    if path.startswith("/api/"):
+        return web.json_response(
+            {
+                "error": "subscription_expired",
+                "message": "Доступ приостановлен. Оплатите подписку.",
+                "details": info.get("message", "Срок действия лицензии салона истек."),
+            },
+            status=403,
+        )
+
+    # Для TMA HTML-страниц рендерим полноэкранную заглушку
+    return web.Response(
+        text=render_lockout_page(info),
+        content_type="text/html",
+        status=403,
+    )
+
+
 # =============================================================================
 # HTML СТРАНИЦЫ (TMA INTERFACES)
 # =============================================================================
@@ -705,7 +831,7 @@ async def handle_cancel_my_booking(request: web.Request) -> web.Response:
 
 def create_web_app(bot: Bot = None) -> web.Application:
     """Фабрика создания приложения aiohttp для TMA"""
-    app = web.Application()
+    app = web.Application(middlewares=[subscription_middleware])
     app[BOT_KEY] = bot
 
     # Статические файлы (аватарки барберов, логотипы, иконки)
