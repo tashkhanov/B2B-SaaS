@@ -27,6 +27,10 @@ from database import (
     get_booking_by_id,
     update_booking_status,
     find_booking_by_client_name,
+    get_branches,
+    get_branch_by_id,
+    get_user_active_booking,
+    cancel_user_booking,
 )
 from services.gemini_service import GeminiService
 from services.schedule_service import (
@@ -272,9 +276,11 @@ async def handle_about(message: Message):
     """
     about_text = (
         "💈 **AI-Администратор для Мужского Салона 'Brohouse' (Ташкент)**\n\n"
-        "📍 **Локация:** г. Ташкент, метро «Миллий бог», 8B\n"
-        "📞 **Телефон:** +998 97 012-55-55\n"
-        "⏰ **График:** 08:00 – 23:00 ежедневно\n"
+        "📍 **Филиалы в Ташкенте:**\n"
+        "1. метро «Миллий бог», 8B (ориентир: станция метро Milliy Bog')\n"
+        "2. массив Чиланзар, 2-й квартал, 58/5 (ориентир: 2-й квартал)\n\n"
+        "📞 **Единый телефон:** +998 97 012-55-55\n"
+        "⏰ **График:** 08:00 – 23:00 ежедневно без выходных\n"
         "📸 **Instagram:** @brohouseuz | **Академия:** @asbro_academy_\n\n"
         "🎁 **Акция:** Скидка 30% на первое посещение для новых клиентов!\n\n"
         "👨‍💻 **Разработка:** Асатханов (@asatkhanov)\n"
@@ -484,16 +490,23 @@ async def handle_price(message: Message):
 @router.message(F.text == "📍 Где мы находимся?")
 async def handle_location(message: Message):
     """
-    Информация о локации барбершопа.
+    Информация о локациях барбершопа (2 филиала).
     """
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
     location_text = (
-        "📍 г. Ташкент, метро «Миллий бог», 8B (ориентир — станция метро Milliy Bog').\n"
-        "📞 Телефон: +998 97 012-55-55\n\n"
-        "Работаем ежедневно с 08:00 до 23:00 без выходных. Ждем в гости, ака!"
+        "💈 **Мужской салон Brohouse ждет вас в двух удобных локациях Ташкента:**\n\n"
+        "1️⃣ **Филиал «Миллий бог»:**\n"
+        "📍 г. Ташкент, метро «Миллий бог», 8B\n"
+        "🚇 Ориентир: станция метро Milliy Bog'\n\n"
+        "2️⃣ **Филиал «Чиланзар (2-й кв.)»:**\n"
+        "📍 г. Ташкент, Чиланзарский район, массив Чиланзар, 2-й квартал, 58/5\n"
+        "🏢 Ориентир: Чиланзар, 2-й квартал, дом 58/5\n\n"
+        "📞 **Единый телефон для связи:** +998 97 012-55-55\n"
+        "⏰ **График работы:** ежедневно с 08:00 до 23:00 без выходных.\n\n"
+        "Мастера подстроятся под вас в любом из филиалов. Ждем в гости, ака! 🤝"
     )
-    await message.answer(location_text, reply_markup=get_main_keyboard(role=role, barber=barber))
+    await message.answer(location_text, reply_markup=get_main_keyboard(role=role, barber=barber), parse_mode="Markdown")
 
 
 @router.message(F.voice)
@@ -629,6 +642,10 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             await update_booking_status(booking["id"], "confirmed")
             # Уведомляем клиента в личку Telegram
             if booking.get("user_id"):
+                b_branch_id = booking.get("branch_id") or 1
+                branch_info = await get_branch_by_id(b_branch_id)
+                branch_addr = branch_info["address"] if branch_info else "г. Ташкент, метро «Миллий бог», 8B"
+                branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Миллий бог")
                 try:
                     await message.bot.send_message(
                         chat_id=booking["user_id"],
@@ -636,7 +653,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                             f"✅ **Ваша запись в Brohouse подтверждена!**\n\n"
                             f"✂️ **Услуга:** {booking['service']}\n"
                             f"⏰ **Время:** {booking['booking_time']}\n"
-                            f"📍 **Адрес:** метро «Миллий бог», 8B\n"
+                            f"📍 **Филиал:** {branch_title} ({branch_addr})\n"
                             f"📞 **Телефон:** +998 97 012-55-55\n\n"
                             "Ждем вас, ака! 💈"
                         ),
@@ -699,17 +716,31 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
             final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
+            # Определение филиала
+            target_branch_id = 1
+            target_branch_name = "Миллий бог"
+            branch_check_str = f"{getattr(admin_action, 'branch_name', '') or ''} {admin_query}".lower()
+            if any(k in branch_check_str for k in ("чиланзар", "chilonzor", "2-й", "2 квартал", "квартал 2", "58/5")):
+                target_branch_id = 2
+                target_branch_name = "Чиланзар (2-й кв.)"
+            elif getattr(admin_action, "branch_id", None) in (1, 2):
+                target_branch_id = admin_action.branch_id
+                target_branch_name = "Чиланзар (2-й кв.)" if target_branch_id == 2 else "Миллий бог"
+
+            branch_obj = await get_branch_by_id(target_branch_id)
+            branch_address = branch_obj["address"] if branch_obj else target_branch_name
+
             if is_personal_creator_booking:
                 full_name = "Иброхим"
                 booking_user_id = user_id
                 username = f"@{message.from_user.username}" if (message.from_user and message.from_user.username) else "@asatkhanov"
-                details = "Личная запись Создателя/Супер-Админа (Иброхим)"
+                details = f"Личная запись Создателя/Супер-Админа (Иброхим) | Филиал: {target_branch_name}"
                 status = "confirmed"
             else:
                 full_name = admin_action.client_query
                 booking_user_id = 0
                 username = None
-                details = "Ручная запись администратором через чат с ИИ"
+                details = f"Ручная запись администратором через чат с ИИ | Филиал: {target_branch_name}"
                 status = "confirmed"
 
             await save_booking(
@@ -723,6 +754,8 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 status=status,
                 barber_id=final_barber_id,
                 barber_name=final_barber_name,
+                branch_id=target_branch_id,
+                branch_name=target_branch_name,
             )
 
             # Оповещение назначенному барберу в Telegram
@@ -734,6 +767,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                         text=(
                             f"{title_text}\n\n"
                             f"👤 **Гость:** {full_name}\n"
+                            f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
                             f"✂️ **Услуга:** {admin_action.service or 'Стрижка'}\n"
                             f"⏰ **Время:** {normalized_time}\n"
                             f"📞 **Телефон:** {admin_action.phone or 'Не указан'}"
@@ -750,13 +784,13 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     f"✂️ **Услуга:** {admin_action.service or 'Стрижка / Комплекс'}\n"
                     f"⏰ **Время:** {normalized_time}\n"
                     f"{master_str}\n"
-                    f"📍 **Локация:** метро «Миллий бог», 8B\n\n"
+                    f"📍 **Филиал:** {target_branch_name} ({branch_address})\n\n"
                     "Всегда рады видеть вас в Brohouse, Создатель! 🤝",
                     parse_mode="Markdown"
                 )
             else:
                 await message.answer(
-                    f"💈 Запись клиента **{full_name}**{master_str} на **{normalized_time}** ({admin_action.service or 'Стрижка'}) успешно зафиксирована в графике!"
+                    f"💈 Запись клиента **{full_name}**{master_str} на **{normalized_time}** ({admin_action.service or 'Стрижка'}) в филиал **{target_branch_name}** успешно зафиксирована в графике!"
                 )
 
 
@@ -767,11 +801,6 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
     2. Проверка своей брони ('когда я записан?')
     3. Создание новой записи с защитой от спама и горизонтом 7 дней
     """
-    from database import (
-        get_user_active_booking,
-        cancel_user_booking,
-        has_recent_booking,
-    )
 
     user_id = message.from_user.id
     combined = f"{client_query} {ai_reply}".lower()
@@ -893,18 +922,34 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
         final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
+        # Определение филиала
+        target_branch_id = 1
+        target_branch_name = "Миллий бог"
+        branch_check_str = f"{getattr(client_action, 'branch_name', '') or ''} {client_query} {ai_reply}".lower()
+        if any(k in branch_check_str for k in ("чиланзар", "chilonzor", "2-й", "2 квартал", "квартал 2", "58/5")):
+            target_branch_id = 2
+            target_branch_name = "Чиланзар (2-й кв.)"
+        elif getattr(client_action, "branch_id", None) in (1, 2):
+            target_branch_id = client_action.branch_id
+            target_branch_name = "Чиланзар (2-й кв.)" if target_branch_id == 2 else "Миллий бог"
+
+        branch_obj = await get_branch_by_id(target_branch_id)
+        branch_address = branch_obj["address"] if branch_obj else target_branch_name
+
         # Сохранение в базу
         booking_id = await save_booking(
             user_id=user_id,
             username=username,
             full_name=full_name,
-            details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]}",
+            details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]} | Филиал: {target_branch_name}",
             phone=phone,
             service=service,
             booking_time=booking_time,
             status="new",
             barber_id=final_barber_id,
             barber_name=final_barber_name,
+            branch_id=target_branch_id,
+            branch_name=target_branch_name,
         )
 
         # Отправляем уведомление администратору в личку
@@ -914,6 +959,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                 "💈 **НОВАЯ ЗАПИСЬ В BROHOUSE!**\n\n"
                 f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
                 f"{master_str}"
+                f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {booking_time}\n"
                 f"📞 **Телефон:** {phone or 'Не указан'}\n"
@@ -956,6 +1002,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                         text=(
                             "💈 **У ВАС НОВАЯ ЗАПИСЬ В BROHOUSE!**\n\n"
                             f"👤 **Клиент:** {full_name}\n"
+                            f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
                             f"✂️ **Услуга:** {service}\n"
                             f"⏰ **Время:** {booking_time}\n"
                             f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
@@ -1025,12 +1072,16 @@ async def handle_booking_status_callback(callback: CallbackQuery):
         b_name = booking.get("barber_name") or (barber["name"] if barber else "Мастер")
 
         if new_status == "confirmed":
+            b_branch_id = booking.get("branch_id") or 1
+            branch_info = await get_branch_by_id(b_branch_id)
+            branch_addr = branch_info["address"] if branch_info else "г. Ташкент, метро «Миллий бог», 8B"
+            branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Миллий бог")
             msg = (
                 "✅ **Ваша запись в Brohouse ПОДТВЕРЖДЕНА!**\n\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"💈 **Мастер:** {b_name}\n"
                 f"⏰ **Время:** {b_time}\n"
-                "📍 **Адрес:** метро «Миллий бог», 8B\n"
+                f"📍 **Филиал:** {branch_title} ({branch_addr})\n"
                 "📞 **Телефон:** +998 97 012-55-55\n\n"
                 "Мы уже ждем вас к назначенному времени, ака! 💈"
             )

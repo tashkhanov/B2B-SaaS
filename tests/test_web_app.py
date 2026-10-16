@@ -349,3 +349,54 @@ async def test_super_admin_api_endpoints(monkeypatch):
             os.remove(sa_db)
 
 
+@pytest.mark.asyncio
+async def test_web_app_branches(monkeypatch):
+    b_db = "test_branches_web.db"
+    monkeypatch.setattr(settings, "DB_NAME", b_db)
+    if os.path.exists(b_db):
+        os.remove(b_db)
+    await init_db(b_db)
+
+    app = create_web_app()
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        # 1. GET /api/branches
+        resp = await client.get("/api/branches")
+        assert resp.status == 200
+        data = await resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 2
+        assert data[0]["name"] == "Миллий бог"
+        assert data[1]["name"] == "Чиланзар (2-й кв.)"
+
+        # 2. POST /api/bookings with branch_id=2
+        from services.schedule_service import get_now_tashkent
+        from datetime import timedelta
+        day_str = (get_now_tashkent().date() + timedelta(days=2)).isoformat()
+        resp_post = await client.post("/api/bookings", json={
+            "full_name": "Фаррух",
+            "phone": "+998901234567",
+            "service": "Стрижка волос",
+            "booking_time": f"{day_str} 14:00",
+            "branch_id": 2,
+            "branch_name": "Чиланзар (2-й кв.)",
+        })
+        assert resp_post.status == 200
+        post_data = await resp_post.json()
+        assert post_data["ok"] is True
+        booking_id = post_data["id"]
+
+        from database import get_booking_by_id
+        saved = await get_booking_by_id(booking_id, db_path=b_db)
+        assert saved["branch_id"] == 2
+        assert saved["branch_name"] == "Чиланзар (2-й кв.)"
+    finally:
+        await client.close()
+        if os.path.exists(b_db):
+            os.remove(b_db)
+
+
+

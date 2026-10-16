@@ -269,3 +269,44 @@ async def test_tenant_subscription_lifecycle():
     assert topgun["name"] == "TopGun Barbershop"
 
 
+@pytest.mark.asyncio
+async def test_branches_database():
+    from database import get_branches, get_branch_by_id, get_booking_by_id
+
+    # 1. Проверяем получение списка филиалов (по умолчанию 2 филиала Brohouse)
+    branches = await get_branches(active_only=True, db_path=TEST_DB)
+    assert len(branches) == 2
+    assert branches[0]["name"] == "Миллий бог"
+    assert branches[1]["name"] == "Чиланзар (2-й кв.)"
+
+    # 2. Получение по ID
+    b1 = await get_branch_by_id(1, db_path=TEST_DB)
+    assert b1 is not None
+    assert "метро «Миллий бог»" in b1["address"]
+
+    b2 = await get_branch_by_id(2, db_path=TEST_DB)
+    assert b2 is not None
+    assert "Чиланзар" in b2["address"]
+    assert b2["phone"] == "+998 97 012-55-55"
+
+    # 3. Сохранение записи с привязкой ко второму филиалу
+    booking_id = await save_booking(
+        user_id=123456,
+        username="@chilonzor_client",
+        full_name="Шерзод",
+        details="Запись на Чиланзар",
+        booking_time="2026-10-21 12:00",
+        branch_id=2,
+        branch_name="Чиланзар (2-й кв.)",
+        db_path=TEST_DB
+    )
+    assert booking_id > 0
+
+    # 4. Проверяем, что филиал корректно сохранен и извлечен
+    saved = await get_booking_by_id(booking_id, db_path=TEST_DB)
+    assert saved is not None
+    assert saved["branch_id"] == 2
+    assert saved["branch_name"] == "Чиланзар (2-й кв.)"
+
+
+

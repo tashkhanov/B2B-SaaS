@@ -64,7 +64,20 @@ async def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # 4. Таблица записей клиентов
+        # 4. Таблица филиалов барбершопа (Branches)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS branches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                address TEXT NOT NULL,
+                landmark TEXT,
+                phone TEXT DEFAULT '+998 97 012-55-55',
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # 5. Таблица записей клиентов
         await db.execute("""
             CREATE TABLE IF NOT EXISTS bookings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +92,8 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 barber_id INTEGER DEFAULT NULL,
                 barber_name TEXT DEFAULT NULL,
                 service_id INTEGER DEFAULT NULL,
+                branch_id INTEGER DEFAULT 1,
+                branch_name TEXT DEFAULT 'Миллий бог',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -95,9 +110,27 @@ async def init_db(db_path: Optional[str] = None) -> None:
             ("barber_id", "INTEGER", "DEFAULT NULL"),
             ("barber_name", "TEXT", "DEFAULT NULL"),
             ("service_id", "INTEGER", "DEFAULT NULL"),
+            ("branch_id", "INTEGER", "DEFAULT 1"),
+            ("branch_name", "TEXT", "DEFAULT 'Миллий бог'"),
         ]:
             if col_name not in columns:
                 await db.execute(f"ALTER TABLE bookings ADD COLUMN {col_name} {col_type} {col_def};")
+
+        # Начальный seed для branches, если таблица пуста
+        cursor = await db.execute("SELECT COUNT(*) FROM branches")
+        branches_count = (await cursor.fetchone())[0]
+        if branches_count == 0:
+            default_branches = [
+                (1, "Миллий бог", "г. Ташкент, метро «Миллий бог», 8B", "станция метро Milliy Bog'", "+998 97 012-55-55", 1),
+                (2, "Чиланзар (2-й кв.)", "г. Ташкент, Чиланзарский район, массив Чиланзар, 2-й квартал, 58/5", "Чиланзар, 2-й квартал, дом 58/5", "+998 97 012-55-55", 1),
+            ]
+            await db.executemany(
+                """
+                INSERT OR IGNORE INTO branches (id, name, address, landmark, phone, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                default_branches
+            )
 
         # Начальный seed для services, если таблица пуста
         cursor = await db.execute("SELECT COUNT(*) FROM services")
@@ -196,8 +229,21 @@ async def reseed_brohouse_data(db_path: Optional[str] = None) -> None:
     async with aiosqlite.connect(target_db) as db:
         await db.execute("DELETE FROM services;")
         await db.execute("DELETE FROM barbers;")
+        await db.execute("DELETE FROM branches;")
         await db.execute("DELETE FROM bookings;")
         await db.execute("DELETE FROM messages;")
+
+        default_branches = [
+            (1, "Миллий бог", "г. Ташкент, метро «Миллий бог», 8B", "станция метро Milliy Bog'", "+998 97 012-55-55", 1),
+            (2, "Чиланзар (2-й кв.)", "г. Ташкент, Чиланзарский район, массив Чиланзар, 2-й квартал, 58/5", "Чиланзар, 2-й квартал, дом 58/5", "+998 97 012-55-55", 1),
+        ]
+        await db.executemany(
+            """
+            INSERT OR IGNORE INTO branches (id, name, address, landmark, phone, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            default_branches
+        )
 
         default_services = [
             ("Стрижка волос", 100000, 45, "Классическая мужская стрижка, мытье головы и премиальный стайлинг", "ТОП", 1),
@@ -272,6 +318,34 @@ async def clear_history(user_id: int, db_path: Optional[str] = None) -> None:
     async with aiosqlite.connect(target_db) as db:
         await db.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
         await db.commit()
+
+
+# =============================================================================
+# ФИЛИАЛЫ САЛОНА (BRANCHES)
+# =============================================================================
+
+async def get_branches(active_only: bool = True, db_path: Optional[str] = None) -> List[Dict]:
+    """Получение списка всех филиалов барбершопа."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        query = "SELECT * FROM branches"
+        if active_only:
+            query += " WHERE is_active = 1"
+        query += " ORDER BY id ASC"
+        async with db.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+
+async def get_branch_by_id(branch_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+    """Получение информации о филиале по его ID."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM branches WHERE id = ?", (branch_id,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
 
 
 # =============================================================================
@@ -507,20 +581,25 @@ async def save_booking(
     barber_id: Optional[int] = None,
     barber_name: Optional[str] = None,
     service_id: Optional[int] = None,
+    branch_id: int = 1,
+    branch_name: Optional[str] = None,
     db_path: Optional[str] = None
 ) -> int:
-    """Сохранение структурированной заявки на запись клиента в барбершоп."""
+    """Сохранение структурированной заявки на запись клиента в барбершоп с привязкой к филиалу."""
+    if not branch_name:
+        branch_name = "Чиланзар (2-й кв.)" if branch_id == 2 else "Миллий бог"
+
     target_db = get_db_path(db_path)
     async with aiosqlite.connect(target_db) as db:
         cursor = await db.execute(
             """
             INSERT INTO bookings (
                 user_id, username, full_name, phone, service, booking_time, status, details,
-                barber_id, barber_name, service_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                barber_id, barber_name, service_id, branch_id, branch_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (user_id, username, full_name, phone, service, booking_time, status, details,
-             barber_id, barber_name, service_id)
+             barber_id, barber_name, service_id, branch_id, branch_name)
         )
         await db.commit()
         return cursor.lastrowid
@@ -591,7 +670,7 @@ async def get_all_bookings(db_path: Optional[str] = None) -> List[Dict]:
         async with db.execute(
             """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-                   barber_id, barber_name, service_id, created_at 
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at 
             FROM bookings ORDER BY id DESC
             """
         ) as cursor:
@@ -608,7 +687,7 @@ async def get_active_bookings(db_path: Optional[str] = None) -> List[Dict]:
         async with db.execute(
             """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-                   barber_id, barber_name, service_id, created_at 
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at 
             FROM bookings 
             WHERE status IN ('new', 'confirmed') AND booking_time IS NOT NULL AND booking_time != ''
             ORDER BY id ASC
@@ -633,7 +712,7 @@ async def get_bookings_for_barber(
         db.row_factory = aiosqlite.Row
         query = """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-                   barber_id, barber_name, service_id, created_at
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at
             FROM bookings
             WHERE (barber_id = ? OR barber_id IS NULL)
         """
@@ -668,7 +747,7 @@ async def get_booking_by_id(booking_id: int, db_path: Optional[str] = None) -> O
         async with db.execute(
             """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-                   barber_id, barber_name, service_id, created_at 
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at 
             FROM bookings WHERE id = ?
             """,
             (booking_id,)
@@ -686,7 +765,7 @@ async def get_user_active_booking(user_id: int, db_path: Optional[str] = None) -
         async with db.execute(
             """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-                   barber_id, barber_name, service_id, created_at
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at
             FROM bookings 
             WHERE user_id = ? AND status IN ('new', 'confirmed')
             ORDER BY id DESC LIMIT 1
@@ -732,7 +811,7 @@ async def find_booking_by_client_name(query: str, db_path: Optional[str] = None)
         async with db.execute(
             """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-                   barber_id, barber_name, service_id, created_at
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at
             FROM bookings 
             WHERE status IN ('new', 'confirmed')
               AND (LOWER(full_name) LIKE ? OR LOWER(username) LIKE ?)

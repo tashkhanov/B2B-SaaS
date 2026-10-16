@@ -107,6 +107,14 @@ class ClientAction(BaseModel):
         default=None,
         description="ID барбера, если известен",
     )
+    branch_name: Optional[str] = Field(
+        default=None,
+        description="Выбранный филиал: 'Миллий бог' или 'Чиланзар (2-й кв.)'",
+    )
+    branch_id: Optional[int] = Field(
+        default=1,
+        description="ID филиала: 1 (Миллий бог) или 2 (Чиланзар)",
+    )
 
 
 class AdminAction(BaseModel):
@@ -144,6 +152,14 @@ class AdminAction(BaseModel):
     barber_id: Optional[int] = Field(
         default=None,
         description="ID мастера",
+    )
+    branch_name: Optional[str] = Field(
+        default=None,
+        description="Выбранный филиал: 'Миллий бог' или 'Чиланзар (2-й кв.)'",
+    )
+    branch_id: Optional[int] = Field(
+        default=1,
+        description="ID филиала: 1 (Миллий бог) или 2 (Чиланзар)",
     )
 
 

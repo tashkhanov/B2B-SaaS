@@ -262,6 +262,13 @@
           <input type="tel" id="m-phone" placeholder="+998 90 123 45 67" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-accent" />
         </div>
         <div>
+          <label class="block text-gray-400 mb-1 font-medium">Филиал салона *</label>
+          <select id="m-branch" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent">
+            <option value="1">метро «Миллий бог», 8B</option>
+            <option value="2">Чиланзар (2-й кв.), 58/5</option>
+          </select>
+        </div>
+        <div>
           <label class="block text-gray-400 mb-1 font-medium">Мастер / Барбер</label>
           <select id="m-barber" class="w-full bg-bgDark border border-surfaceBorder rounded-xl px-3 py-2 text-white focus:outline-none focus:border-accent">
             <option value="">⚡ Любой свободный мастер (Автовыбор)</option>
@@ -675,13 +682,16 @@
             </div>
           </div>
 
-          <!-- Назначенный мастер бейдж -->
-          <div class="mb-2">
+          <!-- Назначенный мастер и филиал бейджи -->
+          <div class="mb-2 flex flex-wrap items-center gap-1.5">
             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-surfaceBorder/60 text-gray-300 border border-surfaceBorder">
               <svg class="w-3 h-3 text-gold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
               </svg>
               <span>Барбер: <strong class="text-white font-semibold">${barberName}</strong></span>
+            </span>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-accent/10 text-accent border border-accent/25">
+              <span>📍 ${escapeHtml(booking.branch_name || 'Миллий бог')}</span>
             </span>
           </div>
 
@@ -830,6 +840,8 @@
       const service = document.getElementById('m-service').value;
       const bDate = document.getElementById('m-date').value;
       const bTime = document.getElementById('m-time').value;
+      const branchIdVal = document.getElementById('m-branch') ? document.getElementById('m-branch').value : '1';
+      const branchName = branchIdVal === '2' ? 'Чиланзар (2-й кв.)' : 'Миллий бог';
 
       if (!name) {
         alert('Пожалуйста, введите имя клиента');
@@ -854,6 +866,8 @@
             service: service,
             booking_time: `${bDate} ${bTime}`,
             barber_id: barberIdVal ? parseInt(barberIdVal) : null,
+            branch_id: parseInt(branchIdVal),
+            branch_name: branchName,
             details: 'Ручная запись администратором через TMA'
           })
         });

@@ -40,6 +40,8 @@ from database import (
     create_tenant,
     extend_tenant_subscription_30_days,
     toggle_tenant_active,
+    get_branches,
+    get_branch_by_id,
 )
 from services.schedule_service import (
     get_now_tashkent,
@@ -561,6 +563,20 @@ async def handle_get_barber_my_schedule(request: web.Request) -> web.Response:
 
 
 # =============================================================================
+# API ФИЛИАЛОВ (BRANCHES)
+# =============================================================================
+
+async def handle_get_branches(request: web.Request) -> web.Response:
+    """API: Получение списка всех филиалов барбершопа"""
+    try:
+        branches = await get_branches(active_only=True)
+        return web.json_response(branches)
+    except Exception as e:
+        logger.error(f"Ошибка при получении филиалов: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+# =============================================================================
 # API БРОНИРОВАНИЙ (BOOKINGS)
 # =============================================================================
 
@@ -591,6 +607,18 @@ async def handle_create_booking(request: web.Request) -> web.Response:
         user_id = data.get("user_id") or 0
         username = data.get("username")
         details = data.get("details") or "Онлайн-запись через Web App"
+
+        branch_id_raw = data.get("branch_id")
+        branch_id = int(branch_id_raw) if branch_id_raw and int(branch_id_raw) > 0 else 1
+        branch_name = data.get("branch_name")
+
+        branch_info = await get_branch_by_id(branch_id)
+        if branch_info:
+            branch_name = branch_info["name"]
+            branch_address = branch_info["address"]
+        else:
+            branch_name = branch_name or ("Чиланзар (2-й кв.)" if branch_id == 2 else "Миллий бог")
+            branch_address = "г. Ташкент, массив Чиланзар, 2-й квартал, 58/5" if branch_id == 2 else "г. Ташкент, метро «Миллий бог», 8B"
 
         barber_id_raw = data.get("barber_id")
         barber_id = int(barber_id_raw) if barber_id_raw and int(barber_id_raw) > 0 else None
@@ -645,6 +673,8 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             barber_id=final_barber_id,
             barber_name=final_barber_name,
             service_id=service_id,
+            branch_id=branch_id,
+            branch_name=branch_name,
         )
 
         bot = request.app.get(BOT_KEY)
@@ -657,7 +687,8 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 f"✂️ **Услуга:** {service}\n"
                 f"{master_line}"
                 f"⏰ **Время:** {normalized_time}\n"
-                "📍 **Адрес:** метро «Миллий бог», 8B\n"
+                f"📍 **Филиал:** {branch_name}\n"
+                f"🏢 **Адрес:** {branch_address}\n"
                 "📞 **Телефон:** +998 97 012-55-55\n\n"
                 "Ждем вас! Если потребуется отменить запись — вы можете сделать это прямо через онлайн-меню или написав мне в чат."
             )
@@ -675,6 +706,7 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 f"{master_str}"
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {normalized_time}\n"
+                f"📍 **Филиал:** {branch_name} ({branch_address})\n"
                 f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
                 "📱 _Подтвердите или отклоните кнопками ниже:_"
             )
@@ -695,6 +727,7 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 f"👤 **Клиент:** {full_name}\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {normalized_time}\n"
+                f"📍 **Филиал:** {branch_name} ({branch_address})\n"
                 f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
                 "📱 _Подтвердите или отклоните прямо сейчас:_"
             )
@@ -714,6 +747,8 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             "booking_time": normalized_time,
             "barber_id": final_barber_id,
             "barber_name": final_barber_name,
+            "branch_id": branch_id,
+            "branch_name": branch_name,
         })
 
     except Exception as e:
@@ -1008,6 +1043,9 @@ def create_web_app(bot: Bot = None) -> web.Application:
 
     # Кабинет мастера
     app.router.add_get("/api/barber/my-schedule", handle_get_barber_my_schedule)
+
+    # Филиалы
+    app.router.add_get("/api/branches", handle_get_branches)
 
     # Бронирования
     app.router.add_get("/api/bookings", handle_get_bookings)

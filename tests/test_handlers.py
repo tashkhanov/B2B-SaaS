@@ -499,6 +499,72 @@ async def test_creator_personal_booking():
         assert "Иброхим ака, вы успешно записаны" in reply_text
 
 
+@pytest.mark.asyncio
+async def test_handle_location_branches():
+    from bot.handlers import handle_location
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=12345, is_bot=False, first_name="Клиент")
+    message.answer = AsyncMock()
+
+    await handle_location(message)
+    message.answer.assert_called_once()
+    text = message.answer.call_args[0][0]
+    assert "Миллий бог" in text
+    assert "Чиланзар (2-й кв.)" in text
+    assert "Чиланзар, 2-й квартал, дом 58/5" in text
+    assert "+998 97 012-55-55" in text
+
+
+@pytest.mark.asyncio
+async def test_process_client_intent_branch_selection():
+    from bot.handlers import process_client_intent
+    from services.gemini_service import ClientAction
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=999111, is_bot=False, first_name="Сардор", username="sardor_uz")
+    message.answer = AsyncMock()
+    message.bot = AsyncMock()
+
+    mock_client_action = ClientAction(
+        action="create_booking",
+        is_booking_confirmed=True,
+        customer_name="Сардор",
+        booking_time="2026-10-22 15:00",
+        service="Стрижка волос",
+        branch_name="Чиланзар (2-й кв.)",
+        branch_id=2,
+    )
+
+    with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_recent, \
+         patch("bot.handlers.gemini_service.extract_client_action", new_callable=AsyncMock) as mock_extract, \
+         patch("bot.handlers.get_user_active_booking", new_callable=AsyncMock) as mock_active_b, \
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_bookings, \
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock) as mock_barbers, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save:
+
+        mock_recent.return_value = [{"role": "user", "text": "Запишите меня на Чиланзар в четверг в 15:00"}]
+        mock_extract.return_value = mock_client_action
+        mock_active_b.return_value = None
+        mock_bookings.return_value = []
+        mock_barbers.return_value = [
+            {"id": 1, "name": "Mr. Akmal", "role": "Барбер", "is_active": 1, "telegram_id": None}
+        ]
+        mock_save.return_value = 77
+
+        await process_client_intent(
+            message=message,
+            client_query="Запишите меня на Чиланзар в четверг в 15:00",
+            ai_reply="Договорились, записал вас на Чиланзаре на 15:00!",
+        )
+
+        mock_save.assert_called_once()
+        kwargs = mock_save.call_args[1]
+        assert kwargs["branch_id"] == 2
+        assert kwargs["branch_name"] == "Чиланзар (2-й кв.)"
+
+
+
 
 
 
