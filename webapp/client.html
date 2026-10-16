@@ -89,64 +89,6 @@
       </div>
     </header>
 
-    <!-- ВЫБОР ФИЛИАЛА САЛОНА -->
-    <div class="mb-4 bg-surface border border-surfaceBorder rounded-2xl p-3 shadow-md shadow-black/20">
-      <div class="flex items-center justify-between mb-2 px-0.5">
-        <label class="text-[11px] font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-          <span class="text-accent">📍</span>
-          <span>Выберите филиал:</span>
-        </label>
-        <span id="header-branch-name-badge" class="text-[10px] font-semibold text-accent bg-accent/10 border border-accent/30 px-2 py-0.5 rounded-full">Миллий бог</span>
-      </div>
-
-      <div class="grid grid-cols-2 gap-2" id="branch-buttons-container">
-        <!-- Кнопка Филиал 1 -->
-        <button type="button" onclick="selectBranch(1, 'Миллий бог', 'г. Ташкент, метро «Миллий бог», 8B', this)" id="branch-btn-1"
-                class="branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-accent bg-accent/15 text-white shadow-sm shadow-accent/20 active:scale-95">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
-            <div class="font-bold text-xs truncate">Миллий бог</div>
-          </div>
-          <div class="text-[10px] text-gray-300 leading-tight">метро Milliy Bog', 8B</div>
-        </button>
-
-        <!-- Кнопка Филиал 2 -->
-        <button type="button" onclick="selectBranch(2, 'Чиланзар (2-й кв.)', 'г. Ташкент, Чиланзарский р-н, массив Чиланзар, 2-й кв., 58/5', this)" id="branch-btn-2"
-                class="branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-surfaceBorder bg-bgDark/60 text-gray-400 hover:border-gray-500 hover:text-gray-200 active:scale-95">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <div class="font-bold text-xs truncate">Чиланзар (2-й кв.)</div>
-          </div>
-          <div class="text-[10px] text-gray-400 leading-tight">массив Чиланзар, 58/5</div>
-        </button>
-      </div>
-    </div>
-
-    <!-- АКЦИЯ: 30% OFF НА ПЕРВУЮ СТРИЖКУ -->
-    <div class="mb-4 bg-gradient-to-r from-accent/20 via-accent/10 to-transparent border border-accent/40 rounded-2xl p-3 flex items-center justify-between gap-3 shadow-lg shadow-accent/5">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <div class="w-8 h-8 rounded-xl bg-accent text-bgDark flex items-center justify-center font-black text-xs shadow-sm shrink-0">
-          %
-        </div>
-        <div class="min-w-0">
-          <div class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-            <span>30% OFF</span>
-            <span class="text-[10px] px-1.5 py-0.2 rounded bg-accent/25 text-accent font-semibold border border-accent/40">NEW</span>
-          </div>
-          <div class="text-[11px] text-gray-300 leading-tight mt-0.5">Скидка на первую стрижку для новых клиентов!</div>
-        </div>
-      </div>
-      <div class="text-right shrink-0 whitespace-nowrap pl-2">
-        <span class="text-[10px] text-gray-400 block">Тел</span>
-        <a href="tel:+998970125555" class="inline-flex items-center gap-1 text-[11px] font-semibold text-accent hover:underline whitespace-nowrap">
-          <svg class="w-3 h-3 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-          </svg>
-          <span>97-012-55-55</span>
-        </a>
-      </div>
-    </div>
-
     <!-- БАННЕР ДЛЯ БАРБЕРА (если вошел мастер) -->
     <div id="barber-role-banner" class="hidden mb-4 bg-surface border border-gold/40 rounded-2xl p-3.5 shadow-lg shadow-gold/5 flex items-center justify-between">
       <div class="flex items-center gap-2.5">
@@ -217,7 +159,65 @@
     </div>
 
     <!-- Пошаговая форма онлайн-записи -->
-    <div id="booking-flow" class="space-y-5">
+    <div id="booking-flow" class="space-y-4">
+
+      <!-- ВЫБОР ФИЛИАЛА САЛОНА -->
+      <div id="branch-selector-block" class="bg-surface border border-surfaceBorder rounded-2xl p-3 shadow-md shadow-black/20">
+        <div class="flex items-center justify-between mb-2 px-0.5">
+          <label class="text-[11px] font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+            <span class="text-accent">📍</span>
+            <span>Выберите филиал:</span>
+          </label>
+          <span id="header-branch-name-badge" class="text-[10px] font-semibold text-accent bg-accent/10 border border-accent/30 px-2 py-0.5 rounded-full">Миллий бог</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2" id="branch-buttons-container">
+          <!-- Кнопка Филиал 1 -->
+          <button type="button" onclick="selectBranch(1, 'Миллий бог', 'г. Ташкент, метро «Миллий бог», 8B', this)" id="branch-btn-1"
+                  class="branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-accent bg-accent/15 text-white shadow-sm shadow-accent/20 active:scale-95">
+            <div class="flex items-center gap-1.5 mb-1">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+              <div class="font-bold text-xs truncate">Миллий бог</div>
+            </div>
+            <div class="text-[10px] text-gray-300 leading-tight">метро Milliy Bog', 8B</div>
+          </button>
+
+          <!-- Кнопка Филиал 2 -->
+          <button type="button" onclick="selectBranch(2, 'Чиланзар (2-й кв.)', 'г. Ташкент, Чиланзарский р-н, массив Чиланзар, 2-й кв., 58/5', this)" id="branch-btn-2"
+                  class="branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-surfaceBorder bg-bgDark/60 text-gray-400 hover:border-gray-500 hover:text-gray-200 active:scale-95">
+            <div class="flex items-center gap-1.5 mb-1">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <div class="font-bold text-xs truncate">Чиланзар (2-й кв.)</div>
+            </div>
+            <div class="text-[10px] text-gray-400 leading-tight">массив Чиланзар, 58/5</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- АКЦИЯ: 30% OFF НА ПЕРВУЮ СТРИЖКУ -->
+      <div id="promo-discount-banner" class="bg-gradient-to-r from-accent/20 via-accent/10 to-transparent border border-accent/40 rounded-2xl p-3 flex items-center justify-between gap-3 shadow-lg shadow-accent/5">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-8 h-8 rounded-xl bg-accent text-bgDark flex items-center justify-center font-black text-xs shadow-sm shrink-0">
+            %
+          </div>
+          <div class="min-w-0">
+            <div class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+              <span>30% OFF</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded bg-accent/25 text-accent font-semibold border border-accent/40">NEW</span>
+            </div>
+            <div class="text-[11px] text-gray-300 leading-tight mt-0.5">Скидка на первую стрижку для новых клиентов!</div>
+          </div>
+        </div>
+        <div class="text-right shrink-0 whitespace-nowrap pl-2">
+          <span class="text-[10px] text-gray-400 block">Тел</span>
+          <a href="tel:+998970125555" class="inline-flex items-center gap-1 text-[11px] font-semibold text-accent hover:underline whitespace-nowrap">
+            <svg class="w-3 h-3 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+            </svg>
+            <span>97-012-55-55</span>
+          </a>
+        </div>
+      </div>
 
       <!-- ШАГ 1: ВЫБОР УСЛУГИ -->
       <div>
@@ -389,13 +389,18 @@
         <div class="flex justify-between items-center"><span class="text-gray-400">Телефон:</span><span class="font-medium text-accent">+998 97 012-55-55</span></div>
       </div>
 
-      <button onclick="closeApp()" class="w-full py-3 rounded-xl font-semibold text-xs bg-surface border border-surfaceBorder text-gray-200 hover:text-white transition flex items-center justify-center gap-2">
-        <svg class="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m22 2-7 20-4-9-9-4Z"/>
-          <path d="M22 2 11 13"/>
-        </svg>
-        <span>Вернуться в чат с ботом</span>
-      </button>
+      <div class="flex flex-col gap-2 pt-2">
+        <button onclick="closeApp()" class="w-full py-3 rounded-xl font-semibold text-xs bg-surface border border-surfaceBorder text-gray-200 hover:text-white transition flex items-center justify-center gap-2 active:scale-95 shadow-sm">
+          <svg class="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m22 2-7 20-4-9-9-4Z"/>
+            <path d="M22 2 11 13"/>
+          </svg>
+          <span>Вернуться в чат с ботом</span>
+        </button>
+        <button onclick="bookAnother()" class="w-full py-2.5 rounded-xl font-medium text-xs text-gray-400 hover:text-accent transition flex items-center justify-center gap-1.5 active:scale-95">
+          <span>Оформить ещё одну запись</span>
+        </button>
+      </div>
     </div>
 
   </div>
@@ -881,8 +886,14 @@
 
         if (res.ok && result.ok) {
           document.getElementById('booking-flow').classList.add('hidden');
+          const myBookingBanner = document.getElementById('my-booking-banner');
+          if (myBookingBanner) myBookingBanner.classList.add('hidden');
+          const barberBanner = document.getElementById('barber-role-banner');
+          if (barberBanner) barberBanner.classList.add('hidden');
+
           const screen = document.getElementById('success-screen');
           screen.classList.remove('hidden');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
 
           document.getElementById('res-name').textContent = name;
           document.getElementById('res-service').textContent = selectedService;
@@ -982,6 +993,10 @@
 
         if (res.ok && data.ok) {
           banner.classList.add('hidden');
+          const flow = document.getElementById('booking-flow');
+          if (flow) flow.classList.remove('hidden');
+          const screen = document.getElementById('success-screen');
+          if (screen) screen.classList.add('hidden');
           alert('Ваша запись успешно отменена!');
           if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
           loadSlots(selectedDate);
@@ -999,6 +1014,16 @@
           <span>Отменить эту запись</span>
         `;
       }
+    }
+
+    function bookAnother() {
+      const screen = document.getElementById('success-screen');
+      if (screen) screen.classList.add('hidden');
+      const flow = document.getElementById('booking-flow');
+      if (flow) flow.classList.remove('hidden');
+      loadSlots(selectedDate);
+      loadMyBooking();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function escapeHtml(str) {
