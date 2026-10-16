@@ -76,7 +76,6 @@ def get_booking_action_keyboard(booking_id: int) -> InlineKeyboardMarkup:
 def render_lockout_page(info: dict) -> str:
     """Генерация премиальной полноэкранной страницы блокировки (Kill Switch / Expired)."""
     name = info.get("name", "Brohouse Barbershop")
-    phone = info.get("contact_phone", "+998 97 012-55-55")
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -86,61 +85,66 @@ def render_lockout_page(info: dict) -> str:
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     body {{
-      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-      background-color: #121212;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #0b0c0e;
       color: #f3f4f6;
-    }}
-    .font-serif {{
-      font-family: 'Playfair Display', serif;
     }}
   </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4 bg-[#121212] selection:bg-amber-500/20">
-  <div class="w-full max-w-md bg-[#1a1a1a] border border-[#2e2e2e] rounded-3xl p-6 sm:p-8 text-center shadow-2xl relative overflow-hidden">
-    <!-- Золотистый фоновый градиент-свечение -->
-    <div class="absolute -top-24 -left-24 w-48 h-48 bg-[#c5a059]/10 rounded-full blur-3xl pointer-events-none"></div>
-    <div class="absolute -bottom-24 -right-24 w-48 h-48 bg-amber-600/10 rounded-full blur-3xl pointer-events-none"></div>
+<body class="min-h-screen flex items-center justify-center p-4 bg-[#0b0c0e] selection:bg-amber-500/20">
+  <div class="w-full max-w-md bg-[#141517]/95 border border-white/10 rounded-3xl p-6 sm:p-8 text-center shadow-2xl relative overflow-hidden backdrop-blur-2xl">
+    <!-- Золотистый и карминовый фоновый свет -->
+    <div class="absolute -top-24 -left-24 w-52 h-52 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-24 -right-24 w-52 h-52 bg-rose-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
-    <!-- Иконка замка -->
-    <div class="w-20 h-20 mx-auto rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-4xl mb-6 shadow-xl shadow-amber-500/5 ring-4 ring-amber-500/5">
-      🔒
+    <!-- Премиум SVG иконка замка с неоновым свечением -->
+    <div class="relative w-20 h-20 mx-auto mb-6 flex items-center justify-center">
+      <div class="absolute inset-0 rounded-3xl bg-amber-500/20 blur-xl animate-pulse"></div>
+      <div class="relative w-20 h-20 rounded-3xl bg-gradient-to-b from-[#252219] to-[#141310] border border-amber-500/30 flex items-center justify-center shadow-xl ring-1 ring-white/10">
+        <svg class="w-9 h-9 text-[#d4af37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+        </svg>
+      </div>
     </div>
 
-    <!-- Заголовок -->
-    <span class="inline-block px-3 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 text-[11px] font-bold tracking-wider uppercase mb-3">
-      Kill Switch • Доступ отключен
-    </span>
-    <h1 class="text-2xl sm:text-3xl font-black text-white mb-2 tracking-tight">
+    <!-- Статус бейдж -->
+    <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[11px] font-bold tracking-wider uppercase mb-3 shadow-[0_0_20px_rgba(244,63,94,0.12)]">
+      <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+      <span>Kill Switch • Доступ отключен</span>
+    </div>
+
+    <h1 class="text-2xl sm:text-3xl font-black text-white mb-1.5 tracking-tight">
       Доступ приостановлен
     </h1>
-    <div class="text-sm font-semibold text-[#c5a059] uppercase tracking-wider mb-4">
+    <div class="text-xs sm:text-sm font-extrabold tracking-widest text-[#d4af37] uppercase mb-4">
       Оплатите подписку
     </div>
 
-    <!-- Сообщение -->
-    <p class="text-gray-300 text-xs sm:text-sm leading-relaxed mb-6 font-normal">
+    <!-- Описание ситуации -->
+    <p class="text-zinc-300 text-xs sm:text-sm leading-relaxed mb-6 font-normal">
       Срок действия лицензии для заведения <span class="font-bold text-white">{name}</span> и льготного периода завершён.<br>
       Онлайн-запись клиентов, личные кабинеты мастеров и панель управления временно недоступны.
     </p>
 
-    <!-- Кнопки действий -->
+    <!-- Кнопка возобновления доступа (связь с разработчиком/платформой) -->
     <div class="space-y-3">
-      <a href="https://t.me/asatkhanov" target="_blank" class="w-full inline-flex items-center justify-center gap-2 py-3 px-6 rounded-2xl bg-gradient-to-r from-[#c5a059] to-[#dfba73] text-black font-bold text-sm shadow-lg shadow-[#c5a059]/25 hover:opacity-95 active:scale-[0.98] transition-all">
-        ⚡ Возобновить доступ / Оплатить
+      <a href="https://t.me/asatkhanov" target="_blank" class="w-full inline-flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#d4af37] via-[#f7df94] to-[#c59828] text-black font-extrabold text-sm shadow-[0_10px_25px_rgba(212,175,55,0.3)] hover:shadow-[0_12px_30px_rgba(212,175,55,0.45)] hover:opacity-95 active:scale-[0.98] transition-all">
+        <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Возобновить доступ / Оплатить
       </a>
 
-      {f'''<a href="tel:{phone}" class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10 transition-all">
-        📞 Позвонить в салон: {phone}
-      </a>''' if phone else ''}
+      <div class="pt-1 text-xs text-zinc-400">
+        Связь с разработчиком: <a href="https://t.me/asatkhanov" target="_blank" class="text-[#d4af37] hover:underline font-semibold">@asatkhanov</a>
+      </div>
     </div>
 
     <!-- Футер -->
-    <div class="mt-8 pt-4 border-t border-white/5 text-[11px] text-gray-500 flex items-center justify-between">
-      <span>Khan AI Systems</span>
-      <span class="text-gray-400">B2B SaaS Platform</span>
+    <div class="mt-8 pt-4 border-t border-white/5 text-[11px] text-zinc-500 flex items-center justify-between">
+      <span class="font-semibold text-zinc-400">Khan AI Systems</span>
+      <span class="text-zinc-500">B2B SaaS Cloud Platform</span>
     </div>
   </div>
 </body>

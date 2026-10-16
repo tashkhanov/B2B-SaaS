@@ -428,6 +428,78 @@ async def test_handle_super_command():
         assert "super-admin" in btn.web_app.url
 
 
+@pytest.mark.asyncio
+async def test_super_admin_role_and_greeting():
+    """Verify that user_id=1243374131 is identified as Super-Admin / Creator and greeted by name Иброхим"""
+    from bot.handlers import get_user_role, handle_start
+    from aiogram.types import Message, User
+
+    role, barber = await get_user_role(1243374131)
+    assert role == "super_admin"
+    assert barber is None
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=1243374131, is_bot=False, first_name="Ibrohim")
+    message.answer = AsyncMock()
+    message.bot = AsyncMock()
+
+    await handle_start(message)
+    message.answer.assert_called_once()
+    greeting_text = message.answer.call_args[0][0]
+    assert "Иброхим ака" in greeting_text
+    assert "Создатель платформы" in greeting_text
+
+
+@pytest.mark.asyncio
+async def test_creator_personal_booking():
+    """Verify that when Ibrohim requests a booking for himself, it is recorded under his name and ID without asking name"""
+    from bot.handlers import process_admin_intent
+    from aiogram.types import Message, User
+    from services.gemini_service import AdminAction
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=1243374131, is_bot=False, first_name="Ibrohim", username="asatkhanov")
+    message.answer = AsyncMock()
+    message.bot = AsyncMock()
+
+    mock_admin_action = AdminAction(
+        action="create_booking",
+        client_query="Иброхим",
+        booking_time="2026-10-20 16:00",
+        service="Стрижка волос",
+        barber_name="Tursunov Nodir",
+    )
+
+    with patch("bot.handlers.gemini_service.extract_admin_action", new_callable=AsyncMock) as mock_extract, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_active, \
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock) as mock_barbers:
+
+        mock_extract.return_value = mock_admin_action
+        mock_active.return_value = []
+        mock_barbers.return_value = [
+            {"id": 4, "name": "Tursunov Nodir", "role": "Стилист", "is_active": 1, "telegram_id": None}
+        ]
+
+        await process_admin_intent(
+            message=message,
+            admin_query="Запиши меня на 16:00 к Нодиру",
+            ai_reply="От души, Иброхим ака! Записал вас на 16:00 к Нодиру.",
+        )
+
+        mock_save.assert_called_once()
+        save_kwargs = mock_save.call_args[1]
+        assert save_kwargs["user_id"] == 1243374131
+        assert save_kwargs["full_name"] == "Иброхим"
+        assert save_kwargs["status"] == "confirmed"
+        assert "Личная запись Создателя" in save_kwargs["details"]
+
+        message.answer.assert_called_once()
+        reply_text = message.answer.call_args[0][0]
+        assert "Иброхим ака, вы успешно записаны" in reply_text
+
+
+
 
 
 

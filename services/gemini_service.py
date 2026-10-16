@@ -19,6 +19,7 @@ from prompts import (
     CLIENT_SYSTEM_PROMPT,
     ADMIN_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
+    CREATOR_IDENTITY_PROMPT,
     FALLBACK_RESPONSE,
     ADMIN_FALLBACK_RESPONSE,
 )
@@ -28,6 +29,14 @@ from services.schedule_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def is_super_admin_user(user_id: Optional[int]) -> bool:
+    """Проверка, является ли пользователь Создателем и Супер-Админом (Иброхим)"""
+    if not user_id:
+        return False
+    super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    return bool((super_admin_id and user_id == super_admin_id) or user_id == 1243374131)
 
 
 def clean_voice_disclaimers(text: str) -> str:
@@ -222,6 +231,8 @@ class GeminiService:
 
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
+            if is_super_admin_user(user_id):
+                dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{CREATOR_IDENTITY_PROMPT}"
 
             config = types.GenerateContentConfig(
                 system_instruction=dynamic_system_prompt,
@@ -285,6 +296,8 @@ class GeminiService:
             )
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
+            if is_super_admin_user(user_id):
+                dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{CREATOR_IDENTITY_PROMPT}"
 
             config = types.GenerateContentConfig(
                 system_instruction=dynamic_system_prompt,
@@ -322,22 +335,31 @@ class GeminiService:
             fallback = ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
             return fallback, "Голосовое сообщение"
 
-    async def extract_client_action(self, dialog_context: str) -> Optional[ClientAction]:
+    async def extract_client_action(self, dialog_context: str, user_id: Optional[int] = None) -> Optional[ClientAction]:
         """
         Структурированное определение намерения клиента:
         'create_booking', 'cancel_my_booking', 'check_my_booking', 'chat'.
         """
         try:
             now_str = format_tashkent_now_for_prompt()
+            creator_hint = ""
+            if is_super_admin_user(user_id) or "меня" in dialog_context.lower() or "иброхим" in dialog_context.lower():
+                creator_hint = (
+                    "\nОСОБОЕ ПРАВИЛО ДЛЯ СОЗДАТЕЛЯ (ИБРОХИМ):\n"
+                    "Если пользователь просит 'запиши меня', 'мне стрижку', 'забронируй мне' — его имя ИБРОХИМ (customer_name='Иброхим'). "
+                    "В таком случае переспрашивать имя НЕ НУЖНО, и если желаемое время названо — ставь is_booking_confirmed = true!\n"
+                )
+
             prompt = (
                 "Ты — анализатор диалогов клиентов мужского салона Brohouse.\n"
-                f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n\n"
+                f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n"
+                f"{creator_hint}\n"
                 f"Диалог:\n{dialog_context}\n\n"
                 "Определи действие клиента:\n"
                 "1. action = 'cancel_my_booking' — если клиент просит отменить бронь ('отмени', 'не приду', 'отмена', 'bekor qil').\n"
                 "2. action = 'check_my_booking' — если клиент спрашивает, когда он записан ('когда я записан?', 'на сколько моя стрижка?').\n"
                 "3. action = 'create_booking' — если клиент хочет записаться. "
-                "СТРОГОЕ ПРАВИЛО: is_booking_confirmed = true ТОЛЬКО ЕСЛИ в диалоге реально названы И имя клиента, И желаемое время!\n"
+                "СТРОГОЕ ПРАВИЛО: is_booking_confirmed = true ТОЛЬКО ЕСЛИ в диалоге реально названы И имя клиента (для Иброхима имя уже известно), И желаемое время!\n"
                 "КРИТИЧЕСКИ ВАЖНО: booking_time пиши только в каноническом формате 'YYYY-MM-DD HH:MM (ДеньНедели)' с точной датой.\n"
                 "4. action = 'chat' — во всех остальных случаях (вопрос по прайсу, локации и т.д.)."
             )
@@ -363,20 +385,29 @@ class GeminiService:
             logger.warning(f"Ошибка extract_client_action: {e}")
             return None
 
-    async def extract_admin_action(self, admin_query: str) -> Optional[AdminAction]:
+    async def extract_admin_action(self, admin_query: str, user_id: Optional[int] = None) -> Optional[AdminAction]:
         """
         Структурированное определение намерения управляющего:
         'query_schedule', 'create_booking', 'confirm_booking', 'cancel_booking', 'get_stats', 'chat'.
         """
         try:
             now_str = format_tashkent_now_for_prompt()
+            creator_hint = ""
+            if is_super_admin_user(user_id) or "меня" in admin_query.lower() or "мне" in admin_query.lower():
+                creator_hint = (
+                    "\nОСОБОЕ ПРАВИЛО ДЛЯ СОЗДАТЕЛЯ / ШЕФА:\n"
+                    "Если в запросе сказано 'запиши меня', 'мне стрижку', 'забронируй мне' — "
+                    "клиент это сам Шеф / Иброхим (client_query='Иброхим', action='create_booking').\n"
+                )
+
             prompt = (
                 "Ты — система управления командами владельца мужского салона Brohouse.\n"
-                f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n\n"
+                f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n"
+                f"{creator_hint}\n"
                 f"Запрос администратора: {admin_query}\n\n"
                 "Определи намерение администратора:\n"
                 "- 'query_schedule': запросы расписания ('кто сегодня?', 'что на завтра?', 'покажи пятницу'). Извлеки target_date.\n"
-                "- 'create_booking': ручная запись клиента ('запиши Сардора завтра на 16:00, тел +99890...'). Извлеки client_query, booking_time, service, phone.\n"
+                "- 'create_booking': ручная запись клиента ('запиши Сардора завтра на 16:00, тел +99890...', или 'запиши меня на 15:00'). Извлеки client_query, booking_time, service, phone.\n"
                 "- 'confirm_booking': подтверждение записи ('подтверди запись Рустама', 'подтверди 15:00'). Извлеки client_query или booking_time.\n"
                 "- 'cancel_booking': отмена записи ('отмени запись Рустама', 'отмени 14:00'). Извлеки client_query или booking_time.\n"
                 "- 'get_stats': статистика ('сколько записей?', 'статистика').\n"

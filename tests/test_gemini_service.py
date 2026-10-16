@@ -47,3 +47,43 @@ async def test_extract_booking_info():
     assert extracted.is_booking_confirmed is True
     assert extracted.customer_name == "Тимур"
     assert extracted.booking_time == "Завтра в 15:00"
+
+
+def test_is_super_admin_user():
+    from services.gemini_service import is_super_admin_user
+    assert is_super_admin_user(1243374131) is True
+    assert is_super_admin_user(99999999) is False
+    assert is_super_admin_user(None) is False
+
+
+@pytest.mark.asyncio
+async def test_creator_prompt_injection():
+    from services.gemini_service import GeminiService
+    from unittest.mock import patch
+
+    service = GeminiService(api_key="test_key")
+    mock_client = MagicMock()
+    mock_models = MagicMock()
+
+    mock_response = MagicMock()
+    mock_response.text = "От души, Иброхим ака! Рад вас приветствовать."
+    mock_models.generate_content = AsyncMock(return_value=mock_response)
+    mock_client.aio.models = mock_models
+    service.client = mock_client
+
+    with patch("services.gemini_service.get_recent_messages", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_active_bookings", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_barbers", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_services", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.add_message", new_callable=AsyncMock):
+
+        reply = await service.generate_response(user_id=1243374131, user_message="Салам, как дела?")
+        assert "Иброхим ака" in reply
+
+        # Проверяем, что в config.system_instruction был передан промпт создателя
+        call_kwargs = mock_models.generate_content.call_args[1]
+        system_instruction = call_kwargs["config"].system_instruction
+        assert "ИБРОХИМ" in system_instruction
+        assert "СОЗДАТЕЛЬ" in system_instruction
+        assert "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО СПРАШИВАТЬ ЕГО ИМЯ" in system_instruction
+

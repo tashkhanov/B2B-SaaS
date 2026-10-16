@@ -26,6 +26,7 @@ from database import (
     get_barber_by_id,
     get_booking_by_id,
     update_booking_status,
+    find_booking_by_client_name,
 )
 from services.gemini_service import GeminiService
 from services.schedule_service import (
@@ -54,8 +55,18 @@ AI_BUSINESS_KEYBOARD = InlineKeyboardMarkup(
 )
 
 
+def is_super_admin(user_id: int) -> bool:
+    """Проверка, является ли пользователь Создателем и Супер-Администратором (Иброхим)"""
+    if not user_id:
+        return False
+    super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    return bool((super_admin_id and user_id == super_admin_id) or user_id == 1243374131)
+
+
 async def get_user_role(user_id: int):
-    """Определение роли: 'admin', 'barber', или 'client'."""
+    """Определение роли: 'super_admin', 'admin', 'barber', или 'client'."""
+    if is_super_admin(user_id):
+        return "super_admin", None
     if settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID:
         return "admin", None
     barber = await get_barber_by_telegram_id(user_id)
@@ -74,18 +85,27 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
     base_url = (settings.WEBAPP_URL or "").rstrip("/")
     has_https = base_url.startswith("https://")
 
-    if role == "admin":
+    if role in ("admin", "super_admin"):
         keyboard = [
             [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
             [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="🔄 Сбросить диалог")],
         ]
         if has_https:
-            keyboard.append([
+            row = [
                 KeyboardButton(
                     text="📊 Панель записей (TMA)",
                     web_app=WebAppInfo(url=f"{base_url}/admin"),
                 )
-            ])
+            ]
+            if role == "super_admin":
+                token = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+                row.append(
+                    KeyboardButton(
+                        text="👑 SaaS Super-Admin",
+                        web_app=WebAppInfo(url=f"{base_url}/super-admin?token={token}"),
+                    )
+                )
+            keyboard.append(row)
         else:
             keyboard.append([KeyboardButton(text="📊 Панель записей (/admin)")])
 
@@ -136,7 +156,7 @@ async def update_chat_menu_button(message: Message, role: str):
     if not base_url.startswith("https://") or not message.bot or not hasattr(message.bot, "set_chat_menu_button"):
         return
     try:
-        if role == "admin":
+        if role in ("admin", "super_admin"):
             await message.bot.set_chat_menu_button(
                 chat_id=message.chat.id,
                 menu_button=MenuButtonWebApp(text="Панель", web_app=WebAppInfo(url=f"{base_url}/admin"))
@@ -163,13 +183,22 @@ def get_start_inline_keyboard(role: str = "client", barber: dict = None) -> Inli
     base_url = (settings.WEBAPP_URL or "").rstrip("/")
     has_https = base_url.startswith("https://")
 
-    if role == "admin":
+    if role in ("admin", "super_admin"):
         url = f"{base_url}/admin" if base_url else "http://localhost:8000/admin"
-        btn = (
+        btns = [
             InlineKeyboardButton(text="📊 Открыть панель управления", web_app=WebAppInfo(url=url))
             if has_https
             else InlineKeyboardButton(text="📊 Открыть панель управления", url=url)
-        )
+        ]
+        if role == "super_admin":
+            token = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+            super_url = f"{base_url}/super-admin?token={token}" if base_url else "http://localhost:8000/super-admin"
+            btns.append(
+                InlineKeyboardButton(text="👑 Super-Admin (SaaS)", web_app=WebAppInfo(url=super_url))
+                if has_https
+                else InlineKeyboardButton(text="👑 Super-Admin (SaaS)", url=super_url)
+            )
+        return InlineKeyboardMarkup(inline_keyboard=[btns])
     elif role == "barber":
         url = f"{base_url}/barber" if base_url else "http://localhost:8000/barber"
         btn = (
@@ -191,14 +220,22 @@ def get_start_inline_keyboard(role: str = "client", barber: dict = None) -> Inli
 @router.message(CommandStart())
 async def handle_start(message: Message):
     """
-    Обработчик команды /start с автоопределением роли (админ, барбер, клиент)
+    Обработчик команды /start с автоопределением роли (суперадмин, админ, барбер, клиент)
     и прозрачной inline-кнопкой под сообщением для открытия веб-меню.
     """
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
     await update_chat_menu_button(message, role)
 
-    if role == "admin":
+    if role == "super_admin":
+        welcome_text = (
+            "Салам алейкум, Иброхим ака! 👑\n\n"
+            "Вы авторизованы в системе как **Создатель платформы и Супер-Администратор** (Khan AI Systems).\n"
+            "Вам открыт полный доступ к расписанию заведения, панели Brohouse и пульту SaaS `/super`.\n\n"
+            "💡 *Чтобы записаться на стрижку лично, просто напишите или скажите голосом:* "
+            "«**Запиши меня на завтра в 16:00**» — *я сразу оформлю бронь на ваше имя без лишних вопросов!*"
+        )
+    elif role == "admin":
         welcome_text = (
             "Салам алейкум, Управляющий! 👑\n\n"
             "Вы вошли в систему как **Администратор** мужского салона Brohouse.\n"
@@ -470,7 +507,7 @@ async def handle_voice_message(message: Message):
     """
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
-    is_admin = role == "admin"
+    is_staff = role in ("admin", "barber", "super_admin")
 
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.RECORD_VOICE)
 
@@ -487,8 +524,6 @@ async def handle_voice_message(message: Message):
         return
     finally:
         file_bytes_io.close()
-
-    is_staff = is_admin or (role == "barber")
 
     # 2. Обработка голоса через Gemini с учетом роли
     ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
@@ -520,7 +555,7 @@ async def handle_user_text(message: Message):
     user_id = message.from_user.id if message.from_user else 0
     user_text = message.text.strip()
     role, barber = await get_user_role(user_id)
-    is_staff = (role == "admin") or (role == "barber")
+    is_staff = role in ("admin", "barber", "super_admin")
 
     # 1. Индикация "печатает..." во время запроса к AI
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
@@ -543,16 +578,47 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
     Обработка команд администратора через естественный язык или голос:
     1. Подтверждение записи клиента ('подтверди запись Рустама')
     2. Отмена записи клиента ('отмени запись Рустама')
-    3. Ручное создание брони на клиента
+    3. Создание записи: личная бронь Создателя (Иброхим) или ручная запись клиента
     """
-    from database import find_booking_by_client_name, update_booking_status, save_booking
+    user_id = message.from_user.id if message.from_user else 0
+    is_super = is_super_admin(user_id)
 
     combined = f"{admin_query} {ai_reply}".lower()
-    admin_triggers = ["подтверд", "отмен", "запиш", "бронь", "tasdiq", "bekor", "yoz"]
+    admin_triggers = ["подтверд", "отмен", "запиш", "бронь", "tasdiq", "bekor", "yoz", "стрижк", "время", "окно"]
     if not any(t in combined for t in admin_triggers):
         return
 
-    admin_action = await gemini_service.extract_admin_action(admin_query)
+    admin_action = await gemini_service.extract_admin_action(admin_query, user_id=user_id)
+
+    # Проверка: является ли запрос личной записью Создателя / Супер-Админа (Иброхим)
+    is_personal_creator_booking = False
+    if is_super:
+        personal_markers = ["меня", "мне", "себя", "запиши на", "хочу записаться", "meni yoz", "menga yoz"]
+        query_has_self = any(m in admin_query.lower() for m in personal_markers)
+        client_is_self = (
+            admin_action
+            and (
+                (admin_action.client_query or "").strip().lower() in ("меня", "мне", "себя", "иброхим", "шеф", "создатель")
+                or (not admin_action.client_query and admin_action.action == "create_booking")
+            )
+        )
+        if query_has_self or client_is_self:
+            is_personal_creator_booking = True
+
+    # Если admin_action не распознал create_booking, но Иброхим просит записать его
+    if is_personal_creator_booking and (not admin_action or admin_action.action != "create_booking"):
+        client_act = await gemini_service.extract_client_action(f"Клиент: {admin_query}\nАссистент: {ai_reply}", user_id=user_id)
+        if client_act and (client_act.action == "create_booking" or client_act.booking_time):
+            from services.gemini_service import AdminAction
+            admin_action = AdminAction(
+                action="create_booking",
+                client_query="Иброхим",
+                booking_time=client_act.booking_time,
+                service=client_act.service or "Стрижка / Комплекс",
+                phone=client_act.phone,
+                barber_name=client_act.barber_name,
+            )
+
     if not admin_action or admin_action.action in ("chat", "query_schedule", "get_stats"):
         return
 
@@ -602,8 +668,11 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             await message.answer(f"❌ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** отменена. Окно свободно!")
             return
 
-    # 3. Администратор вручную создает запись на клиента
-    if admin_action.action == "create_booking" and admin_action.booking_time and admin_action.client_query:
+    # 3. Создание записи: личная бронь Создателя или ручная запись клиента
+    if admin_action.action == "create_booking" and admin_action.booking_time:
+        if not admin_action.client_query and not is_personal_creator_booking:
+            return
+
         target_dt = parse_booking_datetime(admin_action.booking_time)
         if target_dt:
             active_bookings = await get_active_bookings()
@@ -622,22 +691,36 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 available_barbers=barbers
             )
             if not res.is_available:
-                await message.answer(f"⚠️ Шеф, на это время записать нельзя: {res.error_message}")
+                salutation = "Иброхим ака" if is_personal_creator_booking else "Шеф"
+                await message.answer(f"⚠️ {salutation}, на это время записать нельзя: {res.error_message}")
                 return
 
             normalized_time = format_booking_datetime(target_dt)
             final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
             final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
+            if is_personal_creator_booking:
+                full_name = "Иброхим"
+                booking_user_id = user_id
+                username = f"@{message.from_user.username}" if (message.from_user and message.from_user.username) else "@asatkhanov"
+                details = "Личная запись Создателя/Супер-Админа (Иброхим)"
+                status = "confirmed"
+            else:
+                full_name = admin_action.client_query
+                booking_user_id = 0
+                username = None
+                details = "Ручная запись администратором через чат с ИИ"
+                status = "confirmed"
+
             await save_booking(
-                user_id=0,
-                username=None,
-                full_name=admin_action.client_query,
-                details="Ручная запись администратором через чат с ИИ",
+                user_id=booking_user_id,
+                username=username,
+                full_name=full_name,
+                details=details,
                 phone=admin_action.phone,
                 service=admin_action.service or "Стрижка / Комплекс",
                 booking_time=normalized_time,
-                status="confirmed",
+                status=status,
                 barber_id=final_barber_id,
                 barber_name=final_barber_name,
             )
@@ -645,11 +728,12 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             # Оповещение назначенному барберу в Telegram
             if matched_barber and matched_barber.get("telegram_id"):
                 try:
+                    title_text = "👑 **К вам записался Создатель платформы / Шеф!**" if is_personal_creator_booking else "💈 **Шеф записал к вам клиента!**"
                     await message.bot.send_message(
                         chat_id=matched_barber["telegram_id"],
                         text=(
-                            f"💈 **Шеф записал к вам клиента!**\n\n"
-                            f"👤 **Клиент:** {admin_action.client_query}\n"
+                            f"{title_text}\n\n"
+                            f"👤 **Гость:** {full_name}\n"
                             f"✂️ **Услуга:** {admin_action.service or 'Стрижка'}\n"
                             f"⏰ **Время:** {normalized_time}\n"
                             f"📞 **Телефон:** {admin_action.phone or 'Не указан'}"
@@ -660,9 +744,20 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     logger.warning(f"Не удалось отправить уведомление барберу: {e}")
 
             master_str = f" к мастеру **{final_barber_name}**" if final_barber_name else ""
-            await message.answer(
-                f"💈 Запись клиента **{admin_action.client_query}**{master_str} на **{normalized_time}** ({admin_action.service or 'Стрижка'}) успешно зафиксирована в графике!"
-            )
+            if is_personal_creator_booking:
+                await message.answer(
+                    f"👑 **Иброхим ака, вы успешно записаны!**\n\n"
+                    f"✂️ **Услуга:** {admin_action.service or 'Стрижка / Комплекс'}\n"
+                    f"⏰ **Время:** {normalized_time}\n"
+                    f"{master_str}\n"
+                    f"📍 **Локация:** метро «Миллий бог», 8B\n\n"
+                    "Всегда рады видеть вас в Brohouse, Создатель! 🤝",
+                    parse_mode="Markdown"
+                )
+            else:
+                await message.answer(
+                    f"💈 Запись клиента **{full_name}**{master_str} на **{normalized_time}** ({admin_action.service or 'Стрижка'}) успешно зафиксирована в графике!"
+                )
 
 
 async def process_client_intent(message: Message, client_query: str, ai_reply: str) -> None:
@@ -784,9 +879,13 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
 
         booking_time = format_booking_datetime(target_dt)
         full_name = (
-            client_action.customer_name
-            or f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
-            or "Гость"
+            "Иброхим"
+            if is_super_admin(user_id)
+            else (
+                client_action.customer_name
+                or f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
+                or "Гость"
+            )
         )
         username = f"@{message.from_user.username}" if message.from_user.username else None
         phone = client_action.phone or None

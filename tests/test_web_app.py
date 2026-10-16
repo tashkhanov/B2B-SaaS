@@ -250,6 +250,10 @@ async def test_web_app_subscription_lockout(monkeypatch):
         page_html = await resp_page.text()
         assert "Доступ приостановлен" in page_html
         assert "Оплатите подписку" in page_html
+        assert "Plus Jakarta Sans" in page_html
+        assert "Позвонить в салон" not in page_html
+        assert "tel:" not in page_html
+        assert "https://t.me/asatkhanov" in page_html
 
         # 3. Super-Admin bypass with header should return 200
         resp_bypass = await client.get("/api/services", headers={"X-Super-Admin-Token": "secret123"})
