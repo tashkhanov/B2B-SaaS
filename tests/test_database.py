@@ -116,10 +116,10 @@ async def test_has_recent_booking():
 async def test_services_crud():
     from database import get_services, get_service_by_id, create_service, update_service, delete_service
 
-    # Проверка начального seed (4 дефолтные услуги)
+    # Проверка начального seed (12 дефолтных услуг Brohouse)
     services = await get_services(db_path=TEST_DB)
-    assert len(services) == 4
-    assert any(s["name"] == "Комплекс 'Black Beard'" for s in services)
+    assert len(services) == 12
+    assert any(s["name"] == "Стрижка волос" for s in services)
 
     # Создание новой услуги
     new_id = await create_service(
@@ -175,11 +175,11 @@ async def test_barbers_crud_and_bookings():
         get_bookings_for_barber
     )
 
-    # Проверка начального seed (3 дефолтных мастера)
+    # Проверка начального seed (4 дефолтных мастера Brohouse)
     barbers = await get_barbers(db_path=TEST_DB)
-    assert len(barbers) == 3
-    assert any(b["name"] == "Иброхим" for b in barbers)
-    assert any(b["name"] == "Сардор" for b in barbers)
+    assert len(barbers) == 4
+    assert any(b["name"] == "Mr. Akmal" for b in barbers)
+    assert any(b["name"] == "Mr. Dilshod" for b in barbers)
 
     # Создание мастера
     new_barber_id = await create_barber(

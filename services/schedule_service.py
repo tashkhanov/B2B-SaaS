@@ -1,12 +1,13 @@
 """
 Модуль управления расписанием, часовым поясом Ташкента (UTC+5),
-мульти-мастер валидацией и умным распределением слотов в барбершопе Black Beard.
+мульти-мастер валидацией и умным распределением слотов в мужском салоне Brohouse.
 """
 
 from datetime import datetime, date, time, timedelta, timezone
 from typing import List, Dict, Optional, Tuple, Any
 import re
 import logging
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +21,9 @@ except Exception:
 # Базовая длительность процедуры в барбершопе по умолчанию (1 час = 60 минут)
 SERVICE_DURATION_MINUTES = 60
 
-# Рабочие часы барбершопа Black Beard
-WORK_START_HOUR = 10  # 10:00
-WORK_END_HOUR = 22    # 22:00
+# Рабочие часы барбершопа Brohouse
+WORK_START_HOUR = 8   # 08:00
+WORK_END_HOUR = 23    # 23:00
 
 # Горизонт бронирования вперед
 MAX_BOOKING_DAYS_AHEAD = 7
@@ -245,11 +246,11 @@ def check_slot_availability(
             None
         )
 
-    # 3. Рабочие часы (10:00 - 22:00)
+    # 3. Рабочие часы (08:00 - 23:00)
     if target.hour < WORK_START_HOUR or target.hour > WORK_END_HOUR or (target.hour == WORK_END_HOUR and target.minute > 0):
         return SlotCheckResult(
             False,
-            f"Барбершоп работает с {WORK_START_HOUR}:00 до {WORK_END_HOUR}:00. Выберите время в этом интервале.",
+            f"Салон работает с {WORK_START_HOUR:02d}:00 до {WORK_END_HOUR:02d}:00. Выберите время в этом интервале.",
             None
         )
 
@@ -258,7 +259,7 @@ def check_slot_availability(
     if end_time_dt > closing_dt:
         return SlotCheckResult(
             False,
-            f"Барбершоп закрывается в {WORK_END_HOUR}:00, а процедура длится {duration_minutes} мин. Выберите более раннее время.",
+            f"Салон закрывается в {WORK_END_HOUR:02d}:00, а процедура длится {duration_minutes} мин. Выберите более раннее время.",
             None
         )
 
@@ -317,8 +318,17 @@ def check_slot_availability(
                 None
             )
 
-        # Ищем первого свободного мастера
-        for barber in working_barbers:
+        # Исключаем Шеф-мастера / Директора (Mr. Akmal) из общего пула автоподбора
+        stylists = [
+            b for b in working_barbers
+            if "шеф" not in (b.get("role_title") or "").lower()
+            and "директор" not in (b.get("role_title") or "").lower()
+        ]
+        candidates_pool = stylists if stylists else working_barbers
+
+        # Ищем всех свободных мастеров из пула на это время
+        free_candidates = []
+        for barber in candidates_pool:
             b_id = barber["id"]
             has_conflict = False
             for b in existing_bookings:
@@ -341,7 +351,32 @@ def check_slot_availability(
                     break
 
             if not has_conflict:
-                return SlotCheckResult(True, None, None, barber["id"], barber["name"])
+                free_candidates.append(barber)
+
+        if free_candidates:
+            # Считаем текущую загрузку мастеров на этот день (количество активных записей)
+            def _get_load_for_barber(barber_id: int) -> int:
+                count = 0
+                for b in existing_bookings:
+                    if ignore_booking_id and b.get("id") == ignore_booking_id:
+                        continue
+                    if b.get("status") in ("cancelled", "completed"):
+                        continue
+                    if b.get("barber_id") != barber_id:
+                        continue
+                    raw_time = b.get("booking_time")
+                    b_dt = parse_booking_datetime(raw_time)
+                    if b_dt and b_dt.date() == target.date():
+                        count += 1
+                return count
+
+            loads = {b["id"]: _get_load_for_barber(b["id"]) for b in free_candidates}
+            min_load = min(loads.values())
+            least_busy = [b for b in free_candidates if loads[b["id"]] == min_load]
+
+            # Выбираем случайного среди наименее загруженных для честного баланса
+            chosen = random.choice(least_busy)
+            return SlotCheckResult(True, None, None, chosen["id"], chosen["name"])
 
         return SlotCheckResult(
             False,

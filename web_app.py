@@ -1,5 +1,5 @@
 """
-Веб-сервер Telegram Mini App (TMA) для барбершопа Black Beard на базе aiohttp.
+Веб-сервер Telegram Mini App (TMA) для барбершопа Brohouse на базе aiohttp.
 Обслуживает три отдельных интерфейса:
 1. /book (Клиентская онлайн-запись: услуга, выбор мастера, выбор окон, контакты)
 2. /admin (Панель управляющего: 3 вкладки - Записи, Услуги, Барберы)
@@ -11,6 +11,7 @@ from datetime import datetime, date
 import logging
 from aiohttp import web
 from aiogram import Bot
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import settings
 from database import (
@@ -51,6 +52,18 @@ ADMIN_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "index.html"
 BARBER_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "barber.html")
 STATIC_DIR_PATH = os.path.join(os.path.dirname(__file__), "static")
 BOT_KEY = web.AppKey("bot", object)
+
+
+def get_booking_action_keyboard(booking_id: int) -> InlineKeyboardMarkup:
+    """Инлайн-кнопки для мгновенного подтверждения или отмены записи мастером/админом"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"bstatus:{booking_id}:confirmed"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"bstatus:{booking_id}:cancelled"),
+            ]
+        ]
+    )
 
 
 # =============================================================================
@@ -397,6 +410,7 @@ async def handle_get_barber_my_schedule(request: web.Request) -> web.Response:
         if not barber:
             return web.json_response({"error": "Мастер не найден"}, status=404)
 
+        barber["is_on_shift"] = bool(barber.get("is_working_today", 1))
         bookings = await get_bookings_for_barber(barber["id"], target_date=target_date)
         return web.json_response({
             "ok": True,
@@ -502,11 +516,12 @@ async def handle_create_booking(request: web.Request) -> web.Response:
         if bot and user_id and user_id != 0:
             master_line = f"💈 **Мастер:** {final_barber_name}\n" if final_barber_name else ""
             client_msg = (
-                "💈 **Вы успешно записаны в барбершоп Black Beard!**\n\n"
+                "💈 **Вы успешно записаны в барбершоп Brohouse!**\n\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"{master_line}"
                 f"⏰ **Время:** {normalized_time}\n"
-                "📍 **Адрес:** ул. Амира Темура (ориентир — гостиница 'Узбекистан')\n\n"
+                "📍 **Адрес:** метро «Миллий бог», 8B\n"
+                "📞 **Телефон:** +998 97 012-55-55\n\n"
                 "Ждем вас! Если потребуется отменить запись — вы можете сделать это прямо через онлайн-меню или написав мне в чат."
             )
             try:
@@ -524,10 +539,15 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {normalized_time}\n"
                 f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
-                "📱 _Запись доступна в панели управления!_"
+                "📱 _Подтвердите или отклоните кнопками ниже:_"
             )
             try:
-                await bot.send_message(chat_id=settings.ADMIN_CHAT_ID, text=admin_msg, parse_mode="Markdown")
+                await bot.send_message(
+                    chat_id=settings.ADMIN_CHAT_ID,
+                    text=admin_msg,
+                    parse_mode="Markdown",
+                    reply_markup=get_booking_action_keyboard(booking_id)
+                )
             except Exception as e:
                 logger.warning(f"Не удалось отправить уведомление админу: {e}")
 
@@ -539,10 +559,15 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {normalized_time}\n"
                 f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
-                "📱 _Ваша очередь доступна в меню мастера /barber_"
+                "📱 _Подтвердите или отклоните прямо сейчас:_"
             )
             try:
-                await bot.send_message(chat_id=assigned_barber["telegram_id"], text=master_alert, parse_mode="Markdown")
+                await bot.send_message(
+                    chat_id=assigned_barber["telegram_id"],
+                    text=master_alert,
+                    parse_mode="Markdown",
+                    reply_markup=get_booking_action_keyboard(booking_id)
+                )
             except Exception as e:
                 logger.warning(f"Не удалось отправить уведомление мастеру: {e}")
 
@@ -589,11 +614,12 @@ async def handle_update_status(request: web.Request) -> web.Response:
 
             if new_status == "confirmed":
                 msg = (
-                    "✅ **Ваша запись в Black Beard ПОДТВЕРЖДЕНА!**\n\n"
+                    "✅ **Ваша запись в Brohouse ПОДТВЕРЖДЕНА!**\n\n"
                     f"✂️ **Услуга:** {service}\n"
                     f"💈 **Мастер:** {barber}\n"
                     f"⏰ **Время:** {b_time}\n"
-                    "📍 **Адрес:** ул. Амира Темура (гостиница 'Узбекистан')\n\n"
+                    "📍 **Адрес:** метро «Миллий бог», 8B\n"
+                    "📞 **Телефон:** +998 97 012-55-55\n\n"
                     "Мы уже ждем вас к назначенному времени, ака! 💈"
                 )
                 try:
@@ -603,7 +629,7 @@ async def handle_update_status(request: web.Request) -> web.Response:
 
             elif new_status == "cancelled":
                 msg = (
-                    "ℹ️ **Ваша запись в Black Beard была отменена.**\n\n"
+                    "ℹ️ **Ваша запись в Brohouse была отменена.**\n\n"
                     f"⏰ Время: {b_time}\n"
                     f"✂️ Услуга: {service}\n\n"
                     "Если вы хотите выбрать другое время или мастера — просто откройте онлайн-меню или напишите мне в чат."
@@ -682,9 +708,9 @@ def create_web_app(bot: Bot = None) -> web.Application:
     app = web.Application()
     app[BOT_KEY] = bot
 
-    # Статические файлы (аватарки барберов, иконки)
+    # Статические файлы (аватарки барберов, логотипы, иконки)
     if os.path.exists(STATIC_DIR_PATH):
-        app.router.add_static("/static/", STATIC_DIR_PATH, name="static")
+        app.router.add_static("/static", STATIC_DIR_PATH, name="static")
 
     # TMA страницы
     app.router.add_get("/", handle_client)

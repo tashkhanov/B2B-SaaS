@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Black Beard — Рабочее место мастера</title>
+  <title>Brohouse — Рабочее место мастера</title>
   
   <!-- Telegram Web App SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -21,13 +21,13 @@
       theme: {
         extend: {
           colors: {
-            bgDark: '#0d1117',
-            surface: '#161b22',
-            surfaceHover: '#1c2128',
-            surfaceBorder: '#30363d',
-            accent: '#ff6b00',
-            accentHover: '#e66000',
-            gold: '#D4AF37'
+            bgDark: '#0a0a0c',
+            surface: '#131316',
+            surfaceHover: '#1b1b20',
+            surfaceBorder: '#26262b',
+            accent: '#c5a059',
+            accentHover: '#b38f48',
+            gold: '#d4af37'
           },
           fontFamily: {
             sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
@@ -70,7 +70,7 @@
     </div>
     <h2 class="text-base font-semibold text-white">Вы не зарегистрированы как мастер</h2>
     <p class="text-xs text-gray-400 max-w-xs mx-auto">
-      Этот раздел доступен только для мастеров барбершопа Black Beard. Попросите управляющего привязать ваш Telegram ID в панели администратора.
+      Этот раздел доступен только для мастеров мужского салона Brohouse. Попросите управляющего привязать ваш Telegram ID в панели администратора.
     </p>
     <div class="pt-4">
       <a href="/book" class="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-semibold text-xs bg-accent text-white hover:bg-accentHover transition shadow-lg shadow-accent/20">
@@ -85,18 +85,12 @@
     <!-- Шапка (Header) -->
     <header class="flex items-center justify-between mb-4 pb-3.5 border-b border-surfaceBorder/80">
       <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center text-accent shadow-sm shadow-accent/10">
-          <svg class="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="6" cy="6" r="3"/>
-            <circle cx="6" cy="18" r="3"/>
-            <line x1="20" y1="4" x2="8.12" y2="15.88"/>
-            <line x1="14.47" y1="14.48" x2="20" y2="20"/>
-            <line x1="8.12" y1="8.12" x2="12" y2="12"/>
-          </svg>
+        <div class="w-11 h-11 rounded-xl bg-surface border border-accent/30 flex items-center justify-center p-1.5 shadow-sm shadow-accent/10">
+          <img src="/static/logo.png" alt="Brohouse Logo" class="w-full h-full object-contain">
         </div>
         <div>
           <h1 class="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
-            <span>Black Beard Master</span>
+            <span>Brohouse Master</span>
             <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
           </h1>
           <p class="text-[11px] text-gray-400 font-normal">Рабочее место мастера • Смена</p>
@@ -114,7 +108,7 @@
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div id="m-profile-badge" class="w-12 h-12 rounded-2xl bg-gold/15 border border-gold/30 text-gold flex items-center justify-center font-bold text-sm tracking-wider shadow-sm">
-            BB
+            BH
           </div>
           <div>
             <h2 id="m-name" class="font-bold text-white text-base">Имя мастера</h2>
@@ -254,7 +248,10 @@
       const badge = document.getElementById('m-profile-badge');
       if (badge) badge.textContent = initials;
 
-      updateShiftBtn(barberData.is_on_shift);
+      const isOnShift = (barberData.is_on_shift !== undefined) 
+        ? Boolean(barberData.is_on_shift) 
+        : Boolean(barberData.is_working_today);
+      updateShiftBtn(isOnShift);
     }
 
     function updateShiftBtn(isOnShift) {
@@ -356,9 +353,36 @@
           statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Подтверждена</span>';
         } else if (b.status === 'completed') {
           statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-500/10 text-gray-400 border border-gray-500/30">Завершена</span>';
+        } else if (b.status === 'cancelled') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">Отменена</span>';
         }
 
         const phone = b.phone ? b.phone.trim() : null;
+
+        let actionButtonsHtml = '';
+        if (b.status === 'new') {
+          actionButtonsHtml = `
+            <div class="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-surfaceBorder/40">
+              <button onclick="changeBookingStatus(${b.id}, 'confirmed')" class="py-2 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition active:scale-95 flex items-center justify-center gap-1.5 shadow-sm">
+                <span>✅ Подтвердить</span>
+              </button>
+              <button onclick="changeBookingStatus(${b.id}, 'cancelled')" class="py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition active:scale-95 flex items-center justify-center gap-1.5 shadow-sm">
+                <span>❌ Отменить</span>
+              </button>
+            </div>
+          `;
+        } else if (b.status === 'confirmed') {
+          actionButtonsHtml = `
+            <div class="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-surfaceBorder/40">
+              <button onclick="changeBookingStatus(${b.id}, 'completed')" class="py-2 px-3 rounded-xl bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 text-xs font-bold transition active:scale-95 flex items-center justify-center gap-1.5 shadow-sm">
+                <span>🏁 Завершить</span>
+              </button>
+              <button onclick="changeBookingStatus(${b.id}, 'cancelled')" class="py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition active:scale-95 flex items-center justify-center gap-1.5 shadow-sm">
+                <span>❌ Отменить</span>
+              </button>
+            </div>
+          `;
+        }
 
         card.innerHTML = `
           <div class="flex items-start justify-between mb-2">
@@ -389,8 +413,8 @@
           </div>
 
           ${phone ? `
-            <div class="pt-1 border-t border-surfaceBorder/40">
-              <a href="tel:${phone}" class="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-xl bg-surface hover:bg-surfaceBorder text-xs font-semibold text-white border border-surfaceBorder transition active:scale-95">
+            <div class="pt-1 border-t border-surfaceBorder/40 mb-1">
+              <a href="tel:${phone}" class="inline-flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-xl bg-surface hover:bg-surfaceBorder text-xs font-medium text-gray-200 border border-surfaceBorder transition active:scale-95">
                 <svg class="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
                 </svg>
@@ -398,10 +422,41 @@
               </a>
             </div>
           ` : ''}
+          ${actionButtonsHtml}
         `;
 
         list.appendChild(card);
       });
+    }
+
+    async function changeBookingStatus(bookingId, newStatus) {
+      if (newStatus === 'cancelled' && !confirm('Вы уверены, что хотите отменить эту запись? Клиент получит уведомление.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/bookings/${bookingId}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const found = currentSchedule.find(item => item.id === bookingId);
+          if (found) {
+            found.status = newStatus;
+          }
+          renderBookings();
+          if (tg && tg.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred(newStatus === 'cancelled' ? 'warning' : 'success');
+          }
+        } else {
+          alert(data.error || 'Ошибка смены статуса');
+        }
+      } catch (e) {
+        console.error('Ошибка изменения статуса:', e);
+        alert('Ошибка связи с сервером');
+      }
     }
 
     function escapeHtml(str) {

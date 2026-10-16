@@ -16,13 +16,17 @@ async def test_web_app_endpoints(monkeypatch):
         os.remove(TEST_DB)
     await init_db(TEST_DB)
 
+    from services.schedule_service import get_now_tashkent
+    from datetime import timedelta
+    tomorrow = (get_now_tashkent().date() + timedelta(days=1)).isoformat()
+
     booking_id = await save_booking(
         user_id=123,
         username="@bek",
         full_name="Бекзод",
         details="Комплекс",
-        service="Комплекс",
-        booking_time="2026-10-16 15:00 (Пятница)",
+        service="Стрижка волос",
+        booking_time=f"{tomorrow} 15:00",
         db_path=TEST_DB
     )
 
@@ -36,7 +40,7 @@ async def test_web_app_endpoints(monkeypatch):
         resp = await client.get("/")
         assert resp.status == 200
         text = await resp.text()
-        assert "Black Beard" in text
+        assert "Brohouse" in text
         assert "Онлайн-запись" in text
         assert "Powered by" in text
         assert "Khan" in text
@@ -63,7 +67,7 @@ async def test_web_app_endpoints(monkeypatch):
         assert cfg_data["admin_chat_id"] == 999888
 
         # 4. Test API slots
-        resp_slots = await client.get("/api/slots?date=2026-10-16")
+        resp_slots = await client.get(f"/api/slots?date={tomorrow}")
         assert resp_slots.status == 200
         slots_data = await resp_slots.json()
         assert "slots" in slots_data
@@ -76,8 +80,8 @@ async def test_web_app_endpoints(monkeypatch):
         resp_create = await client.post("/api/bookings", json={
             "full_name": "Жасур",
             "phone": "+998901112233",
-            "service": "Мужская стрижка",
-            "booking_time": "2026-10-16 17:00",
+            "service": "Стрижка волос",
+            "booking_time": f"{tomorrow} 17:00",
         })
         assert resp_create.status == 200
         res_create = await resp_create.json()
@@ -87,8 +91,8 @@ async def test_web_app_endpoints(monkeypatch):
         # 6. Test API create booking (Conflict - trying 15:30 when 15:00 is taken)
         resp_conflict = await client.post("/api/bookings", json={
             "full_name": "Камиль",
-            "service": "Стрижка",
-            "booking_time": "2026-10-16 15:30",
+            "service": "Стрижка волос",
+            "booking_time": f"{tomorrow} 15:30",
         })
         assert resp_conflict.status == 400
         err_data = await resp_conflict.json()
@@ -180,6 +184,8 @@ async def test_web_app_endpoints(monkeypatch):
         sched_data = await resp_barber_sched.json()
         assert sched_data["ok"] is True
         assert sched_data["barber"]["id"] == first_barber["id"]
+        assert "is_on_shift" in sched_data["barber"]
+        assert sched_data["barber"]["is_on_shift"] is True
 
         # 14. Test User Role endpoint (/api/user-role)
         # 14.1 Admin role

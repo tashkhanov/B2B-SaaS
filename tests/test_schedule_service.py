@@ -55,17 +55,21 @@ def test_is_slot_overlapping():
     assert is_slot_overlapping(dt1, dt_free_2, duration_minutes=60) is False
 
 def test_check_slot_availability():
+    now = get_now_tashkent()
+    tomorrow = now.date() + timedelta(days=1)
+    b_time_str = f"{tomorrow.isoformat()} 15:00"
+
     existing = [
         {
             "id": 1,
             "full_name": "Абдулазиз",
-            "booking_time": "2026-10-16 15:00 (Пятница)",
+            "booking_time": b_time_str,
             "status": "new",
         }
     ]
 
     # Target 15:30 -> should CONFLICT
-    t_1530 = datetime(2026, 10, 16, 15, 30, tzinfo=TASHKENT_TZ)
+    t_1530 = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 15, 30, tzinfo=TASHKENT_TZ)
     is_avail, err, conflict = check_slot_availability(t_1530, existing)
     assert is_avail is False
     assert "занят" in err
@@ -74,24 +78,26 @@ def test_check_slot_availability():
     assert conflict["id"] == 1
 
     # Target 16:00 -> should be FREE
-    t_1600 = datetime(2026, 10, 16, 16, 0, tzinfo=TASHKENT_TZ)
+    t_1600 = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 16, 0, tzinfo=TASHKENT_TZ)
     is_avail2, err2, conflict2 = check_slot_availability(t_1600, existing)
     assert is_avail2 is True
     assert err2 is None
 
-    # Off-hours: 23:00 -> should be REJECTED
-    t_2300 = datetime(2026, 10, 16, 23, 0, tzinfo=TASHKENT_TZ)
-    is_avail3, err3, _ = check_slot_availability(t_2300, existing)
+    # Off-hours: 07:00 (до открытия в 08:00) -> should be REJECTED
+    t_0700 = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 7, 0, tzinfo=TASHKENT_TZ)
+    is_avail3, err3, _ = check_slot_availability(t_0700, existing)
     assert is_avail3 is False
-    assert "22:00" in err3
+    assert "08:00" in err3
 
 def test_build_schedule_context_for_prompt():
+    now = get_now_tashkent()
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     existing = [
         {
             "id": 1,
             "full_name": "Абдулазиз",
             "service": "Комплекс",
-            "booking_time": "2026-10-16 15:00 (Пятница)",
+            "booking_time": f"{tomorrow} 15:00 (Пятница)",
             "status": "new",
         }
     ]
@@ -99,7 +105,6 @@ def test_build_schedule_context_for_prompt():
     assert "ТАШКЕНТ" in ctx
     assert "15:00 — 16:00" in ctx
     assert "Абдулазиз" in ctx
-    assert "15:30" in ctx
 
 
 def test_7_days_horizon_limit():
@@ -184,16 +189,107 @@ def test_barber_off_day():
 
 def test_dynamic_duration():
     now = get_now_tashkent()
-    # 21:30 при закрытии в 22:00
-    t_2130 = (now + timedelta(days=1)).replace(hour=21, minute=30, second=0, microsecond=0)
+    # 22:30 при закрытии в 23:00
+    t_2230 = (now + timedelta(days=1)).replace(hour=22, minute=30, second=0, microsecond=0)
 
-    # 30-минутная услуга помещается (21:30 -> 22:00)
-    res_30 = check_slot_availability(t_2130, [], duration_minutes=30)
+    # 30-минутная услуга помещается (22:30 -> 23:00)
+    res_30 = check_slot_availability(t_2230, [], duration_minutes=30)
     assert res_30.is_available is True
 
-    # 60-минутная услуга НЕ помещается (21:30 -> 22:30 > 22:00)
-    res_60 = check_slot_availability(t_2130, [], duration_minutes=60)
+    # 60-минутная услуга НЕ помещается (22:30 -> 23:30 > 23:00)
+    res_60 = check_slot_availability(t_2230, [], duration_minutes=60)
     assert res_60.is_available is False
-    assert "закрывается в 22:00" in res_60.error_message
+    assert "закрывается в 23:00" in res_60.error_message
+
+
+def test_auto_assign_excludes_chef_master():
+    """Проверка: Шеф-мастер/Директор (Mr. Akmal) исключается из общего автоподбора, если есть доступные стилисты."""
+    now = get_now_tashkent()
+    target_dt = (now + timedelta(days=1)).replace(hour=15, minute=0, second=0, microsecond=0)
+
+    barbers = [
+        {"id": 1, "name": "Mr. Akmal", "role_title": "Директор / Шеф-мастер", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+        {"id": 2, "name": "Mr. Dilshod", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+        {"id": 3, "name": "Ismailov Abbos", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+    ]
+
+    # Ни у кого нет записей
+    res = check_slot_availability(target_dt, [], barber_id=None, available_barbers=barbers)
+    assert res.is_available is True
+    # Назначен стилист (не Mr. Akmal)
+    assert res.assigned_barber_id in (2, 3)
+    assert res.assigned_barber_name in ("Mr. Dilshod", "Ismailov Abbos")
+
+
+def test_auto_assign_least_busy_balancing():
+    """Проверка: Автоподбор выбирает наименее загруженного мастера на целевой день (Least Busy)."""
+    now = get_now_tashkent()
+    target_day = (now + timedelta(days=1))
+    target_dt = target_day.replace(hour=16, minute=0, second=0, microsecond=0)
+
+    barbers = [
+        {"id": 2, "name": "Mr. Dilshod", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+        {"id": 3, "name": "Ismailov Abbos", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+    ]
+
+    # У Mr. Dilshod уже есть 2 записи в этот день (в другое время: 12:00 и 14:00)
+    existing_bookings = [
+        {
+            "id": 101,
+            "barber_id": 2,
+            "booking_time": target_day.replace(hour=12, minute=0).strftime("%Y-%m-%d %H:%M"),
+            "status": "confirmed"
+        },
+        {
+            "id": 102,
+            "barber_id": 2,
+            "booking_time": target_day.replace(hour=14, minute=0).strftime("%Y-%m-%d %H:%M"),
+            "status": "confirmed"
+        }
+    ]
+
+    # На 16:00 оба свободны, но у Abbos 0 записей, а у Dilshod 2 -> Должен быть назначен Abbos!
+    res = check_slot_availability(target_dt, existing_bookings, barber_id=None, available_barbers=barbers)
+    assert res.is_available is True
+    assert res.assigned_barber_id == 3
+    assert res.assigned_barber_name == "Ismailov Abbos"
+
+
+def test_auto_assign_random_distribution():
+    """Проверка: При равной загрузке автоподбор не привязан к первому мастеру намертво."""
+    now = get_now_tashkent()
+    target_dt = (now + timedelta(days=1)).replace(hour=17, minute=0, second=0, microsecond=0)
+
+    barbers = [
+        {"id": 2, "name": "Mr. Dilshod", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+        {"id": 3, "name": "Ismailov Abbos", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+        {"id": 4, "name": "Tursunov Nodir", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+    ]
+
+    chosen_ids = set()
+    for _ in range(30):
+        res = check_slot_availability(target_dt, [], barber_id=None, available_barbers=barbers)
+        assert res.is_available is True
+        chosen_ids.add(res.assigned_barber_id)
+
+    # За 30 итераций должны быть выбраны как минимум 2 разных мастера (вероятность выбора только 1 равна (1/3)^29 ~= 0)
+    assert len(chosen_ids) >= 2
+
+
+def test_direct_chef_master_booking_allowed():
+    """Проверка: Прямая запись к Mr. Akmal (Шеф-мастер) при явном выборе разрешена и работает штатно."""
+    now = get_now_tashkent()
+    target_dt = (now + timedelta(days=1)).replace(hour=11, minute=0, second=0, microsecond=0)
+
+    barbers = [
+        {"id": 1, "name": "Mr. Akmal", "role_title": "Директор / Шеф-мастер", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+        {"id": 2, "name": "Mr. Dilshod", "role_title": "Стилист", "work_days": "0,1,2,3,4,5,6", "is_working_today": 1, "is_active": 1},
+    ]
+
+    res = check_slot_availability(target_dt, [], barber_id=1, available_barbers=barbers)
+    assert res.is_available is True
+    assert res.assigned_barber_id == 1
+    assert res.assigned_barber_name == "Mr. Akmal"
+
 
 

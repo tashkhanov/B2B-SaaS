@@ -15,7 +15,7 @@ async def test_handle_start():
     message.answer.assert_called_once()
     args, kwargs = message.answer.call_args
     assert "Салам алейкум, Алишер!" in args[0]
-    assert "Black Beard" in args[0]
+    assert "Brohouse" in args[0]
     markup = kwargs.get("reply_markup")
     assert isinstance(markup, InlineKeyboardMarkup)
     assert "Открыть меню записи" in str(markup)
@@ -55,7 +55,7 @@ async def test_handle_price():
     message.answer.assert_called_once()
     args, _ = message.answer.call_args
     assert "100 000 сум" in args[0]
-    assert "130 000 сум" in args[0]
+    assert "30% OFF" in args[0]
 
 @pytest.mark.asyncio
 async def test_handle_reset():
@@ -100,6 +100,10 @@ async def test_process_booking_intent_flow():
         mock_save.assert_not_called()
 
     # Case 2: Booking confirmed (both name and time present and slot is available)
+    from services.schedule_service import get_now_tashkent
+    from datetime import timedelta
+    tomorrow = (get_now_tashkent() + timedelta(days=1)).strftime("%Y-%m-%d")
+
     with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_get_recent, \
          patch("bot.handlers.gemini_service.extract_client_action", new_callable=AsyncMock) as mock_client_action, \
          patch("bot.handlers.gemini_service.extract_booking_info", new_callable=AsyncMock) as mock_extract, \
@@ -120,8 +124,8 @@ async def test_process_booking_intent_flow():
         mock_extract.return_value = ExtractedBooking(
             is_booking_confirmed=True,
             customer_name="Бабур",
-            booking_time="2026-10-16 15:00 (Пятница)",
-            service="Стрижка"
+            booking_time=f"{tomorrow} 15:00 (Завтра)",
+            service="Стрижка волос"
         )
         mock_has_recent.return_value = False
         mock_save.return_value = 42
@@ -153,14 +157,14 @@ async def test_process_booking_intent_flow():
             {
                 "id": 1,
                 "full_name": "Абдулазиз",
-                "booking_time": "2026-10-16 15:00 (Пятница)",
+                "booking_time": f"{tomorrow} 15:00 (Завтра)",
                 "status": "new"
             }
         ]
         mock_extract.return_value = ExtractedBooking(
             is_booking_confirmed=True,
             customer_name="Тимур",
-            booking_time="2026-10-16 15:30 (Пятница)",
+            booking_time=f"{tomorrow} 15:30 (Завтра)",
             service="Стрижка"
         )
 
@@ -247,6 +251,117 @@ async def test_barber_auto_detected_on_start():
         markup_str = str(kwargs.get("reply_markup"))
         assert "Моя смена" in markup_str
         assert "/barber" in markup_str
+
+
+@pytest.mark.asyncio
+async def test_barber_status_callback_confirmed():
+    from bot.handlers import handle_booking_status_callback
+    from aiogram.types import CallbackQuery
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.from_user = User(id=333444, is_bot=False, first_name="Дильшод")
+    callback.data = "bstatus:42:confirmed"
+    callback.answer = AsyncMock()
+    callback.message = MagicMock()
+    callback.message.text = "💈 Новая запись"
+    callback.message.caption = None
+    callback.message.edit_text = AsyncMock()
+    callback.bot = AsyncMock()
+
+    barber_data = {"id": 2, "name": "Mr. Dilshod", "role": "Стилист", "telegram_id": 333444}
+    booking_data = {
+        "id": 42,
+        "full_name": "Тест Клиент",
+        "service": "Мужская стрижка",
+        "booking_time": "2026-10-18 14:00",
+        "user_id": 777888,
+        "barber_id": 2,
+        "barber_name": "Mr. Dilshod",
+    }
+
+    with patch("bot.handlers.get_user_role", new_callable=AsyncMock) as mock_role, \
+         patch("bot.handlers.get_booking_by_id", new_callable=AsyncMock) as mock_get_booking, \
+         patch("bot.handlers.update_booking_status", new_callable=AsyncMock) as mock_update:
+
+        mock_role.return_value = ("barber", barber_data)
+        mock_get_booking.return_value = booking_data
+        mock_update.return_value = True
+
+        await handle_booking_status_callback(callback)
+
+        mock_update.assert_called_once_with(42, "confirmed")
+        callback.bot.send_message.assert_called_once()
+        sent_args, sent_kwargs = callback.bot.send_message.call_args
+        assert sent_kwargs["chat_id"] == 777888
+        assert "ПОДТВЕРЖДЕНА" in sent_kwargs["text"]
+        callback.message.edit_text.assert_called_once()
+        callback.answer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_barber_status_callback_cancelled():
+    from bot.handlers import handle_booking_status_callback
+    from aiogram.types import CallbackQuery
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.from_user = User(id=111222, is_bot=False, first_name="Admin")
+    callback.data = "bstatus:42:cancelled"
+    callback.answer = AsyncMock()
+    callback.message = MagicMock()
+    callback.message.text = "💈 Новая запись"
+    callback.message.caption = None
+    callback.message.edit_text = AsyncMock()
+    callback.bot = AsyncMock()
+
+    booking_data = {
+        "id": 42,
+        "full_name": "Тест Клиент",
+        "service": "Мужская стрижка",
+        "booking_time": "2026-10-18 14:00",
+        "user_id": 777888,
+        "barber_id": 2,
+        "barber_name": "Mr. Dilshod",
+    }
+
+    with patch("bot.handlers.get_user_role", new_callable=AsyncMock) as mock_role, \
+         patch("bot.handlers.get_booking_by_id", new_callable=AsyncMock) as mock_get_booking, \
+         patch("bot.handlers.update_booking_status", new_callable=AsyncMock) as mock_update:
+
+        mock_role.return_value = ("admin", None)
+        mock_get_booking.return_value = booking_data
+        mock_update.return_value = True
+
+        await handle_booking_status_callback(callback)
+
+        mock_update.assert_called_once_with(42, "cancelled")
+        callback.bot.send_message.assert_called_once()
+        sent_args, sent_kwargs = callback.bot.send_message.call_args
+        assert sent_kwargs["chat_id"] == 777888
+        assert "отменена" in sent_kwargs["text"]
+        callback.answer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_barber_status_callback_unauthorized():
+    from bot.handlers import handle_booking_status_callback
+    from aiogram.types import CallbackQuery
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.from_user = User(id=999888, is_bot=False, first_name="Stranger")
+    callback.data = "bstatus:42:confirmed"
+    callback.answer = AsyncMock()
+
+    with patch("bot.handlers.get_user_role", new_callable=AsyncMock) as mock_role, \
+         patch("bot.handlers.update_booking_status", new_callable=AsyncMock) as mock_update:
+
+        mock_role.return_value = ("client", None)
+
+        await handle_booking_status_callback(callback)
+
+        mock_update.assert_not_called()
+        callback.answer.assert_called_once()
+        assert "прав" in callback.answer.call_args[0][0]
+
 
 
 

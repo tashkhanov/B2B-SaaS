@@ -3,6 +3,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import (
     Message,
+    CallbackQuery,
     ReplyKeyboardMarkup,
     KeyboardButton,
     InlineKeyboardMarkup,
@@ -23,6 +24,8 @@ from database import (
     get_barbers,
     get_barber_by_telegram_id,
     get_barber_by_id,
+    get_booking_by_id,
+    update_booking_status,
 )
 from services.gemini_service import GeminiService
 from services.schedule_service import (
@@ -198,14 +201,14 @@ async def handle_start(message: Message):
     if role == "admin":
         welcome_text = (
             "Салам алейкум, Управляющий! 👑\n\n"
-            "Вы вошли в систему как **Администратор** барбершопа Black Beard.\n"
+            "Вы вошли в систему как **Администратор** мужского салона Brohouse.\n"
             "Вам доступно голосовое и текстовое управление записями, а также кнопка **«📊 Открыть панель управления»** прямо под этим сообщением!"
         )
     elif role == "barber":
-        b_role = barber.get("role_title") or barber.get("role") or "Барбер"
+        b_role = barber.get("role_title") or barber.get("role") or "Стилист"
         welcome_text = (
             f"Салам алейкум, {barber['name']}! 💈\n\n"
-            f"Вы авторизованы как мастер барбершопа Black Beard (**{b_role}**).\n\n"
+            f"Вы авторизованы как мастер салона Brohouse (**{b_role}**).\n\n"
             "Прямо под этим сообщением для вас доступна кнопка **«💈 Моя смена (Кабинет)»** — "
             "нажмите её, чтобы посмотреть очередь клиентов на сегодня или изменить статус смены!"
         )
@@ -213,9 +216,9 @@ async def handle_start(message: Message):
         user_name = message.from_user.first_name if message.from_user else "братан"
         welcome_text = (
             f"Салам алейкум, {user_name}! 🤝\n\n"
-            "Добро пожаловать в премиум-барбершоп **Black Beard** в Ташкенте!\n"
-            "Я Иброхим — администратор. Нажмите кнопку **«✂️ Открыть меню записи»** под сообщением, "
-            "чтобы выбрать мастера и время, либо напишите или отправьте голосовое сообщение прямо сюда в чат!"
+            "Добро пожаловать в мужской салон **Brohouse** в Ташкенте!\n"
+            "Я — Brohouse Ассистент. Нажмите кнопку **«✂️ Открыть меню записи»** под сообщением, "
+            "чтобы выбрать услугу, мастера и время, либо просто напишите или отправьте голосовое сообщение прямо сюда в чат!"
         )
 
     await message.answer(
@@ -231,10 +234,12 @@ async def handle_about(message: Message):
     Информация об авторстве и коммерческой разработке AI-систем
     """
     about_text = (
-        "💈 **AI-Администратор для Барбершопа 'Black Beard' (Ташкент)**\n\n"
-        "Интеллектуальная B2B-система автоматизации первой линии клиентов: "
-        "консультирование по прайсу, обработка голоса на русском и узбекском языках, "
-        "интеллектуальная память контекста и панель управления Telegram Mini App.\n\n"
+        "💈 **AI-Администратор для Мужского Салона 'Brohouse' (Ташкент)**\n\n"
+        "📍 **Локация:** г. Ташкент, метро «Миллий бог», 8B\n"
+        "📞 **Телефон:** +998 97 012-55-55\n"
+        "⏰ **График:** 08:00 – 23:00 ежедневно\n"
+        "📸 **Instagram:** @brohouseuz | **Академия:** @asbro_academy_\n\n"
+        "🎁 **Акция:** Скидка 30% на первое посещение для новых клиентов!\n\n"
         "👨‍💻 **Разработка:** Асатханов (@asatkhanov)\n"
         "⚡ **Платформа:** Khan AI Systems\n"
         "🌐 **Сайт / Портфолио:** [asatkhanov.uz](https://asatkhanov.uz)\n\n"
@@ -276,7 +281,7 @@ async def handle_admin(message: Message):
             ]
         )
         await message.answer(
-            "🛠 **Панель управления барбершопом Black Beard:**\n"
+            "🛠 **Панель управления Brohouse:**\n"
             "Нажмите кнопку ниже, чтобы открыть Telegram Mini App со всеми актуальными записями клиентов.",
             reply_markup=admin_keyboard,
             parse_mode="Markdown",
@@ -294,7 +299,7 @@ async def handle_admin(message: Message):
             ]
         )
         await message.answer(
-            "🛠 **Панель управления барбершопом Black Beard:**\n\n"
+            "🛠 **Панель управления Brohouse:**\n\n"
             f"🔗 Локальный адрес панели: `{admin_url}`\n\n"
             "💡 *Telegram требует HTTPS для встраивания кнопок Mini App.*\n"
             "Чтобы панель открывалась прямо внутри Telegram:\n"
@@ -380,11 +385,23 @@ async def handle_price(message: Message):
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
     price_text = (
-        "🔥 **Прайс-лист барбершопа 'Black Beard' (Ташкент):**\n\n"
-        "✂️ **Мужская стрижка:** 100 000 сум\n"
-        "🧔 **Оформление бороды:** 50 000 сум\n"
-        "👑 **Комплекс 'Black Beard' (Стрижка + Борода):** 130 000 сум *(Выгодный сет!)*\n\n"
-        "_В каждую услугу включены мытье головы, премиум-стайлинг и ароматный кофе или чай._ ☕\n\n"
+        "🔥 **Прайс-лист мужского салона 'Brohouse' (Ташкент):**\n\n"
+        "🎁 **СПЕЦПРЕДЛОЖЕНИЕ:** 30% OFF на первую стрижку!\n\n"
+        "✂️ **СТРИЖКИ:**\n"
+        "• Стрижка волос — 100 000 сум\n"
+        "• Стрижка под машинку — 50 000 сум\n"
+        "• Стрижка на лысо — 30 000 сум\n"
+        "• Детская стрижка от 5 лет — 60 000 сум\n"
+        "• Укладка — 60 000 сум\n"
+        "• Мойка, массаж — 50 000 сум\n"
+        "• Укладка, мойка, массаж (СПА СЕТ) — 80 000 сум\n\n"
+        "🧔 **УСЫ И БОРОДА / УХОД:**\n"
+        "• Бритье опасной бритвой — 70 000 сум\n"
+        "• Оформление бороды — 50 000 сум\n"
+        "• Покраска бороды — 30 000 сум\n"
+        "• Воск (одна из зон) — 20 000 сум\n"
+        "• Черная маска — 30 000 сум\n\n"
+        "_В стрижку включены мытье головы, премиум-стайлинг и напитки._ ☕\n\n"
         "На какой день и время вас записать, ака?"
     )
     await message.answer(price_text, parse_mode="Markdown", reply_markup=get_main_keyboard(role=role, barber=barber))
@@ -398,8 +415,9 @@ async def handle_location(message: Message):
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
     location_text = (
-        "📍 Мы находимся в центре Ташкента: ул. Амира Темура (ориентир — гостиница 'Узбекистан').\n\n"
-        "Работаем ежедневно с 10:00 до 22:00 без выходных. Ждем в гости, ака!"
+        "📍 г. Ташкент, метро «Миллий бог», 8B (ориентир — станция метро Milliy Bog').\n"
+        "📞 Телефон: +998 97 012-55-55\n\n"
+        "Работаем ежедневно с 08:00 до 23:00 без выходных. Ждем в гости, ака!"
     )
     await message.answer(location_text, reply_markup=get_main_keyboard(role=role, barber=barber))
 
@@ -433,19 +451,21 @@ async def handle_voice_message(message: Message):
     finally:
         file_bytes_io.close()
 
+    is_staff = is_admin or (role == "barber")
+
     # 2. Обработка голоса через Gemini с учетом роли
     ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
         user_id=user_id,
         voice_bytes=voice_data,
         mime_type="audio/ogg",
-        is_admin=is_admin,
+        is_admin=is_staff,
     )
 
     # 3. Отправка ответа пользователю
     await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
-    # 4. Проверка и выполнение интента (для клиента или администратора)
-    if is_admin:
+    # 4. Проверка и выполнение интента (для клиента или персонала)
+    if is_staff:
         await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
     else:
         await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
@@ -463,19 +483,19 @@ async def handle_user_text(message: Message):
     user_id = message.from_user.id if message.from_user else 0
     user_text = message.text.strip()
     role, barber = await get_user_role(user_id)
-    is_admin = role == "admin"
+    is_staff = (role == "admin") or (role == "barber")
 
     # 1. Индикация "печатает..." во время запроса к AI
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     # 2. Получение ответа от Gemini с учетом роли
-    ai_reply = await gemini_service.generate_response(user_id=user_id, user_message=user_text, is_admin=is_admin)
+    ai_reply = await gemini_service.generate_response(user_id=user_id, user_message=user_text, is_admin=is_staff)
 
     # 3. Отправка ответа пользователю
     await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
     # 4. Проверка и выполнение намерения
-    if is_admin:
+    if is_staff:
         await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
     else:
         await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
@@ -510,10 +530,11 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     await message.bot.send_message(
                         chat_id=booking["user_id"],
                         text=(
-                            f"✅ **Ваша запись в Black Beard подтверждена!**\n\n"
+                            f"✅ **Ваша запись в Brohouse подтверждена!**\n\n"
                             f"✂️ **Услуга:** {booking['service']}\n"
                             f"⏰ **Время:** {booking['booking_time']}\n"
-                            f"📍 **Адрес:** ул. Амира Темура\n\n"
+                            f"📍 **Адрес:** метро «Миллий бог», 8B\n"
+                            f"📞 **Телефон:** +998 97 012-55-55\n\n"
                             "Ждем вас, ака! 💈"
                         ),
                         parse_mode="Markdown"
@@ -737,7 +758,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
         # Сохранение в базу
-        await save_booking(
+        booking_id = await save_booking(
             user_id=user_id,
             username=username,
             full_name=full_name,
@@ -754,7 +775,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         if settings.ADMIN_CHAT_ID:
             master_str = f"💈 **Мастер:** {final_barber_name}\n" if final_barber_name else ""
             admin_card = (
-                "💈 **НОВАЯ ЗАПИСЬ В БАРБЕРШОП BLACK BEARD!**\n\n"
+                "💈 **НОВАЯ ЗАПИСЬ В BROHOUSE!**\n\n"
                 f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
                 f"{master_str}"
                 f"✂️ **Услуга:** {service}\n"
@@ -763,11 +784,20 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                 f"🆔 **Telegram ID:** `{user_id}`\n\n"
                 "📱 _Запись доступна в панели управления (TMA)!_"
             )
+            action_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"bstatus:{booking_id}:confirmed"),
+                        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"bstatus:{booking_id}:cancelled"),
+                    ]
+                ]
+            )
             try:
                 await message.bot.send_message(
                     chat_id=settings.ADMIN_CHAT_ID,
                     text=admin_card,
                     parse_mode="Markdown",
+                    reply_markup=action_kb,
                 )
             except Exception as e:
                 logger.warning(f"Не удалось отправить уведомление администратору: {e}")
@@ -776,27 +806,125 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         if final_barber_id:
             barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None)
             if barber_obj and barber_obj.get("telegram_id"):
+                action_kb_barber = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"bstatus:{booking_id}:confirmed"),
+                            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"bstatus:{booking_id}:cancelled"),
+                        ]
+                    ]
+                )
                 try:
                     await message.bot.send_message(
                         chat_id=barber_obj["telegram_id"],
                         text=(
-                            "💈 **У ВАС НОВАЯ ЗАПИСЬ НА СМЕНУ!**\n\n"
+                            "💈 **У ВАС НОВАЯ ЗАПИСЬ В BROHOUSE!**\n\n"
                             f"👤 **Клиент:** {full_name}\n"
                             f"✂️ **Услуга:** {service}\n"
                             f"⏰ **Время:** {booking_time}\n"
                             f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
-                            "📱 _Посмотреть свою очередь: /barber_"
+                            "📱 _Подтвердите или отклоните прямо кнопками ниже:_"
                         ),
-                        parse_mode="Markdown"
+                        parse_mode="Markdown",
+                        reply_markup=action_kb_barber,
                     )
                 except Exception as e:
                     logger.warning(f"Не удалось уведомить барбера {barber_obj['name']}: {e}")
 
         # Предлагаем аккуратную кнопку брендинга разработчика
         await message.answer(
-            "🤝 Мы ценим ваше доверие! До встречи в Black Beard.",
+            "🤝 Мы ценим ваше доверие! До встречи в Brohouse.",
             reply_markup=AI_BUSINESS_KEYBOARD,
         )
+
+
+@router.callback_query(F.data.startswith("bstatus:"))
+async def handle_booking_status_callback(callback: CallbackQuery):
+    """
+    Обработка инлайн-кнопок подтверждения / отклонения записи мастером или админом:
+    Формат callback_data: bstatus:<booking_id>:<new_status>
+    """
+    user_id = callback.from_user.id if callback.from_user else 0
+    role, barber = await get_user_role(user_id)
+    if role not in ("admin", "barber"):
+        await callback.answer("У вас нет прав для управления этой записью.", show_alert=True)
+        return
+
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        await callback.answer("Неверные данные действия.", show_alert=True)
+        return
+
+    try:
+        booking_id = int(parts[1])
+    except ValueError:
+        await callback.answer("Некорректный ID записи.", show_alert=True)
+        return
+
+    new_status = parts[2]  # confirmed / cancelled
+
+    booking = await get_booking_by_id(booking_id)
+    if not booking:
+        await callback.answer("Запись не найдена в базе.", show_alert=True)
+        return
+
+    # Если действие совершает мастер, проверяем, что запись его
+    if role == "barber" and barber:
+        if booking.get("barber_id") and booking.get("barber_id") != barber.get("id"):
+            await callback.answer("Эта запись назначена другому мастеру.", show_alert=True)
+            return
+
+    success = await update_booking_status(booking_id, new_status)
+    if not success:
+        await callback.answer("Не удалось обновить статус записи.", show_alert=True)
+        return
+
+    actor_name = barber["name"] if barber else "Администратор"
+    client_tg_id = booking.get("user_id")
+
+    # Уведомляем клиента в Telegram
+    if client_tg_id and client_tg_id != 0:
+        b_time = booking.get("booking_time") or ""
+        service = booking.get("service") or "Стрижка"
+        b_name = booking.get("barber_name") or (barber["name"] if barber else "Мастер")
+
+        if new_status == "confirmed":
+            msg = (
+                "✅ **Ваша запись в Brohouse ПОДТВЕРЖДЕНА!**\n\n"
+                f"✂️ **Услуга:** {service}\n"
+                f"💈 **Мастер:** {b_name}\n"
+                f"⏰ **Время:** {b_time}\n"
+                "📍 **Адрес:** метро «Миллий бог», 8B\n"
+                "📞 **Телефон:** +998 97 012-55-55\n\n"
+                "Мы уже ждем вас к назначенному времени, ака! 💈"
+            )
+            try:
+                await callback.bot.send_message(chat_id=client_tg_id, text=msg, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning(f"Не удалось отправить клиенту уведомление: {e}")
+        elif new_status == "cancelled":
+            msg = (
+                "ℹ️ **Ваша запись в Brohouse была отменена.**\n\n"
+                f"⏰ Время: {b_time}\n"
+                f"✂️ Услуга: {service}\n\n"
+                "Если вы хотите выбрать другое время или мастера — просто откройте онлайн-меню или напишите мне в чат."
+            )
+            try:
+                await callback.bot.send_message(chat_id=client_tg_id, text=msg, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning(f"Не удалось отправить клиенту уведомление: {e}")
+
+    status_ru = "✅ ПОДТВЕРЖДЕНА" if new_status == "confirmed" else "❌ ОТМЕНЕНА"
+    try:
+        old_text = callback.message.text or callback.message.caption or ""
+        await callback.message.edit_text(
+            f"{old_text}\n\n👉 **Статус:** {status_ru} (кем: {actor_name})",
+            reply_markup=None
+        )
+    except Exception:
+        pass
+
+    await callback.answer(f"Запись успешно {status_ru.lower()}!")
 
 
 # Для обратной совместимости

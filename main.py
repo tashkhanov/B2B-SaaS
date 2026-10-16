@@ -1,6 +1,6 @@
 """
 =============================================================================
-Проект: AI-Администратор для Барбершопа "Black Beard" (Ташкент)
+Проект: AI-Администратор для Мужского Салона "Brohouse" (Ташкент)
 Стек: Python 3.10+, aiogram 3.x, google-genai (Gemini 2.5 Flash), aiosqlite, aiohttp
 =============================================================================
 Файл main.py — главная точка входа приложения.
@@ -120,7 +120,7 @@ async def main() -> None:
     """
     Основная асинхронная функция запуска бота и веб-сервера TMA.
     """
-    logger.info("Запуск инициализации бота AI-Администратора 'Black Beard'...")
+    logger.info("Запуск инициализации бота AI-Администратора 'Brohouse'...")
 
     # 1. Проверка наличия обязательных ключей конфигурации
     if not settings.BOT_TOKEN or "your_telegram_bot_token" in settings.BOT_TOKEN:
@@ -169,7 +169,7 @@ async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
     base_url = (settings.WEBAPP_URL or "http://localhost:8000").rstrip("/")
     logger.info(
-        "🚀 Бот 'Иброхим (Black Beard)' запущен!\n"
+        "🚀 Бот 'Brohouse Ассистент' запущен!\n"
         "   👉 Онлайн-запись для клиентов: %s/book\n"
         "   👉 Панель управляющего:         %s/admin",
         base_url,
