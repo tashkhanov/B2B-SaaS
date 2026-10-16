@@ -1,4 +1,5 @@
 import aiosqlite
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from config import settings
 
@@ -140,6 +141,50 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 default_barbers
+            )
+
+        # 5. Таблица подписок салонов (Billing / Multi-tenant SaaS / Kill Switch)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tenant_subscription (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_slug TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                expires_at TIMESTAMP NOT NULL,
+                grace_period_days INTEGER DEFAULT 2,
+                admin_chat_id INTEGER,
+                contact_phone TEXT,
+                contact_name TEXT,
+                last_notification_stage TEXT DEFAULT 'none',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # Начальный seed для tenant_subscription, если таблица пуста
+        cursor = await db.execute("SELECT COUNT(*) FROM tenant_subscription")
+        tenants_count = (await cursor.fetchone())[0]
+        if tenants_count == 0:
+            now_dt = datetime.now()
+            default_expires_at = (now_dt + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+            await db.execute(
+                """
+                INSERT INTO tenant_subscription (
+                    tenant_slug, name, is_active, expires_at, grace_period_days,
+                    admin_chat_id, contact_phone, contact_name, last_notification_stage
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "brohouse",
+                    "Brohouse Barbershop",
+                    1,
+                    default_expires_at,
+                    2,
+                    settings.ADMIN_CHAT_ID,
+                    "+998 97 012-55-55",
+                    "Brohouse Admin",
+                    "none",
+                )
             )
 
         await db.commit()
@@ -697,3 +742,146 @@ async def find_booking_by_client_name(query: str, db_path: Optional[str] = None)
         ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None
+
+
+# =============================================================================
+# УПРАВЛЕНИЕ ПОДПИСКАМИ САЛОНОВ (BILLING / MULTI-TENANT / KILL SWITCH)
+# =============================================================================
+
+async def get_tenant_subscription(tenant_slug: str, db_path: Optional[str] = None) -> Optional[Dict]:
+    """Получение подписки салона по его слагу (например, 'brohouse')."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM tenant_subscription WHERE tenant_slug = ?",
+            (tenant_slug,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_tenant_by_id(tenant_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+    """Получение подписки салона по числовому ID."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM tenant_subscription WHERE id = ?",
+            (tenant_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_all_tenants(db_path: Optional[str] = None) -> List[Dict]:
+    """Получение списка всех зарегистрированных заведений сети для пульта Super-Admin."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM tenant_subscription ORDER BY id ASC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def create_tenant(data: Dict, db_path: Optional[str] = None) -> int:
+    """Регистрация нового заведения/клиента в SaaS платформе."""
+    target_db = get_db_path(db_path)
+    days = int(data.get("days", 30))
+    grace_period_days = int(data.get("grace_period_days", 2))
+    now_dt = datetime.now()
+    expires_at = (now_dt + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute(
+            """
+            INSERT INTO tenant_subscription (
+                tenant_slug, name, is_active, expires_at, grace_period_days,
+                admin_chat_id, contact_phone, contact_name, last_notification_stage
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data["tenant_slug"].strip().lower(),
+                data.get("name", data["tenant_slug"]),
+                int(data.get("is_active", 1)),
+                data.get("expires_at", expires_at),
+                grace_period_days,
+                data.get("admin_chat_id"),
+                data.get("contact_phone", ""),
+                data.get("contact_name", ""),
+                "none",
+            )
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def update_tenant_subscription(tenant_id: int, updates: Dict, db_path: Optional[str] = None) -> bool:
+    """Обновление параметров подписки салона."""
+    allowed_keys = {
+        "name", "is_active", "expires_at", "grace_period_days",
+        "admin_chat_id", "contact_phone", "contact_name", "last_notification_stage"
+    }
+    filtered = {k: v for k, v in updates.items() if k in allowed_keys}
+    if not filtered:
+        return False
+
+    set_clauses = [f"{k} = ?" for k in filtered.keys()]
+    values = list(filtered.values())
+    values.append(tenant_id)
+
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        query = f"UPDATE tenant_subscription SET {', '.join(set_clauses)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        cursor = await db.execute(query, tuple(values))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def extend_tenant_subscription_30_days(tenant_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+    """
+    Продление подписки заведения на 30 дней.
+    Если срок еще не истек — добавляет 30 дней к текущей дате expires_at.
+    Если срок уже истек или блокирован — добавляет 30 дней от текущего момента.
+    Автоматически переводит is_active = 1 и сбрасывает статус уведомлений.
+    """
+    tenant = await get_tenant_by_id(tenant_id, db_path)
+    if not tenant:
+        return None
+
+    now_dt = datetime.now()
+    try:
+        current_exp = datetime.strptime(tenant["expires_at"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        current_exp = now_dt
+
+    base_dt = current_exp if current_exp > now_dt else now_dt
+    new_exp = (base_dt + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+
+    await update_tenant_subscription(
+        tenant_id,
+        {
+            "expires_at": new_exp,
+            "is_active": 1,
+            "last_notification_stage": "none",
+        },
+        db_path=db_path
+    )
+    return await get_tenant_by_id(tenant_id, db_path)
+
+
+async def toggle_tenant_active(tenant_id: int, is_active: Optional[int] = None, db_path: Optional[str] = None) -> bool:
+    """Переключение ручного выключателя Kill Switch для арендатора."""
+    tenant = await get_tenant_by_id(tenant_id, db_path)
+    if not tenant:
+        return False
+
+    if is_active is None:
+        new_active = 0 if tenant.get("is_active", 1) == 1 else 1
+    else:
+        new_active = 1 if is_active else 0
+
+    return await update_tenant_subscription(tenant_id, {"is_active": new_active}, db_path=db_path)
+

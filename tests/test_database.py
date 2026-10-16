@@ -223,3 +223,49 @@ async def test_barbers_crud_and_bookings():
     assert master_bookings[0]["barber_name"] == "Тимур"
     assert master_bookings[0]["full_name"] == "Клиент Мастера"
 
+
+@pytest.mark.asyncio
+async def test_tenant_subscription_lifecycle():
+    from database import (
+        get_tenant_subscription,
+        get_all_tenants,
+        create_tenant,
+        extend_tenant_subscription_30_days,
+        toggle_tenant_active,
+    )
+    # 1. Проверка сида по умолчанию (brohouse)
+    tenant = await get_tenant_subscription("brohouse", TEST_DB)
+    assert tenant is not None
+    assert tenant["tenant_slug"] == "brohouse"
+    assert tenant["is_active"] == 1
+    assert tenant["grace_period_days"] == 2
+    assert "expires_at" in tenant
+
+    # 2. Продление на 30 дней (+30 days)
+    old_exp = tenant["expires_at"]
+    updated = await extend_tenant_subscription_30_days(tenant["id"], TEST_DB)
+    assert updated is not None
+    assert updated["expires_at"] > old_exp
+
+    # 3. Переключение Kill Switch (is_active)
+    ok = await toggle_tenant_active(tenant["id"], is_active=0, db_path=TEST_DB)
+    assert ok is True
+    t2 = await get_tenant_subscription("brohouse", TEST_DB)
+    assert t2["is_active"] == 0
+
+    # 4. Создание нового арендатора
+    new_id = await create_tenant({
+        "tenant_slug": "topgun",
+        "name": "TopGun Barbershop",
+        "admin_chat_id": 999999,
+        "contact_phone": "+998 90 123-45-67",
+        "days": 14,
+    }, TEST_DB)
+    assert new_id > 0
+    all_tenants = await get_all_tenants(TEST_DB)
+    assert len(all_tenants) >= 2
+    topgun = await get_tenant_subscription("topgun", TEST_DB)
+    assert topgun is not None
+    assert topgun["name"] == "TopGun Barbershop"
+
+
