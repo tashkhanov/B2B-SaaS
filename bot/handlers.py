@@ -311,6 +311,43 @@ async def handle_admin(message: Message):
         )
 
 
+@router.message(Command("super"))
+async def handle_super(message: Message):
+    """
+    Команда /super для вызова пульта управления Super-Admin (SaaS Multi-Tenant).
+    Доступна только владельцу платформы (SUPER_ADMIN_CHAT_ID или ADMIN_CHAT_ID).
+    """
+    user_id = message.from_user.id if message.from_user else 0
+    super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    allowed = (super_admin_id and user_id == super_admin_id) or (user_id == settings.ADMIN_CHAT_ID)
+    if not allowed:
+        return
+
+    base_url = (settings.WEBAPP_URL or "").rstrip("/")
+    token = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+    super_url = f"{base_url}/super-admin?token={token}"
+
+    has_https = base_url.startswith("https://")
+    super_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⚡ Открыть пульт Super-Admin'а",
+                    web_app=WebAppInfo(url=super_url) if has_https else None,
+                    url=super_url if not has_https else None,
+                )
+            ]
+        ]
+    )
+    await message.answer(
+        "👑 **Панель управления Super-Admin (SaaS Multi-Tenant):**\n\n"
+        "Здесь вы можете управлять всеми подключенными заведениями, "
+        "продлевать подписки (+30 дней в 1 клик) и активировать Kill Switch.",
+        reply_markup=super_keyboard,
+        parse_mode="Markdown",
+    )
+
+
 @router.message(Command("barber"))
 async def handle_barber(message: Message):
     """

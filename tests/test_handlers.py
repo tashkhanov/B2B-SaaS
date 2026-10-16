@@ -363,5 +363,71 @@ async def test_barber_status_callback_unauthorized():
         assert "прав" in callback.answer.call_args[0][0]
 
 
+@pytest.mark.asyncio
+async def test_subscription_middleware_blocks_client_when_locked():
+    from bot.middlewares import SubscriptionCheckMiddleware
+    from services.billing_service import SubscriptionStatus
+    from aiogram.types import Message, User, Chat
+
+    middleware = SubscriptionCheckMiddleware()
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=111222, is_bot=False, first_name="Client")
+    message.text = "Хочу записаться"
+    message.answer = AsyncMock()
+
+    next_handler = AsyncMock()
+
+    with patch("bot.middlewares.check_tenant_access", new_callable=AsyncMock) as mock_access:
+        mock_access.return_value = (True, SubscriptionStatus.LOCKED, {"name": "Brohouse", "is_locked": True})
+
+        await middleware(next_handler, message, {})
+
+        next_handler.assert_not_called()
+        message.answer.assert_called_once()
+        assert "временно недоступна" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_subscription_middleware_allows_super_admin_bypass():
+    from bot.middlewares import SubscriptionCheckMiddleware
+    from services.billing_service import SubscriptionStatus
+    from aiogram.types import Message, User
+    from config import settings
+
+    middleware = SubscriptionCheckMiddleware()
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=999999, is_bot=False, first_name="SuperAdmin")
+    message.text = "Любая команда"
+    message.answer = AsyncMock()
+
+    next_handler = AsyncMock(return_value="OK")
+
+    with patch.object(settings, "SUPER_ADMIN_CHAT_ID", 999999):
+        res = await middleware(next_handler, message, {})
+        next_handler.assert_called_once_with(message, {})
+        assert res == "OK"
+
+
+@pytest.mark.asyncio
+async def test_handle_super_command():
+    from bot.handlers import handle_super
+    from aiogram.types import Message, User
+    from config import settings
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=777, is_bot=False, first_name="Khan")
+    message.answer = AsyncMock()
+
+    with patch.object(settings, "SUPER_ADMIN_CHAT_ID", 777), \
+         patch.object(settings, "WEBAPP_URL", "https://test.brohouse.uz"):
+        await handle_super(message)
+        message.answer.assert_called_once()
+        assert "Super-Admin" in message.answer.call_args[0][0]
+        reply_markup = message.answer.call_args[1]["reply_markup"]
+        btn = reply_markup.inline_keyboard[0][0]
+        assert "super-admin" in btn.web_app.url
+
+
+
 
 

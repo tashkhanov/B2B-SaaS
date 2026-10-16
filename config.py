@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     WEBAPP_PORT: int = 8000
     WEBAPP_URL: str = "http://localhost:8000"
 
+    # Мультитенантность и биллинг (SaaS Super-Admin)
+    TENANT_SLUG: str = "brohouse"
+    SUPER_ADMIN_CHAT_ID: Optional[int] = None
+    SUPER_ADMIN_PASSWORD: str = "superadminbrohouse2026"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -162,7 +162,12 @@ async def main() -> None:
     # 6. Инициализация диспетчера aiogram 3.x
     dp = Dispatcher()
 
-    # 7. Подключение маршрутизатора с обработчиками текста, голоса и команд
+    # 7. Подключение middleware проверки подписки и Kill Switch
+    from bot.middlewares import SubscriptionCheckMiddleware
+    router.message.middleware(SubscriptionCheckMiddleware())
+    router.callback_query.middleware(SubscriptionCheckMiddleware())
+
+    # 8. Подключение маршрутизатора с обработчиками текста, голоса и команд
     dp.include_router(router)
 
     # 8. Сброс старых накопившихся обновлений и запуск опроса (polling)
