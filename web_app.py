@@ -35,6 +35,11 @@ from database import (
     get_booking_by_id,
     get_user_active_booking,
     cancel_user_booking,
+    get_all_tenants,
+    get_tenant_by_id,
+    create_tenant,
+    extend_tenant_subscription_30_days,
+    toggle_tenant_active,
 )
 from services.schedule_service import (
     get_now_tashkent,
@@ -44,12 +49,14 @@ from services.schedule_service import (
     get_slots_for_date,
     is_barber_working_on_date,
 )
+from services.billing_service import calculate_subscription_status
 
 logger = logging.getLogger(__name__)
 
 CLIENT_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "client.html")
 ADMIN_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "index.html")
 BARBER_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "barber.html")
+SUPER_ADMIN_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "super_admin.html")
 STATIC_DIR_PATH = os.path.join(os.path.dirname(__file__), "static")
 BOT_KEY = web.AppKey("bot", object)
 
@@ -826,6 +833,130 @@ async def handle_cancel_my_booking(request: web.Request) -> web.Response:
 
 
 # =============================================================================
+# ПУЛЬТ SUPER-ADMIN'А (SAAS MULTI-TENANT HUB & BILLING)
+# =============================================================================
+
+def is_super_admin_authorized(request: web.Request) -> bool:
+    """Проверка прав Super-Admin по токену в заголовке, query или cookie"""
+    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+    auth_header = request.headers.get("X-Super-Admin-Token")
+    query_token = request.query.get("token")
+    cookie_token = request.cookies.get("super_admin_token")
+    return (
+        (auth_header and auth_header == super_pw)
+        or (query_token and query_token == super_pw)
+        or (cookie_token and cookie_token == super_pw)
+    )
+
+
+async def handle_super_admin_page(request: web.Request) -> web.Response:
+    """Отдача HTML-страницы пульта Super-Admin'а"""
+    if os.path.exists(SUPER_ADMIN_HTML_PATH):
+        with open(SUPER_ADMIN_HTML_PATH, "r", encoding="utf-8") as f:
+            return web.Response(text=f.read(), content_type="text/html")
+    return web.Response(
+        text="""<!DOCTYPE html><html><head><title>Super-Admin Hub</title></head>
+        <body style="background:#121212;color:#fff;font-family:sans-serif;padding:40px;text-align:center;">
+        <h1>👑 Super-Admin Hub</h1><p>Интерфейс подготавливается...</p></body></html>""",
+        content_type="text/html"
+    )
+
+
+async def handle_super_auth(request: web.Request) -> web.Response:
+    """Аутентификация суперадмина по паролю из .env"""
+    try:
+        data = await request.json()
+        password = str(data.get("password", "")).strip()
+    except Exception:
+        password = ""
+
+    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+    if password == super_pw:
+        resp = web.json_response({"ok": True, "token": super_pw})
+        resp.set_cookie("super_admin_token", super_pw, max_age=86400 * 30, httponly=False)
+        return resp
+    return web.json_response({"error": "Неверный пароль суперадминистратора"}, status=401)
+
+
+async def handle_super_get_tenants(request: web.Request) -> web.Response:
+    """Получение списка всех заведений сети со статусами подписок для дашборда"""
+    if not is_super_admin_authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    tenants = await get_all_tenants()
+    now_dt = get_now_tashkent().replace(tzinfo=None)
+    enriched = []
+    for t in tenants:
+        status, info = calculate_subscription_status(t, now=now_dt)
+        item = dict(t)
+        item.update(info)
+        item["status"] = status.value
+        enriched.append(item)
+
+    return web.json_response(enriched)
+
+
+async def handle_super_create_tenant(request: web.Request) -> web.Response:
+    """Создание/подключение нового заведения в сеть"""
+    if not is_super_admin_authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Некорректный JSON"}, status=400)
+
+    slug = str(data.get("tenant_slug", "")).strip().lower()
+    name = str(data.get("name", "")).strip()
+    if not slug or not name:
+        return web.json_response({"error": "Слаг и название салона обязательны"}, status=400)
+
+    try:
+        new_id = await create_tenant(data)
+        return web.json_response({"ok": True, "id": new_id})
+    except Exception as e:
+        logger.error(f"Ошибка создания арендатора: {e}")
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def handle_super_extend_30(request: web.Request) -> web.Response:
+    """Продление подписки салона на 30 дней в 1 клик"""
+    if not is_super_admin_authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    tenant_id = int(request.match_info["id"])
+    updated = await extend_tenant_subscription_30_days(tenant_id)
+    if not updated:
+        return web.json_response({"error": "Салон не найден"}, status=404)
+
+    now_dt = get_now_tashkent().replace(tzinfo=None)
+    status, info = calculate_subscription_status(updated, now=now_dt)
+    item = dict(updated)
+    item.update(info)
+    item["status"] = status.value
+    return web.json_response({"ok": True, "tenant": item})
+
+
+async def handle_super_toggle_active(request: web.Request) -> web.Response:
+    """Переключение ручного Kill Switch для салона"""
+    if not is_super_admin_authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    tenant_id = int(request.match_info["id"])
+    ok = await toggle_tenant_active(tenant_id)
+    if not ok:
+        return web.json_response({"error": "Не удалось обновить статус"}, status=400)
+
+    updated = await get_tenant_by_id(tenant_id)
+    now_dt = get_now_tashkent().replace(tzinfo=None)
+    status, info = calculate_subscription_status(updated, now=now_dt)
+    item = dict(updated)
+    item.update(info)
+    item["status"] = status.value
+    return web.json_response({"ok": True, "tenant": item})
+
+
+# =============================================================================
 # ПРИЛОЖЕНИЕ AIOHTTP И РОУТЕР
 # =============================================================================
 
@@ -844,6 +975,14 @@ def create_web_app(bot: Bot = None) -> web.Application:
     app.router.add_get("/admin", handle_admin)
     app.router.add_get("/webapp", handle_admin)
     app.router.add_get("/barber", handle_barber_page)
+    app.router.add_get("/super-admin", handle_super_admin_page)
+
+    # Super-Admin API
+    app.router.add_post("/api/super/auth", handle_super_auth)
+    app.router.add_get("/api/super/tenants", handle_super_get_tenants)
+    app.router.add_post("/api/super/tenants", handle_super_create_tenant)
+    app.router.add_post("/api/super/tenants/{id}/extend-30", handle_super_extend_30)
+    app.router.add_post("/api/super/tenants/{id}/toggle-active", handle_super_toggle_active)
 
     # API маршруты
     app.router.add_get("/api/config", handle_get_config)

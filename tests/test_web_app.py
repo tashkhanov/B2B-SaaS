@@ -264,3 +264,84 @@ async def test_web_app_subscription_lockout(monkeypatch):
         if os.path.exists(lock_db):
             os.remove(lock_db)
 
+
+@pytest.mark.asyncio
+async def test_super_admin_api_endpoints(monkeypatch):
+    sa_db = "test_sa.db"
+    monkeypatch.setattr(settings, "DB_NAME", sa_db)
+    monkeypatch.setattr(settings, "SUPER_ADMIN_PASSWORD", "superpass")
+
+    if os.path.exists(sa_db):
+        os.remove(sa_db)
+    await init_db(sa_db)
+
+    app = create_web_app()
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        # 1. Auth failed with wrong password
+        resp_bad_auth = await client.post("/api/super/auth", json={"password": "wrong"})
+        assert resp_bad_auth.status == 401
+
+        # 2. Auth success
+        resp_auth = await client.post("/api/super/auth", json={"password": "superpass"})
+        assert resp_auth.status == 200
+        auth_data = await resp_auth.json()
+        assert auth_data["ok"] is True
+        token = auth_data["token"]
+        assert token == "superpass"
+
+        headers = {"X-Super-Admin-Token": token}
+
+        # 3. Get tenants list
+        resp_list = await client.get("/api/super/tenants", headers=headers)
+        assert resp_list.status == 200
+        tenants = await resp_list.json()
+        assert len(tenants) >= 1
+        brohouse = tenants[0]
+        assert brohouse["tenant_slug"] == "brohouse"
+        assert "days_left" in brohouse
+        assert "is_locked" in brohouse
+
+        # 4. Create new tenant via API
+        resp_create = await client.post("/api/super/tenants", headers=headers, json={
+            "tenant_slug": "chicago",
+            "name": "Chicago Barbershop",
+            "admin_chat_id": 123456,
+            "contact_phone": "+998909998877",
+            "days": 15,
+        })
+        assert resp_create.status == 200
+        new_t_data = await resp_create.json()
+        assert new_t_data["ok"] is True
+        new_id = new_t_data["id"]
+
+        # 5. Extend 30 days
+        resp_ext = await client.post(f"/api/super/tenants/{new_id}/extend-30", headers=headers)
+        assert resp_ext.status == 200
+        ext_data = await resp_ext.json()
+        assert ext_data["ok"] is True
+        assert ext_data["tenant"]["days_left"] >= 40
+
+        # 6. Toggle active (Kill Switch)
+        resp_toggle = await client.post(f"/api/super/tenants/{new_id}/toggle-active", headers=headers)
+        assert resp_toggle.status == 200
+        toggle_data = await resp_toggle.json()
+        assert toggle_data["ok"] is True
+        assert toggle_data["tenant"]["is_active"] == 0
+        assert toggle_data["tenant"]["is_locked"] is True
+
+        # 7. Check /super-admin page HTML serves
+        resp_page = await client.get("/super-admin?token=superpass")
+        assert resp_page.status == 200
+        page_text = await resp_page.text()
+        assert "Super-Admin" in page_text
+
+    finally:
+        await client.close()
+        if os.path.exists(sa_db):
+            os.remove(sa_db)
+
+
