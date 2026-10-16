@@ -24,3 +24,6 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+
+# Binaries / Executables
+*.exe
