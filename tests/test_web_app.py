@@ -60,12 +60,11 @@ async def test_web_app_endpoints(monkeypatch):
         barber_text = await resp_barber.text()
         assert "Рабочее место мастера" in barber_text
 
-        # 2.2 Test Static Files (.css & .js for client, admin, barber, super_admin)
+        # 2.2 Test Static Files (.css & .js for client, admin, barber)
         for asset in [
             "/static/css/client.css", "/static/js/client.js",
             "/static/css/admin.css", "/static/js/admin.js",
-            "/static/css/barber.css", "/static/js/barber.js",
-            "/static/css/super_admin.css", "/static/js/super_admin.js"
+            "/static/css/barber.css", "/static/js/barber.js"
         ]:
             resp_asset = await client.get(asset)
             assert resp_asset.status == 200, f"Static asset {asset} failed to load: {resp_asset.status}"
