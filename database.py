@@ -585,9 +585,9 @@ async def save_booking(
     branch_name: Optional[str] = None,
     db_path: Optional[str] = None
 ) -> int:
-    """Сохранение структурированной заявки на запись клиента в барбершоп с привязкой к филиалу."""
     if not branch_name:
-        branch_name = "Чиланзар (2-й кв.)" if branch_id == 2 else "Миллий бог"
+        b_info = await get_branch_by_id(branch_id, db_path=db_path)
+        branch_name = b_info["name"] if b_info else f"Филиал #{branch_id}"
 
     target_db = get_db_path(db_path)
     async with aiosqlite.connect(target_db) as db:

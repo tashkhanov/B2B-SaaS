@@ -149,25 +149,10 @@
         </div>
 
         <div class="grid grid-cols-2 gap-2" id="branch-buttons-container">
-          <!-- Кнопка Филиал 1 -->
-          <button type="button" onclick="selectBranch(1, 'Миллий бог', 'г. Ташкент, метро «Миллий бог», 8B', this)" id="branch-btn-1"
-                  class="branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-accent bg-accent/15 text-white shadow-sm shadow-accent/20 active:scale-95">
-            <div class="flex items-center gap-1.5 mb-1">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
-              <div class="font-bold text-xs truncate">Миллий бог</div>
-            </div>
-            <div class="text-[10px] text-gray-300 leading-tight">метро Milliy Bog', 8B</div>
-          </button>
-
-          <!-- Кнопка Филиал 2 -->
-          <button type="button" onclick="selectBranch(2, 'Чиланзар (2-й кв.)', 'г. Ташкент, Чиланзарский р-н, массив Чиланзар, 2-й кв., 58/5', this)" id="branch-btn-2"
-                  class="branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-surfaceBorder bg-bgDark/60 text-gray-400 hover:border-gray-500 hover:text-gray-200 active:scale-95">
-            <div class="flex items-center gap-1.5 mb-1">
-              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <div class="font-bold text-xs truncate">Чиланзар (2-й кв.)</div>
-            </div>
-            <div class="text-[10px] text-gray-400 leading-tight">массив Чиланзар, 58/5</div>
-          </button>
+          <div class="py-4 col-span-2 text-center text-gray-500 text-xs">
+            <div class="inline-block animate-spin rounded-full h-4 w-4 border-2 border-accent border-t-transparent mb-1"></div>
+            <div>Загрузка филиалов...</div>
+          </div>
         </div>
       </div>
 

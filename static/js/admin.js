@@ -345,6 +345,25 @@ async function openManualBookingModal() {
     dateInput.value = new Date().toISOString().slice(0, 10);
   }
 
+  // Загрузить филиалы для выбора
+  try {
+    const res = await fetch('/api/branches');
+    const branches = await res.json();
+    const brSelect = document.getElementById('m-branch');
+    if (brSelect) {
+      brSelect.innerHTML = '';
+      branches.filter(b => b.is_active).forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = `${b.name} (${b.address})`;
+        opt.dataset.name = b.name;
+        brSelect.appendChild(opt);
+      });
+    }
+  } catch (e) {
+    console.warn("Could not load branches for selector", e);
+  }
+
   // Загрузить барберов для выбора
   try {
     const res = await fetch('/api/barbers');
@@ -391,8 +410,11 @@ async function submitManualBooking() {
   const service = document.getElementById('m-service').value;
   const bDate = document.getElementById('m-date').value;
   const bTime = document.getElementById('m-time').value;
-  const branchIdVal = document.getElementById('m-branch') ? document.getElementById('m-branch').value : '1';
-  const branchName = branchIdVal === '2' ? 'Чиланзар (2-й кв.)' : 'Миллий бог';
+
+  const branchSelect = document.getElementById('m-branch');
+  const selectedOption = branchSelect && branchSelect.selectedIndex >= 0 ? branchSelect.options[branchSelect.selectedIndex] : null;
+  const branchId = branchSelect && branchSelect.value ? parseInt(branchSelect.value) : 1;
+  const branchName = selectedOption ? (selectedOption.dataset.name || selectedOption.textContent.split('(')[0].trim()) : "Основной филиал";
 
   if (!name) {
     alert('Пожалуйста, введите имя клиента');
@@ -417,7 +439,7 @@ async function submitManualBooking() {
         service: service,
         booking_time: `${bDate} ${bTime}`,
         barber_id: barberIdVal ? parseInt(barberIdVal) : null,
-        branch_id: parseInt(branchIdVal),
+        branch_id: branchId,
         branch_name: branchName,
         details: 'Ручная запись администратором через TMA'
       })

@@ -14,6 +14,7 @@ from database import (
     get_all_bookings,
     get_barbers,
     get_services,
+    get_branches,
 )
 from prompts import (
     CLIENT_SYSTEM_PROMPT,
@@ -109,11 +110,11 @@ class ClientAction(BaseModel):
     )
     branch_name: Optional[str] = Field(
         default=None,
-        description="Выбранный филиал: 'Миллий бог' или 'Чиланзар (2-й кв.)'",
+        description="Название выбранного филиала салона из базы данных",
     )
     branch_id: Optional[int] = Field(
-        default=1,
-        description="ID филиала: 1 (Миллий бог) или 2 (Чиланзар)",
+        default=None,
+        description="ID выбранного филиала из базы данных",
     )
 
 
@@ -155,11 +156,11 @@ class AdminAction(BaseModel):
     )
     branch_name: Optional[str] = Field(
         default=None,
-        description="Выбранный филиал: 'Миллий бог' или 'Чиланзар (2-й кв.)'",
+        description="Название филиала из базы данных",
     )
     branch_id: Optional[int] = Field(
-        default=1,
-        description="ID филиала: 1 (Миллий бог) или 2 (Чиланзар)",
+        default=None,
+        description="ID филиала из базы данных",
     )
 
 
@@ -235,14 +236,16 @@ class GeminiService:
                 raw_history=raw_history, current_message=user_message
             )
 
-            # Формируем контекст расписания, мастеров и услуг
+            # Формируем контекст расписания, мастеров, филиалов и услуг
             active_bookings = await get_active_bookings()
             barbers = await get_barbers(active_only=True)
             services = await get_services(active_only=True)
+            branches = await get_branches(active_only=True)
             schedule_context = build_schedule_context_for_prompt(
                 bookings=active_bookings,
                 barbers=barbers,
-                services=services
+                services=services,
+                branches=branches
             )
 
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
@@ -305,10 +308,12 @@ class GeminiService:
             active_bookings = await get_active_bookings()
             barbers = await get_barbers(active_only=True)
             services = await get_services(active_only=True)
+            branches = await get_branches(active_only=True)
             schedule_context = build_schedule_context_for_prompt(
                 bookings=active_bookings,
                 barbers=barbers,
-                services=services
+                services=services,
+                branches=branches
             )
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
@@ -366,9 +371,14 @@ class GeminiService:
                     "В таком случае переспрашивать имя НЕ НУЖНО, и если желаемое время названо — ставь is_booking_confirmed = true!\n"
                 )
 
+            branches = await get_branches(active_only=True)
+            branch_info_str = ", ".join([f"ID {b['id']}: '{b['name']}' ({b['address']})" for b in branches]) if branches else ""
+            branch_hint = f"\nДОСТУПНЫЕ ФИЛИАЛЫ САЛОНА: {branch_info_str}.\nЕсли клиент упоминает локацию/филиал/метро, сопоставь с филиалом и заполни branch_id и branch_name.\n" if branch_info_str else ""
+
             prompt = (
                 "Ты — анализатор диалогов клиентов мужского салона Brohouse.\n"
                 f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n"
+                f"{branch_hint}"
                 f"{creator_hint}\n"
                 f"Диалог:\n{dialog_context}\n\n"
                 "Определи действие клиента:\n"
@@ -416,14 +426,19 @@ class GeminiService:
                     "клиент это сам Шеф / Иброхим (client_query='Иброхим', action='create_booking').\n"
                 )
 
+            branches = await get_branches(active_only=True)
+            branch_info_str = ", ".join([f"ID {b['id']}: '{b['name']}'" for b in branches]) if branches else ""
+            branch_hint = f"\nДОСТУПНЫЕ ФИЛИАЛЫ: {branch_info_str}.\n" if branch_info_str else ""
+
             prompt = (
                 "Ты — система управления командами владельца мужского салона Brohouse.\n"
                 f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n"
+                f"{branch_hint}"
                 f"{creator_hint}\n"
                 f"Запрос администратора: {admin_query}\n\n"
                 "Определи намерение администратора:\n"
                 "- 'query_schedule': запросы расписания ('кто сегодня?', 'что на завтра?', 'покажи пятницу'). Извлеки target_date.\n"
-                "- 'create_booking': ручная запись клиента ('запиши Сардора завтра на 16:00, тел +99890...', или 'запиши меня на 15:00'). Извлеки client_query, booking_time, service, phone.\n"
+                "- 'create_booking': ручная запись клиента ('запиши Сардора завтра на 16:00, тел +99890...', или 'запиши меня на 15:00'). Извлеки client_query, booking_time, service, phone, branch_name, branch_id.\n"
                 "- 'confirm_booking': подтверждение записи ('подтверди запись Рустама', 'подтверди 15:00'). Извлеки client_query или booking_time.\n"
                 "- 'cancel_booking': отмена записи ('отмени запись Рустама', 'отмени 14:00'). Извлеки client_query или booking_time.\n"
                 "- 'get_stats': статистика ('сколько записей?', 'статистика').\n"

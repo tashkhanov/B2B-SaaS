@@ -43,8 +43,50 @@ let selectedBarberName = "Любой свободный мастер";
 let selectedDate = "";
 let selectedSlot = "";
 
+let allBranches = [];
 let allServices = [];
 let allBarbers = [];
+
+async function loadBranches() {
+  const container = document.getElementById('branch-buttons-container');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/branches');
+    allBranches = await res.json();
+    if (allBranches && allBranches.length > 0) {
+      container.innerHTML = '';
+      allBranches.forEach((b, idx) => {
+        const isSelected = idx === 0;
+        if (isSelected) {
+          selectedBranchId = b.id;
+          selectedBranchName = b.name;
+          selectedBranchAddress = b.address;
+          const badge = document.getElementById('header-branch-name-badge');
+          if (badge) badge.textContent = b.name;
+          const headerSub = document.getElementById('header-branch-address');
+          if (headerSub) headerSub.textContent = `Мужской салон • ${b.name}`;
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = `branch-btn-${b.id}`;
+        btn.className = isSelected 
+          ? 'branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-accent bg-accent/15 text-white shadow-sm shadow-accent/20 active:scale-95'
+          : 'branch-pill text-left p-2.5 rounded-xl border transition-all duration-150 border-surfaceBorder bg-bgDark/60 text-gray-400 hover:border-gray-500 hover:text-gray-200 active:scale-95';
+        btn.onclick = () => selectBranch(b.id, b.name, b.address, btn);
+        btn.innerHTML = `
+          <div class="flex items-center gap-1.5 mb-1">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 ${isSelected ? 'pulse-dot' : ''}"></span>
+            <div class="font-bold text-xs truncate">${b.name}</div>
+          </div>
+          <div class="text-[10px] ${isSelected ? 'text-gray-300' : 'text-gray-400'} leading-tight">${b.landmark || b.address}</div>
+        `;
+        container.appendChild(btn);
+      });
+    }
+  } catch (e) {
+    console.warn("Could not load branches dynamically:", e);
+  }
+}
 
 const daysRu = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 const monthsRuShort = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
@@ -70,6 +112,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     } catch (e) {}
   }
 
+  await loadBranches();
   await loadServices();
   await loadBarbers();
   initDates();

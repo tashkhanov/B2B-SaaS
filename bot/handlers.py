@@ -1,5 +1,6 @@
 import io
 import logging
+from typing import Optional, Tuple, List, Dict
 from aiogram import Router, F
 from aiogram.types import (
     Message,
@@ -24,6 +25,7 @@ from database import (
     get_barbers,
     get_barber_by_telegram_id,
     get_barber_by_id,
+    get_services,
     get_booking_by_id,
     update_booking_status,
     find_booking_by_client_name,
@@ -42,6 +44,48 @@ from services.schedule_service import (
 logger = logging.getLogger(__name__)
 
 router = Router(name="main_router")
+
+
+async def resolve_branch(
+    query_text: str = "",
+    branch_id: Optional[int] = None,
+    branch_name: Optional[str] = None
+) -> Tuple[int, str, str]:
+    """
+    Динамически сопоставляет филиал салона из базы данных без хардкода.
+    Возвращает: (branch_id, branch_name, branch_address)
+    """
+    branches = await get_branches(active_only=True)
+    if not branches:
+        return 1, branch_name or "Основной филиал", ""
+
+    # 1. По ID
+    if branch_id:
+        for b in branches:
+            if b["id"] == branch_id:
+                return b["id"], b["name"], b["address"]
+
+    # 2. По названию
+    if branch_name:
+        b_name_lower = branch_name.lower()
+        for b in branches:
+            if b["name"].lower() in b_name_lower or b_name_lower in b["name"].lower():
+                return b["id"], b["name"], b["address"]
+
+    # 3. По упоминанию в тексте запроса (название, ориентир, адрес)
+    q = query_text.lower()
+    for b in branches:
+        name_lower = b["name"].lower()
+        landmark = (b.get("landmark") or "").lower()
+        addr = (b.get("address") or "").lower()
+        if name_lower in q or (landmark and landmark in q) or (addr and addr in q):
+            return b["id"], b["name"], b["address"]
+        for token in name_lower.split():
+            if len(token) > 3 and token in q:
+                return b["id"], b["name"], b["address"]
+
+    first = branches[0]
+    return first["id"], first["name"], first["address"]
 
 # Инициализация сервиса Gemini
 gemini_service = GeminiService()
@@ -274,12 +318,22 @@ async def handle_about(message: Message):
     """
     Информация об авторстве и коммерческой разработке AI-систем
     """
+    branches = await get_branches(active_only=True)
+    branch_lines = []
+    contact_phone = "+998 97 012-55-55"
+    if branches:
+        for idx, b in enumerate(branches, 1):
+            landmark_str = f" (ориентир: {b['landmark']})" if b.get("landmark") else ""
+            branch_lines.append(f"{idx}. {b['name']}: {b['address']}{landmark_str}")
+            if b.get("phone"):
+                contact_phone = b["phone"]
+    branch_block = "\n".join(branch_lines) if branch_lines else "г. Ташкент"
+
     about_text = (
         "💈 **AI-Администратор для Мужского Салона 'Brohouse' (Ташкент)**\n\n"
         "📍 **Филиалы в Ташкенте:**\n"
-        "1. метро «Миллий бог», 8B (ориентир: станция метро Milliy Bog')\n"
-        "2. массив Чиланзар, 2-й квартал, 58/5 (ориентир: 2-й квартал)\n\n"
-        "📞 **Единый телефон:** +998 97 012-55-55\n"
+        f"{branch_block}\n\n"
+        f"📞 **Единый телефон:** {contact_phone}\n"
         "⏰ **График:** 08:00 – 23:00 ежедневно без выходных\n"
         "📸 **Instagram:** @brohouseuz | **Академия:** @asbro_academy_\n\n"
         "🎁 **Акция:** Скидка 30% на первое посещение для новых клиентов!\n\n"
@@ -457,52 +511,63 @@ async def handle_reset(message: Message):
 @router.message(F.text == "✂️ Прайс-лист")
 async def handle_price(message: Message):
     """
-    Быстрый просмотр прайс-листа без ожидания нейросети.
+    Быстрый просмотр актуального прайс-листа из базы данных без хардкода.
     """
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
-    price_text = (
-        "🔥 **Прайс-лист мужского салона 'Brohouse' (Ташкент):**\n\n"
-        "🎁 **СПЕЦПРЕДЛОЖЕНИЕ:** 30% OFF на первую стрижку!\n\n"
-        "✂️ **СТРИЖКИ:**\n"
-        "• Стрижка волос — 100 000 сум\n"
-        "• Стрижка под машинку — 50 000 сум\n"
-        "• Стрижка на лысо — 30 000 сум\n"
-        "• Детская стрижка от 5 лет — 60 000 сум\n"
-        "• Укладка — 60 000 сум\n"
-        "• Мойка, массаж — 50 000 сум\n"
-        "• Укладка, мойка, массаж (СПА СЕТ) — 80 000 сум\n\n"
-        "🧔 **УСЫ И БОРОДА / УХОД:**\n"
-        "• Бритье опасной бритвой — 70 000 сум\n"
-        "• Оформление бороды — 50 000 сум\n"
-        "• Покраска бороды — 30 000 сум\n"
-        "• Воск (одна из зон) — 20 000 сум\n"
-        "• Черная маска — 30 000 сум\n\n"
-        "_В стрижку включены мытье головы, премиум-стайлинг и напитки._ ☕\n\n"
-        "На какой день и время вас записать, ака?"
-    )
+    services = await get_services(active_only=True)
+
+    lines = [
+        "🔥 **Прайс-лист мужского салона 'Brohouse' (Ташкент):**\n",
+        "🎁 **СПЕЦПРЕДЛОЖЕНИЕ:** 30% OFF на первую стрижку для новых клиентов!\n",
+    ]
+    if services:
+        for s in services:
+            badge_str = f" 🔥 [{s['badge']}]" if s.get("badge") else ""
+            dur_str = f" ({s['duration_min']} мин)" if s.get("duration_min") else ""
+            price_val = f"{s['price']:,}".replace(",", " ")
+            desc_str = f"\n   _{s['description']}_" if s.get("description") else ""
+            lines.append(f"• **{s['name']}**{badge_str} — {price_val} сум{dur_str}{desc_str}")
+        lines.append("\n_В стрижку включены мытье головы, премиум-стайлинг и напитки._ ☕\n")
+    else:
+        lines.append("Информация об услугах обновляется администрацией.\n")
+
+    lines.append("На какой день и время вас записать, ака?")
+    price_text = "\n".join(lines)
     await message.answer(price_text, parse_mode="Markdown", reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 @router.message(F.text == "📍 Где мы находимся?")
 async def handle_location(message: Message):
     """
-    Информация о локациях барбершопа (2 филиала).
+    Информация о локациях барбершопа из базы данных без хардкода.
     """
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
-    location_text = (
-        "💈 **Мужской салон Brohouse ждет вас в двух удобных локациях Ташкента:**\n\n"
-        "1️⃣ **Филиал «Миллий бог»:**\n"
-        "📍 г. Ташкент, метро «Миллий бог», 8B\n"
-        "🚇 Ориентир: станция метро Milliy Bog'\n\n"
-        "2️⃣ **Филиал «Чиланзар (2-й кв.)»:**\n"
-        "📍 г. Ташкент, Чиланзарский район, массив Чиланзар, 2-й квартал, 58/5\n"
-        "🏢 Ориентир: Чиланзар, 2-й квартал, дом 58/5\n\n"
-        "📞 **Единый телефон для связи:** +998 97 012-55-55\n"
-        "⏰ **График работы:** ежедневно с 08:00 до 23:00 без выходных.\n\n"
+    branches = await get_branches(active_only=True)
+
+    lines = [
+        "💈 **Локации мужского салона Brohouse ждут вас в Ташкенте:**\n"
+    ]
+    contact_phone = "+998 97 012-55-55"
+    if branches:
+        for idx, b in enumerate(branches, 1):
+            lines.append(f"{idx}️⃣ **Филиал «{b['name']}»:**")
+            lines.append(f"📍 {b['address']}")
+            if b.get("landmark"):
+                lines.append(f"🚇 Ориентир: {b['landmark']}")
+            lines.append("")
+            if b.get("phone"):
+                contact_phone = b["phone"]
+    else:
+        lines.append("📍 г. Ташкент\n")
+
+    lines.extend([
+        f"📞 **Единый телефон для связи:** {contact_phone}",
+        "⏰ **График работы:** ежедневно с 08:00 до 23:00 без выходных.\n",
         "Мастера подстроятся под вас в любом из филиалов. Ждем в гости, ака! 🤝"
-    )
+    ])
+    location_text = "\n".join(lines)
     await message.answer(location_text, reply_markup=get_main_keyboard(role=role, barber=barber), parse_mode="Markdown")
 
 
@@ -713,19 +778,12 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
             final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
-            # Определение филиала
-            target_branch_id = 1
-            target_branch_name = "Миллий бог"
-            branch_check_str = f"{getattr(admin_action, 'branch_name', '') or ''} {admin_query}".lower()
-            if any(k in branch_check_str for k in ("чиланзар", "chilonzor", "2-й", "2 квартал", "квартал 2", "58/5")):
-                target_branch_id = 2
-                target_branch_name = "Чиланзар (2-й кв.)"
-            elif getattr(admin_action, "branch_id", None) in (1, 2):
-                target_branch_id = admin_action.branch_id
-                target_branch_name = "Чиланзар (2-й кв.)" if target_branch_id == 2 else "Миллий бог"
-
-            branch_obj = await get_branch_by_id(target_branch_id)
-            branch_address = branch_obj["address"] if branch_obj else target_branch_name
+            # Определение филиала динамически из базы данных
+            target_branch_id, target_branch_name, branch_address = await resolve_branch(
+                query_text=admin_query,
+                branch_id=getattr(admin_action, "branch_id", None),
+                branch_name=getattr(admin_action, "branch_name", None),
+            )
 
             if is_personal_creator_booking:
                 full_name = "Иброхим"
@@ -919,19 +977,12 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
         final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
-        # Определение филиала
-        target_branch_id = 1
-        target_branch_name = "Миллий бог"
-        branch_check_str = f"{getattr(client_action, 'branch_name', '') or ''} {client_query} {ai_reply}".lower()
-        if any(k in branch_check_str for k in ("чиланзар", "chilonzor", "2-й", "2 квартал", "квартал 2", "58/5")):
-            target_branch_id = 2
-            target_branch_name = "Чиланзар (2-й кв.)"
-        elif getattr(client_action, "branch_id", None) in (1, 2):
-            target_branch_id = client_action.branch_id
-            target_branch_name = "Чиланзар (2-й кв.)" if target_branch_id == 2 else "Миллий бог"
-
-        branch_obj = await get_branch_by_id(target_branch_id)
-        branch_address = branch_obj["address"] if branch_obj else target_branch_name
+        # Определение филиала динамически из базы данных
+        target_branch_id, target_branch_name, branch_address = await resolve_branch(
+            query_text=f"{client_query} {ai_reply}",
+            branch_id=getattr(client_action, "branch_id", None),
+            branch_name=getattr(client_action, "branch_name", None),
+        )
 
         # Сохранение в базу
         booking_id = await save_booking(

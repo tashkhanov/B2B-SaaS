@@ -464,10 +464,11 @@ def get_slots_for_date(
 def build_schedule_context_for_prompt(
     bookings: List[Dict],
     barbers: Optional[List[Dict]] = None,
-    services: Optional[List[Dict]] = None
+    services: Optional[List[Dict]] = None,
+    branches: Optional[List[Dict]] = None,
 ) -> str:
     """
-    Генерирует актуальный текстовый блок с графиком, мастерами и занятыми окнами
+    Генерирует актуальный текстовый блок с филиалами, графиком, мастерами и занятыми окнами
     для системного промпта нейросети на основе реальной базы SQLite.
     """
     now = get_now_tashkent()
@@ -480,21 +481,33 @@ def build_schedule_context_for_prompt(
         ""
     ]
 
+    # Секция филиалов
+    if branches:
+        lines.append("АКТУАЛЬНЫЕ ФИЛИАЛЫ И ЛОКАЦИИ САЛОНА (ИЗ БАЗЫ ДАННЫХ):")
+        for b in branches:
+            phone_str = f", телефон: {b['phone']}" if b.get("phone") else ""
+            landmark_str = f" (ориентир: {b['landmark']})" if b.get("landmark") else ""
+            lines.append(f"- Филиал #{b['id']} «{b['name']}»: {b['address']}{landmark_str}{phone_str}")
+        lines.append("")
+
     # Секция мастеров
     if barbers:
-        lines.append("КОМАНДА БАРБЕРОВ САЛОНА:")
+        lines.append("КОМАНДА БАРБЕРОВ САЛОНА (ИЗ БАЗЫ ДАННЫХ):")
         for b in barbers:
             status_text = "на смене" if b.get("is_working_today", 1) else "выходной сегодня"
             role = b.get("role_title") or "Барбер"
-            lines.append(f"- {b['name']} ({role}) — {status_text}")
+            lines.append(f"- ID {b['id']}: {b['name']} ({role}) — {status_text}")
         lines.append("")
 
     # Секция услуг
     if services:
-        lines.append("АКТУАЛЬНЫЙ ПРАЙС-ЛИСТ И ДЛИТЕЛЬНОСТЬ УСЛУГ:")
+        lines.append("АКТУАЛЬНЫЙ ПРАЙС-ЛИСТ И ДЛИТЕЛЬНОСТЬ УСЛУГ (ИЗ БАЗЫ ДАННЫХ):")
         for s in services:
             badge_str = f" [{s['badge']}]" if s.get("badge") else ""
-            lines.append(f"- {s['name']}{badge_str}: {s['price']:,} сум ({s.get('duration_min', 60)} мин) — {s.get('description', '')}".replace(",", " "))
+            dur = f" ({s.get('duration_min', 60)} мин)" if s.get("duration_min") else ""
+            desc = f" — {s.get('description', '')}" if s.get("description") else ""
+            price_formatted = f"{s['price']:,} сум".replace(",", " ")
+            lines.append(f"- {s['name']}{badge_str}: {price_formatted}{dur}{desc}")
         lines.append("")
 
     lines.append("АКТУАЛЬНЫЕ ЗАПИСИ ИЗ БАЗЫ ДАННЫХ (ЗАНЯТЫЕ ОКНА):")

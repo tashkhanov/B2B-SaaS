@@ -634,8 +634,15 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             branch_name = branch_info["name"]
             branch_address = branch_info["address"]
         else:
-            branch_name = branch_name or ("Чиланзар (2-й кв.)" if branch_id == 2 else "Миллий бог")
-            branch_address = "г. Ташкент, массив Чиланзар, 2-й квартал, 58/5" if branch_id == 2 else "г. Ташкент, метро «Миллий бог», 8B"
+            all_b = await get_branches(active_only=True)
+            if all_b:
+                branch_info = all_b[0]
+                branch_id = branch_info["id"]
+                branch_name = branch_info["name"]
+                branch_address = branch_info["address"]
+            else:
+                branch_name = branch_name or "Основной филиал"
+                branch_address = ""
 
         barber_id_raw = data.get("barber_id")
         barber_id = int(barber_id_raw) if barber_id_raw and int(barber_id_raw) > 0 else None

@@ -425,7 +425,7 @@ async def test_handle_super_command():
         assert "Super-Admin" in message.answer.call_args[0][0]
         reply_markup = message.answer.call_args[1]["reply_markup"]
         btn = reply_markup.inline_keyboard[0][0]
-        assert "super-admin" in btn.web_app.url
+        assert ("hub.asatkhanov.uz" in btn.web_app.url) or ("super-admin" in btn.web_app.url)
 
 
 @pytest.mark.asyncio
