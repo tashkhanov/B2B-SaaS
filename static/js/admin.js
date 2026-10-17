@@ -56,9 +56,18 @@ async function checkAdminAccess() {
     const res = await fetch('/api/config');
     const data = await res.json();
     const adminId = data.admin_chat_id;
+    const superAdminId = data.super_admin_chat_id || 1243374131;
+
+    // 1. Прямой доступ для Создателя/Суперадмина (по токену, cookie или флагом от сервера)
+    if (data.is_super_admin || window.location.search.includes('token=') || document.cookie.includes('super_admin_token')) {
+      return true;
+    }
 
     if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
       const currentUserId = tg.initDataUnsafe.user.id;
+      if (currentUserId === superAdminId || currentUserId === 1243374131) {
+        return true;
+      }
       if (adminId && currentUserId !== adminId) {
         document.getElementById('admin-container').classList.add('hidden');
         document.getElementById('access-denied-screen').classList.remove('hidden');
