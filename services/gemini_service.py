@@ -15,6 +15,7 @@ from database import (
     get_barbers,
     get_services,
     get_branches,
+    get_all_salon_settings,
 )
 from prompts import (
     CLIENT_SYSTEM_PROMPT,
@@ -241,11 +242,13 @@ class GeminiService:
             barbers = await get_barbers(active_only=True)
             services = await get_services(active_only=True)
             branches = await get_branches(active_only=True)
+            salon_settings = await get_all_salon_settings()
             schedule_context = build_schedule_context_for_prompt(
                 bookings=active_bookings,
                 barbers=barbers,
                 services=services,
-                branches=branches
+                branches=branches,
+                salon_settings=salon_settings
             )
 
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
@@ -309,11 +312,13 @@ class GeminiService:
             barbers = await get_barbers(active_only=True)
             services = await get_services(active_only=True)
             branches = await get_branches(active_only=True)
+            salon_settings = await get_all_salon_settings()
             schedule_context = build_schedule_context_for_prompt(
                 bookings=active_bookings,
                 barbers=barbers,
                 services=services,
-                branches=branches
+                branches=branches,
+                salon_settings=salon_settings
             )
             base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"

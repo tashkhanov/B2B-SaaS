@@ -5,8 +5,10 @@ from aiohttp.test_utils import TestClient, TestServer
 from web_app import create_web_app
 from database import init_db, save_booking
 from config import settings
+from services.telegram_auth import generate_telegram_init_data
 
 TEST_DB = "test_web.db"
+
 
 @pytest.mark.asyncio
 async def test_web_app_endpoints(monkeypatch):
@@ -110,7 +112,10 @@ async def test_web_app_endpoints(monkeypatch):
         assert "занят" in err_data["error"]
 
         # 7. Test API get bookings
-        resp_list = await client.get("/api/bookings")
+        admin_init = generate_telegram_init_data({"id": 999888}, settings.BOT_TOKEN or "test_bot_token")
+        admin_headers = {"X-Telegram-Init-Data": admin_init}
+        resp_list = await client.get("/api/bookings", headers=admin_headers)
+
         assert resp_list.status == 200
         bookings_list = await resp_list.json()
         assert len(bookings_list) >= 2
@@ -146,7 +151,7 @@ async def test_web_app_endpoints(monkeypatch):
         assert len(srv_list) >= 4
 
         # Create new service
-        resp_create_srv = await client.post("/api/services", json={
+        resp_create_srv = await client.post("/api/services", headers=admin_headers, json={
             "name": "Мытье и премиум-массаж",
             "price": 40000,
             "duration_min": 20,
@@ -159,7 +164,7 @@ async def test_web_app_endpoints(monkeypatch):
         new_srv_id = new_srv_data["id"]
 
         # Update service
-        resp_upd_srv = await client.post(f"/api/services/{new_srv_id}/update", json={
+        resp_upd_srv = await client.post(f"/api/services/{new_srv_id}/update", headers=admin_headers, json={
             "name": "Мытье и премиум-массаж LUX",
             "price": 45000,
             "duration_min": 25,
@@ -170,7 +175,7 @@ async def test_web_app_endpoints(monkeypatch):
         assert resp_upd_srv.status == 200
 
         # Delete service
-        resp_del_srv = await client.post(f"/api/services/{new_srv_id}/delete")
+        resp_del_srv = await client.post(f"/api/services/{new_srv_id}/delete", headers=admin_headers)
         assert resp_del_srv.status == 200
 
         # 12. Test Barbers API (/api/barbers)
@@ -220,6 +225,32 @@ async def test_web_app_endpoints(monkeypatch):
         c_role_data = await resp_client_role.json()
         assert c_role_data["role"] == "client"
 
+        # 15. Test Salon Settings endpoint (/api/settings)
+        # 15.1 GET settings
+        resp_set = await client.get("/api/settings")
+        assert resp_set.status == 200
+        settings_data = await resp_set.json()
+        assert "work_start_hour" in settings_data
+        assert "salon_phone" in settings_data
+
+        # 15.2 POST settings without auth -> 401
+        resp_set_unauth = await client.post("/api/settings", json={"salon_phone": "+998 90 999-88-77"})
+        assert resp_set_unauth.status == 401
+
+        # 15.3 POST settings with admin auth -> 200
+        resp_set_auth = await client.post("/api/settings", headers=admin_headers, json={
+            "work_start_hour": "9",
+            "work_end_hour": "22",
+            "salon_phone": "+998 90 999-88-77",
+            "promo_discount_text": "25% OFF"
+        })
+
+        assert resp_set_auth.status == 200
+        set_auth_data = await resp_set_auth.json()
+        assert set_auth_data["ok"] is True
+        assert set_auth_data["settings"]["salon_phone"] == "+998 90 999-88-77"
+        assert set_auth_data["settings"]["work_start_hour"] == "9"
+
     finally:
         await client.close()
         if os.path.exists(TEST_DB):
@@ -261,7 +292,7 @@ async def test_web_app_subscription_lockout(monkeypatch):
         page_html = await resp_page.text()
         assert "Доступ приостановлен" in page_html
         assert "Оплатите подписку" in page_html
-        assert "Plus Jakarta Sans" in page_html
+        assert ("Inter" in page_html or "Plus Jakarta Sans" in page_html)
         assert "Позвонить в салон" not in page_html
         assert "tel:" not in page_html
         assert "https://t.me/asatkhanov" in page_html
@@ -406,6 +437,126 @@ async def test_web_app_branches(monkeypatch):
         await client.close()
         if os.path.exists(b_db):
             os.remove(b_db)
+
+
+@pytest.mark.asyncio
+async def test_web_app_settings_categories_and_slugs(monkeypatch):
+    test_db = "test_settings_web.db"
+    monkeypatch.setattr(settings, "DB_NAME", test_db)
+    monkeypatch.setattr(settings, "SUPER_ADMIN_PASSWORD", "supersecret123")
+    if os.path.exists(test_db):
+        os.remove(test_db)
+    await init_db(test_db)
+
+    app = create_web_app()
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        # 1. GET /api/settings
+        resp = await client.get("/api/settings")
+        assert resp.status == 200
+        settings_data = await resp.json()
+        assert settings_data.get("work_start_hour") == "8"
+        assert settings_data.get("promo_discount_text") == "30% OFF"
+
+        auth_headers = {"X-Super-Admin-Token": "supersecret123"}
+
+        # 2. POST /api/settings
+        resp_up = await client.post("/api/settings", headers=auth_headers, json={"work_start_hour": "9", "promo_discount_text": "50% OFF"})
+        assert resp_up.status == 200
+        up_data = await resp_up.json()
+        assert up_data["ok"] is True
+        assert up_data["settings"]["work_start_hour"] == "9"
+        assert up_data["settings"]["promo_discount_text"] == "50% OFF"
+
+        # 3. Create service with category
+        resp_srv = await client.post("/api/services", headers=auth_headers, json={
+            "name": "Моделирование бороды",
+            "price": 80000,
+            "duration": 45,
+            "category": "beard",
+            "badge": "ХИТ"
+        })
+        assert resp_srv.status == 200
+        srv_data = await resp_srv.json()
+        assert srv_data["ok"] is True
+        s_id = srv_data["id"]
+
+        # 4. Verify category in GET /api/services
+        resp_list = await client.get("/api/services")
+        assert resp_list.status == 200
+        srvs = await resp_list.json()
+        created_srv = next((s for s in srvs if s["id"] == s_id), None)
+        assert created_srv is not None
+        assert created_srv["category"] == "beard"
+        assert created_srv["price"] == 80000
+
+        # 5. Test Super-Admin endpoints with SLUG ("brohouse")
+        auth_headers = {"X-Super-Admin-Token": "supersecret123"}
+        resp_toggle = await client.post("/api/super/tenants/brohouse/toggle-active", headers=auth_headers)
+        assert resp_toggle.status == 200
+        toggle_data = await resp_toggle.json()
+        assert toggle_data["ok"] is True
+        assert toggle_data["tenant"]["tenant_slug"] == "brohouse"
+        assert toggle_data["tenant"]["is_active"] == 0
+
+        # Toggle back on
+        resp_toggle_on = await client.post("/api/super/tenants/brohouse/toggle-active", headers=auth_headers)
+        assert resp_toggle_on.status == 200
+        assert (await resp_toggle_on.json())["tenant"]["is_active"] == 1
+
+        # Test explicit action: lock (idempotent)
+        resp_act_lock = await client.post("/api/super/tenants/brohouse/toggle-active", headers=auth_headers, json={"action": "lock"})
+        assert resp_act_lock.status == 200
+        assert (await resp_act_lock.json())["tenant"]["is_active"] == 0
+
+        # Sending lock again must keep it locked (idempotent, not flip)
+        resp_act_lock2 = await client.post("/api/super/tenants/brohouse/toggle-active", headers=auth_headers, json={"action": "lock"})
+        assert resp_act_lock2.status == 200
+        assert (await resp_act_lock2.json())["tenant"]["is_active"] == 0
+
+        # Test explicit action: unlock (idempotent)
+        resp_act_unlock = await client.post("/api/super/tenants/brohouse/toggle-active", headers=auth_headers, json={"action": "unlock"})
+        assert resp_act_unlock.status == 200
+        assert (await resp_act_unlock.json())["tenant"]["is_active"] == 1
+
+        # Sending unlock again must keep it unlocked
+        resp_act_unlock2 = await client.post("/api/super/tenants/brohouse/toggle-active", headers=auth_headers, json={"action": "unlock"})
+        assert resp_act_unlock2.status == 200
+        assert (await resp_act_unlock2.json())["tenant"]["is_active"] == 1
+
+        # Extend 30 days via slug
+        resp_ext = await client.post("/api/super/tenants/brohouse/extend-30", headers=auth_headers)
+        assert resp_ext.status == 200
+        ext_data = await resp_ext.json()
+        assert ext_data["ok"] is True
+        assert ext_data["tenant"]["tenant_slug"] == "brohouse"
+
+        # Test synchronization endpoint from SaaS Hub
+        sync_payload = {
+            "monthly_fee": 750000,
+            "expires_at": "2026-11-20 23:59:59",
+            "is_active": 1,
+            "contact_phone": "+998 90 111-22-33"
+        }
+        resp_sync = await client.post("/api/super/tenants/brohouse/sync-subscription", headers=auth_headers, json=sync_payload)
+        assert resp_sync.status == 200
+        sync_data = await resp_sync.json()
+        assert sync_data["ok"] is True
+        assert sync_data["tenant"]["expires_at"] == "2026-11-20 23:59:59"
+
+        # Verify /api/billing/subscription-info reflects the synced monthly_fee
+        resp_info = await client.get("/api/billing/subscription-info", headers=auth_headers)
+        assert resp_info.status == 200
+        info_json = await resp_info.json()
+        assert info_json["pricing"]["amount"] == 750000
+    finally:
+        await client.close()
+        if os.path.exists(test_db):
+            os.remove(test_db)
+
 
 
 

@@ -1,7 +1,12 @@
 import io
+import re
+import time
 import logging
 from typing import Optional, Tuple, List, Dict
 from aiogram import Router, F
+
+_voice_rate_limit: Dict[int, float] = {}
+
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -33,7 +38,12 @@ from database import (
     get_branch_by_id,
     get_user_active_booking,
     cancel_user_booking,
+    get_salon_setting,
+    update_receipt_log_status,
+    get_receipt_log_by_id,
+    extend_tenant_subscription_30_days,
 )
+
 from services.gemini_service import GeminiService
 from services.schedule_service import (
     parse_booking_datetime,
@@ -86,6 +96,42 @@ async def resolve_branch(
 
     first = branches[0]
     return first["id"], first["name"], first["address"]
+
+
+async def resolve_service_info(service_name_or_query: Optional[str]) -> Tuple[Optional[Dict], int]:
+    """
+    Динамически сопоставляет услугу из каталога базы данных.
+    Возвращает: (matched_service_dict, duration_min)
+    """
+    if not service_name_or_query:
+        return None, 60
+
+    services = await get_services(active_only=True)
+    if not services:
+        return None, 60
+
+    q = service_name_or_query.strip().lower()
+
+    # 1. Точное совпадение
+    for s in services:
+        if s["name"].lower() == q:
+            return s, s.get("duration_min") or 60
+
+    # 2. Подстрока
+    for s in services:
+        s_name_lower = s["name"].lower()
+        if s_name_lower in q or q in s_name_lower:
+            return s, s.get("duration_min") or 60
+
+    # 3. Совпадение по корням слов
+    q_words = [w for w in re.split(r'\W+', q) if len(w) > 3]
+    for s in services:
+        s_name_lower = s["name"].lower()
+        if any(w in s_name_lower for w in q_words):
+            return s, s.get("duration_min") or 60
+
+    return None, 60
+
 
 # Инициализация сервиса Gemini
 gemini_service = GeminiService()
@@ -320,13 +366,17 @@ async def handle_about(message: Message):
     """
     branches = await get_branches(active_only=True)
     branch_lines = []
-    contact_phone = "+998 97 012-55-55"
+    contact_phone = await get_salon_setting("salon_phone", "+998 97 012-55-55")
+    start_h = await get_salon_setting("work_start_hour", "8")
+    end_h = await get_salon_setting("work_end_hour", "23")
+    promo_text = await get_salon_setting("promo_discount_text", "30% OFF")
+    promo_sub = await get_salon_setting("promo_subtitle", "Скидка на первое посещение для новых клиентов!")
+    sched_str = f"{int(start_h):02d}:00 – {int(end_h):02d}:00 ежедневно без выходных"
+
     if branches:
         for idx, b in enumerate(branches, 1):
             landmark_str = f" (ориентир: {b['landmark']})" if b.get("landmark") else ""
             branch_lines.append(f"{idx}. {b['name']}: {b['address']}{landmark_str}")
-            if b.get("phone"):
-                contact_phone = b["phone"]
     branch_block = "\n".join(branch_lines) if branch_lines else "г. Ташкент"
 
     about_text = (
@@ -334,9 +384,9 @@ async def handle_about(message: Message):
         "📍 **Филиалы в Ташкенте:**\n"
         f"{branch_block}\n\n"
         f"📞 **Единый телефон:** {contact_phone}\n"
-        "⏰ **График:** 08:00 – 23:00 ежедневно без выходных\n"
+        f"⏰ **График:** {sched_str}\n"
         "📸 **Instagram:** @brohouseuz | **Академия:** @asbro_academy_\n\n"
-        "🎁 **Акция:** Скидка 30% на первое посещение для новых клиентов!\n\n"
+        f"🎁 **Акция:** {promo_text} • {promo_sub}\n\n"
         "👨‍💻 **Разработка:** Асатханов (@asatkhanov)\n"
         "⚡ **Платформа:** Khan AI Systems\n"
         "🌐 **Сайт / Портфолио:** [asatkhanov.uz](https://asatkhanov.uz)\n\n"
@@ -549,7 +599,11 @@ async def handle_location(message: Message):
     lines = [
         "💈 **Локации мужского салона Brohouse ждут вас в Ташкенте:**\n"
     ]
-    contact_phone = "+998 97 012-55-55"
+    salon_phone = await get_salon_setting("salon_phone", "+998 97 012-55-55")
+    start_h = await get_salon_setting("work_start_hour", "8")
+    end_h = await get_salon_setting("work_end_hour", "23")
+    sched_str = f"ежедневно с {int(start_h):02d}:00 до {int(end_h):02d}:00 без выходных"
+
     if branches:
         for idx, b in enumerate(branches, 1):
             lines.append(f"{idx}️⃣ **Филиал «{b['name']}»:**")
@@ -557,14 +611,12 @@ async def handle_location(message: Message):
             if b.get("landmark"):
                 lines.append(f"🚇 Ориентир: {b['landmark']}")
             lines.append("")
-            if b.get("phone"):
-                contact_phone = b["phone"]
     else:
         lines.append("📍 г. Ташкент\n")
 
     lines.extend([
-        f"📞 **Единый телефон для связи:** {contact_phone}",
-        "⏰ **График работы:** ежедневно с 08:00 до 23:00 без выходных.\n",
+        f"📞 **Единый телефон для связи:** {salon_phone}",
+        f"⏰ **График работы:** {sched_str}.\n",
         "Мастера подстроятся под вас в любом из филиалов. Ждем в гости, ака! 🤝"
     ])
     location_text = "\n".join(lines)
@@ -584,15 +636,37 @@ async def handle_voice_message(message: Message):
     role, barber = await get_user_role(user_id)
     is_staff = role in ("admin", "barber", "super_admin")
 
+    voice = message.voice
+    if not voice:
+        return
+
+    # Anti-DoS: проверка размера и длительности аудио
+    MAX_VOICE_DURATION = 60  # максимум 60 секунд
+    MAX_VOICE_SIZE = 2 * 1024 * 1024  # максимум 2 МБ
+    if voice.duration and voice.duration > MAX_VOICE_DURATION:
+        await message.answer("⚠️ Голосовое сообщение слишком длинное (максимум 60 секунд). Пожалуйста, запишите короче или напишите текстом.")
+        return
+    if voice.file_size and voice.file_size > MAX_VOICE_SIZE:
+        await message.answer("⚠️ Аудиофайл превышает лимит размера 2 МБ. Пожалуйста, отправьте более короткое сообщение.")
+        return
+
+    # Anti-DoS: троттлинг (не чаще 1 голосового раз в 5 секунд от одного пользователя)
+    now_ts = time.time()
+    last_voice_ts = _voice_rate_limit.get(user_id, 0.0)
+    if (now_ts - last_voice_ts) < 5.0:
+        await message.answer("⏳ Пожалуйста, подождите 5 секунд перед отправкой следующего голосового сообщения.")
+        return
+    _voice_rate_limit[user_id] = now_ts
+
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.RECORD_VOICE)
 
     # 1. Скачивание аудиофайла голосового сообщения
     file_bytes_io = io.BytesIO()
     try:
-        voice = message.voice
         file_info = await message.bot.get_file(voice.file_id)
         await message.bot.download_file(file_info.file_path, destination=file_bytes_io)
         voice_data = file_bytes_io.getvalue()
+
     except Exception as e:
         logger.error(f"Не удалось скачать голосовое сообщение: {e}")
         await message.answer("Братан, голосовое не загрузилось, отправь еще раз, пожалуйста!")
@@ -706,8 +780,9 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             if booking.get("user_id"):
                 b_branch_id = booking.get("branch_id") or 1
                 branch_info = await get_branch_by_id(b_branch_id)
-                branch_addr = branch_info["address"] if branch_info else "г. Ташкент, метро «Миллий бог», 8B"
-                branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Миллий бог")
+                branch_addr = branch_info["address"] if branch_info else "г. Ташкент"
+                branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Brohouse")
+                branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", "+998 97 012-55-55")
                 try:
                     await message.bot.send_message(
                         chat_id=booking["user_id"],
@@ -716,7 +791,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                             f"✂️ **Услуга:** {booking['service']}\n"
                             f"⏰ **Время:** {booking['booking_time']}\n"
                             f"📍 **Филиал:** {branch_title} ({branch_addr})\n"
-                            f"📞 **Телефон:** +998 97 012-55-55\n\n"
+                            f"📞 **Телефон:** {branch_phone}\n\n"
                             "Ждем вас, ака! 💈"
                         ),
                         parse_mode="Markdown"
@@ -763,11 +838,16 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     None
                 )
 
+            matched_service, srv_duration = await resolve_service_info(admin_action.service)
+            canonical_service = matched_service["name"] if matched_service else (admin_action.service or "Стрижка / Комплекс")
+            matched_service_id = matched_service["id"] if matched_service else None
+
             res = check_slot_availability(
                 target_dt=target_dt,
                 existing_bookings=active_bookings,
                 barber_id=matched_barber["id"] if matched_barber else None,
-                available_barbers=barbers
+                available_barbers=barbers,
+                duration_minutes=srv_duration
             )
             if not res.is_available:
                 salutation = "Иброхим ака" if is_personal_creator_booking else "Шеф"
@@ -786,10 +866,14 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             )
 
             if is_personal_creator_booking:
-                full_name = "Иброхим"
+                creator_name = (f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()) if message.from_user else ""
+                if "ibrohim" in creator_name.lower() or "иброхим" in creator_name.lower():
+                    full_name = "Иброхим"
+                else:
+                    full_name = creator_name or "Шеф"
                 booking_user_id = user_id
-                username = f"@{message.from_user.username}" if (message.from_user and message.from_user.username) else "@asatkhanov"
-                details = f"Личная запись Создателя/Супер-Админа (Иброхим) | Филиал: {target_branch_name}"
+                username = f"@{message.from_user.username}" if (message.from_user and message.from_user.username) else None
+                details = f"Личная запись Создателя/Супер-Админа ({full_name}) | Филиал: {target_branch_name}"
                 status = "confirmed"
             else:
                 full_name = admin_action.client_query
@@ -804,11 +888,12 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 full_name=full_name,
                 details=details,
                 phone=admin_action.phone,
-                service=admin_action.service or "Стрижка / Комплекс",
+                service=canonical_service,
                 booking_time=normalized_time,
                 status=status,
                 barber_id=final_barber_id,
                 barber_name=final_barber_name,
+                service_id=matched_service_id,
                 branch_id=target_branch_id,
                 branch_name=target_branch_name,
             )
@@ -935,7 +1020,12 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             )
             return
 
-        # Проверяем доступность слота с мульти-мастер подбором
+        # Динамическое определение услуги и её длительности
+        matched_service, srv_duration = await resolve_service_info(client_action.service)
+        canonical_service = matched_service["name"] if matched_service else (client_action.service or "Стрижка / Комплекс")
+        matched_service_id = matched_service["id"] if matched_service else None
+
+        # Проверяем доступность слота с мульти-мастер подбором и реальной длительностью
         active_bookings = await get_active_bookings()
         barbers = await get_barbers(active_only=True)
         matched_barber = None
@@ -949,7 +1039,8 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             target_dt=target_dt,
             existing_bookings=active_bookings,
             barber_id=matched_barber["id"] if matched_barber else None,
-            available_barbers=barbers
+            available_barbers=barbers,
+            duration_minutes=srv_duration
         )
         if not res.is_available:
             logger.warning(f"Отклонена запись на {raw_booking_time}: {res.error_message}")
@@ -963,17 +1054,12 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
 
         booking_time = format_booking_datetime(target_dt)
         full_name = (
-            "Иброхим"
-            if is_super_admin(user_id)
-            else (
-                client_action.customer_name
-                or f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
-                or "Гость"
-            )
+            client_action.customer_name
+            or (f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip())
+            or ("Шеф" if is_super_admin(user_id) else "Гость")
         )
         username = f"@{message.from_user.username}" if message.from_user.username else None
         phone = client_action.phone or None
-        service = client_action.service or "Стрижка / Комплекс"
         final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
         final_barber_name = res.assigned_barber_name or (matched_barber["name"] if matched_barber else None)
 
@@ -991,11 +1077,12 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             full_name=full_name,
             details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]} | Филиал: {target_branch_name}",
             phone=phone,
-            service=service,
+            service=canonical_service,
             booking_time=booking_time,
             status="new",
             barber_id=final_barber_id,
             barber_name=final_barber_name,
+            service_id=matched_service_id,
             branch_id=target_branch_id,
             branch_name=target_branch_name,
         )
@@ -1008,7 +1095,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                 f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
                 f"{master_str}"
                 f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
-                f"✂️ **Услуга:** {service}\n"
+                f"✂️ **Услуга:** {canonical_service}\n"
                 f"⏰ **Время:** {booking_time}\n"
                 f"📞 **Телефон:** {phone or 'Не указан'}\n"
                 f"🆔 **Telegram ID:** `{user_id}`\n\n"
@@ -1051,7 +1138,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                             "💈 **У ВАС НОВАЯ ЗАПИСЬ В BROHOUSE!**\n\n"
                             f"👤 **Клиент:** {full_name}\n"
                             f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
-                            f"✂️ **Услуга:** {service}\n"
+                            f"✂️ **Услуга:** {canonical_service}\n"
                             f"⏰ **Время:** {booking_time}\n"
                             f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
                             "📱 _Подтвердите или отклоните прямо кнопками ниже:_"
@@ -1122,15 +1209,16 @@ async def handle_booking_status_callback(callback: CallbackQuery):
         if new_status == "confirmed":
             b_branch_id = booking.get("branch_id") or 1
             branch_info = await get_branch_by_id(b_branch_id)
-            branch_addr = branch_info["address"] if branch_info else "г. Ташкент, метро «Миллий бог», 8B"
-            branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Миллий бог")
+            branch_addr = branch_info["address"] if branch_info else "г. Ташкент"
+            branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Brohouse")
+            branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", "+998 97 012-55-55")
             msg = (
                 "✅ **Ваша запись в Brohouse ПОДТВЕРЖДЕНА!**\n\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"💈 **Мастер:** {b_name}\n"
                 f"⏰ **Время:** {b_time}\n"
                 f"📍 **Филиал:** {branch_title} ({branch_addr})\n"
-                "📞 **Телефон:** +998 97 012-55-55\n\n"
+                f"📞 **Телефон:** {branch_phone}\n\n"
                 "Мы уже ждем вас к назначенному времени, ака! 💈"
             )
             try:
@@ -1162,6 +1250,79 @@ async def handle_booking_status_callback(callback: CallbackQuery):
     await callback.answer(f"Запись успешно {status_ru.lower()}!")
 
 
+@router.callback_query(F.data.startswith("approve_receipt:"))
+async def handle_approve_receipt(callback: CallbackQuery):
+    """Суперадмин подтверждает оплату чека и начисляет +30 дней подписки"""
+    user_id = callback.from_user.id if callback.from_user else 0
+    super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    admin_id = settings.ADMIN_CHAT_ID
+
+    if user_id != super_admin_id and user_id != admin_id:
+        await callback.answer("У вас нет прав для подтверждения оплат.", show_alert=True)
+        return
+
+    try:
+        receipt_id = int(callback.data.split(":")[1])
+        receipt = await get_receipt_log_by_id(receipt_id)
+        if not receipt:
+            await callback.answer("Чек не найден в базе данных.", show_alert=True)
+            return
+
+        if receipt.get("status") == "approved":
+            await callback.answer("Этот чек уже был подтвержден ранее.", show_alert=True)
+            return
+
+        # 1. Обновляем статус квитанции
+        await update_receipt_log_status(receipt_id, "approved")
+
+        # 2. Продлеваем подписку заведения на 30 дней
+        tenant_id = receipt.get("tenant_id") or 1
+        updated = await extend_tenant_subscription_30_days(tenant_id)
+
+        # 3. Обновляем сообщение в Telegram
+        old_text = callback.message.text or callback.message.caption or ""
+        new_text = (
+            f"{old_text}\n\n"
+            "✅ **ОПЛАТА ПОДТВЕРЖДЕНА!**\n"
+            "🎉 Лицензия заведения Brohouse успешно продлена на **+30 дней**!\n"
+            f"👤 Подтвердил: {callback.from_user.first_name}"
+        )
+        await callback.message.edit_text(new_text, reply_markup=None, parse_mode="Markdown")
+        await callback.answer("Оплата подтверждена! Подписка продлена на 30 дней.")
+    except Exception as e:
+        logger.error(f"Ошибка при подтверждении чека: {e}")
+        await callback.answer("Произошла ошибка при обработке чека.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("reject_receipt:"))
+async def handle_reject_receipt(callback: CallbackQuery):
+    """Суперадмин отклоняет чек"""
+    user_id = callback.from_user.id if callback.from_user else 0
+    super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    admin_id = settings.ADMIN_CHAT_ID
+
+    if user_id != super_admin_id and user_id != admin_id:
+        await callback.answer("У вас нет прав для отклонения оплат.", show_alert=True)
+        return
+
+    try:
+        receipt_id = int(callback.data.split(":")[1])
+        await update_receipt_log_status(receipt_id, "rejected")
+
+        old_text = callback.message.text or callback.message.caption or ""
+        new_text = (
+            f"{old_text}\n\n"
+            "❌ **ОПЛАТА ОТКЛОНЕНА!**\n"
+            f"👤 Отклонил: {callback.from_user.first_name}"
+        )
+        await callback.message.edit_text(new_text, reply_markup=None, parse_mode="Markdown")
+        await callback.answer("Чек успешно отклонён.")
+    except Exception as e:
+        logger.error(f"Ошибка при отклонении чека: {e}")
+        await callback.answer("Произошла ошибка при отклонении чека.", show_alert=True)
+
+
 # Для обратной совместимости
 process_booking_intent = process_client_intent
+
 

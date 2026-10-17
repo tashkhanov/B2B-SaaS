@@ -211,13 +211,16 @@ def check_slot_availability(
     barber_id: Optional[int] = None,
     available_barbers: Optional[List[Dict]] = None,
     duration_minutes: int = SERVICE_DURATION_MINUTES,
-    ignore_booking_id: Optional[int] = None
+    ignore_booking_id: Optional[int] = None,
+    work_start_hour: Optional[int] = None,
+    work_end_hour: Optional[int] = None,
+    max_booking_days: Optional[int] = None
 ) -> SlotCheckResult:
     """
     Мульти-мастер проверка доступности слота:
     1. Проверка на прошедшее время.
-    2. Проверка горизонта планирования (до 7 дней).
-    3. Проверка рабочих часов салона (10:00 - 22:00) с учетом длительности.
+    2. Проверка горизонта планирования (до max_booking_days дней).
+    3. Проверка рабочих часов салона с учетом длительности.
     4. Если указан конкретный barber_id:
        - Проверяется график этого мастера на target_dt.date().
        - Проверяются только записи этого мастера.
@@ -228,38 +231,41 @@ def check_slot_availability(
     """
     target = target_dt.astimezone(TASHKENT_TZ) if target_dt.tzinfo else target_dt.replace(tzinfo=TASHKENT_TZ)
     now = get_now_tashkent()
+    start_hour = work_start_hour if work_start_hour is not None else WORK_START_HOUR
+    end_hour = work_end_hour if work_end_hour is not None else WORK_END_HOUR
+    max_days = max_booking_days if max_booking_days is not None else MAX_BOOKING_DAYS_AHEAD
 
     # 1. Прошедшее время
     if target < now - timedelta(minutes=15):
         return SlotCheckResult(False, "Выбранное время уже прошло.", None)
 
-    # 2. Горизонт планирования (максимум 7 дней)
+    # 2. Горизонт планирования (максимум max_days дней)
     diff_days = (target.date() - now.date()).days
-    if diff_days > MAX_BOOKING_DAYS_AHEAD:
-        max_allowed_date = now.date() + timedelta(days=MAX_BOOKING_DAYS_AHEAD)
+    if diff_days > max_days:
+        max_allowed_date = now.date() + timedelta(days=max_days)
         max_month = MONTHS_RU[max_allowed_date.month] if max_allowed_date.month < len(MONTHS_RU) else ""
         max_str = f"{max_allowed_date.day} {max_month}"
         return SlotCheckResult(
             False,
-            f"Запись открыта максимум на 7 дней вперед (до {max_str}). "
+            f"Запись открыта максимум на {max_days} дней вперед (до {max_str}). "
             f"Пожалуйста, выберите удобный день на ближайшей неделе, ака!",
             None
         )
 
-    # 3. Рабочие часы (08:00 - 23:00)
-    if target.hour < WORK_START_HOUR or target.hour > WORK_END_HOUR or (target.hour == WORK_END_HOUR and target.minute > 0):
+    # 3. Рабочие часы
+    if target.hour < start_hour or target.hour > end_hour or (target.hour == end_hour and target.minute > 0):
         return SlotCheckResult(
             False,
-            f"Салон работает с {WORK_START_HOUR:02d}:00 до {WORK_END_HOUR:02d}:00. Выберите время в этом интервале.",
+            f"Салон работает с {start_hour:02d}:00 до {end_hour:02d}:00. Выберите время в этом интервале.",
             None
         )
 
     end_time_dt = target + timedelta(minutes=duration_minutes)
-    closing_dt = target.replace(hour=WORK_END_HOUR, minute=0, second=0, microsecond=0)
+    closing_dt = target.replace(hour=end_hour, minute=0, second=0, microsecond=0)
     if end_time_dt > closing_dt:
         return SlotCheckResult(
             False,
-            f"Салон закрывается в {WORK_END_HOUR:02d}:00, а процедура длится {duration_minutes} мин. Выберите более раннее время.",
+            f"Салон закрывается в {end_hour:02d}:00, а процедура длится {duration_minutes} мин. Выберите более раннее время.",
             None
         )
 
@@ -415,17 +421,22 @@ def get_slots_for_date(
     barber_id: Optional[int] = None,
     available_barbers: Optional[List[Dict]] = None,
     duration_minutes: int = SERVICE_DURATION_MINUTES,
-    step_minutes: int = 30
+    step_minutes: int = 30,
+    work_start_hour: Optional[int] = None,
+    work_end_hour: Optional[int] = None,
+    max_booking_days: Optional[int] = None
 ) -> List[Dict]:
     """
     Возвращает список слотов с шагом step_minutes (по умолчанию 30 мин)
-    с 10:00 до 21:00 включительно для указанной даты и мастера.
+    для указанной даты и мастера с учетом рабочих часов.
     """
     now = get_now_tashkent()
     slots = []
+    start_hour = work_start_hour if work_start_hour is not None else WORK_START_HOUR
+    end_hour = work_end_hour if work_end_hour is not None else WORK_END_HOUR
 
-    start_min = WORK_START_HOUR * 60
-    end_min = (WORK_END_HOUR - 1) * 60  # 21:00 - последний слот
+    start_min = start_hour * 60
+    end_min = (end_hour - 1) * 60
 
     for total_m in range(start_min, end_min + 1, step_minutes):
         hour = total_m // 60
@@ -448,7 +459,10 @@ def get_slots_for_date(
             existing_bookings=existing_bookings,
             barber_id=barber_id,
             available_barbers=available_barbers,
-            duration_minutes=duration_minutes
+            duration_minutes=duration_minutes,
+            work_start_hour=start_hour,
+            work_end_hour=end_hour,
+            max_booking_days=max_booking_days
         )
         slots.append({
             "time": time_str,
@@ -466,6 +480,7 @@ def build_schedule_context_for_prompt(
     barbers: Optional[List[Dict]] = None,
     services: Optional[List[Dict]] = None,
     branches: Optional[List[Dict]] = None,
+    salon_settings: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Генерирует актуальный текстовый блок с филиалами, графиком, мастерами и занятыми окнами
@@ -473,11 +488,14 @@ def build_schedule_context_for_prompt(
     """
     now = get_now_tashkent()
     now_formatted = format_tashkent_now_for_prompt()
+    start_h = int(salon_settings.get("work_start_hour", WORK_START_HOUR)) if salon_settings else WORK_START_HOUR
+    end_h = int(salon_settings.get("work_end_hour", WORK_END_HOUR)) if salon_settings else WORK_END_HOUR
+    max_days = int(salon_settings.get("max_booking_days_ahead", MAX_BOOKING_DAYS_AHEAD)) if salon_settings else MAX_BOOKING_DAYS_AHEAD
 
     lines = [
         f"ТЕКУЩЕЕ ВРЕМЯ И ДАТА В ТАШКЕНТЕ: {now_formatted}",
-        f"РЕЖИМ РАБОТЫ БАРБЕРШОПА: ежедневно с {WORK_START_HOUR}:00 до {WORK_END_HOUR}:00 (последняя запись в 21:00).",
-        f"ГОРИЗОНТ ЗАПИСИ: максимум на 7 дней вперед.",
+        f"РЕЖИМ РАБОТЫ БАРБЕРШОПА: ежедневно с {start_h}:00 до {end_h}:00.",
+        f"ГОРИЗОНТ ЗАПИСИ: максимум на {max_days} дней вперед.",
         ""
     ]
 

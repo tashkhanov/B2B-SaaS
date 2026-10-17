@@ -91,6 +91,43 @@ async function loadBranches() {
 const daysRu = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 const monthsRuShort = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    const settings = await res.json();
+    if (settings) {
+      window._salonSettings = settings;
+      // Рабочие часы
+      const startH = String(settings.work_start_hour || "08").padStart(2, "0");
+      const endH = String(settings.work_end_hour || "23").padStart(2, "0");
+      const schedEl = document.getElementById('header-schedule');
+      if (schedEl) {
+        schedEl.textContent = `${startH}:00 — ${endH}:00`;
+      }
+
+      // Промо-акция
+      const promoTitle = document.getElementById('promo-title');
+      if (promoTitle && settings.promo_discount_text) {
+        promoTitle.textContent = settings.promo_discount_text;
+      }
+      const promoSub = document.getElementById('promo-subtitle');
+      if (promoSub && settings.promo_subtitle) {
+        promoSub.textContent = settings.promo_subtitle;
+      }
+
+      // Телефон
+      const phoneText = document.getElementById('promo-phone-text');
+      const phoneLink = document.getElementById('promo-phone-link');
+      if (settings.salon_phone) {
+        if (phoneText) phoneText.textContent = settings.salon_phone.replace(/^\+998\s?/, '');
+        if (phoneLink) phoneLink.href = `tel:${settings.salon_phone.replace(/[\s-]/g, '')}`;
+      }
+    }
+  } catch (e) {
+    console.warn("Could not load dynamic settings:", e);
+  }
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
   if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
     const u = tg.initDataUnsafe.user;
@@ -112,6 +149,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     } catch (e) {}
   }
 
+  await loadSettings();
   await loadBranches();
   await loadServices();
   await loadBarbers();
@@ -122,6 +160,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 let currentCategory = 'hair';
 
 function getServiceCategory(service) {
+  if (service && service.category) {
+    return service.category;
+  }
   const name = (service.name || "").toLowerCase();
   if (name.includes("маск") || name.includes("воск") || name.includes("wax") || name.includes("массаж") || (name.includes("стайлинг") && !name.includes("стрижка"))) {
     return "spa";
@@ -132,7 +173,7 @@ function getServiceCategory(service) {
   if (name.includes("ус") || name.includes("брить") || name.includes("бритв") || name.includes("камуфляж")) {
     return "beard";
   }
-  return "hair"; // Стрижка мужская, Комплекс, Стрижка детская, Премиум Стрижка Mr. Akmal
+  return "hair";
 }
 
 function filterServices(cat, buttonEl) {
@@ -501,10 +542,15 @@ async function submitBooking() {
     details: `Онлайн-запись через Client TMA`
   };
 
+  const headers = { 'Content-Type': 'application/json' };
+  if (tg && tg.initData) {
+    headers['X-Telegram-Init-Data'] = tg.initData;
+  }
+
   try {
     const res = await fetch('/api/bookings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify(bookingPayload)
     });
     const result = await res.json();
@@ -527,11 +573,18 @@ async function submitBooking() {
       document.getElementById('res-branch').textContent = selectedBranchName;
       document.getElementById('res-address').textContent = selectedBranchAddress;
 
+      const branchObj = allBranches.find(b => b.id === selectedBranchId);
+      const resPhone = document.getElementById('res-phone');
+      if (resPhone) {
+        resPhone.textContent = (branchObj && branchObj.phone) ? branchObj.phone : (window._salonSettings?.salon_phone || '+998 97 012-55-55');
+      }
+
       if (tg && tg.HapticFeedback) {
         tg.HapticFeedback.notificationOccurred('success');
       }
     } else {
-      alert(result.error || 'Не удалось оформить запись. Попробуйте другое время.');
+      const errMsg = result.message || result.error || 'Не удалось оформить запись. Попробуйте другое время.';
+      alert(errMsg);
       submitBtn.disabled = false;
       submitBtn.innerHTML = `
         <span>Подтвердить запись</span>
@@ -541,6 +594,7 @@ async function submitBooking() {
       `;
       loadSlots(selectedDate);
     }
+
   } catch (err) {
     alert('Ошибка соединения с сервером. Повторите попытку.');
     submitBtn.disabled = false;

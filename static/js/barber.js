@@ -32,21 +32,22 @@ async function fetchSchedule() {
   }
 
   if (!tgId) {
-    // Проверим первого доступного барбера, если открыто в dev режиме
-    try {
-      const bListRes = await fetch('/api/barbers');
-      const bList = await bListRes.json();
-      if (bList && bList.length > 0 && bList[0].telegram_id) {
-        tgId = bList[0].telegram_id;
-      }
-    } catch (e) {}
+    loader.classList.add('hidden');
+    document.getElementById('barber-container').classList.add('hidden');
+    document.getElementById('unauthorized-screen').classList.remove('hidden');
+    return;
   }
 
   try {
-    const res = await fetch(`/api/barber/my-schedule?telegram_id=${tgId || 0}`);
+    const headers = {};
+    if (tg && tg.initData) {
+      headers['X-Telegram-Init-Data'] = tg.initData;
+    }
+    const res = await fetch(`/api/barber/my-schedule?telegram_id=${tgId}`, { headers });
     const data = await res.json();
 
-    if (res.status === 404 || !data.barber) {
+
+    if (!res.ok || !data.barber) {
       document.getElementById('barber-container').classList.add('hidden');
       document.getElementById('unauthorized-screen').classList.remove('hidden');
       return;

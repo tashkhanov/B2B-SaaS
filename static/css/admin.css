@@ -1,12 +1,18 @@
-body {
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
   background-color: #0d1117;
   color: #f0f6fc;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
+.no-scrollbar::-webkit-scrollbar,
 .custom-scrollbar::-webkit-scrollbar {
   display: none;
 }
+.no-scrollbar,
 .custom-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;

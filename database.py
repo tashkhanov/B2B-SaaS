@@ -1,7 +1,26 @@
+import logging
+import sqlite3
 import aiosqlite
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class BookingConflictError(Exception):
+    """Исключение при попытке записаться на уже занятый слот (состояние гонки / овербукинг)."""
+    pass
+
+
+
+def get_tashkent_now_naive() -> datetime:
+    """Текущее время в часовом поясе Asia/Tashkent (UTC+5) без tzinfo для SQLite."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Tashkent")).replace(tzinfo=None)
+    except Exception:
+        return datetime.now()
 
 
 def get_db_path(db_path: Optional[str] = None) -> str:
@@ -44,6 +63,7 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 duration_min INTEGER DEFAULT 60,
                 description TEXT,
                 badge TEXT DEFAULT '',
+                category TEXT DEFAULT 'hair',
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -116,6 +136,46 @@ async def init_db(db_path: Optional[str] = None) -> None:
             if col_name not in columns:
                 await db.execute(f"ALTER TABLE bookings ADD COLUMN {col_name} {col_type} {col_def};")
 
+        # Миграция колонок services (категория hair/beard/spa)
+        cursor = await db.execute("PRAGMA table_info(services);")
+        srv_columns = [row[1] for row in await cursor.fetchall()]
+        if "category" not in srv_columns:
+            await db.execute("ALTER TABLE services ADD COLUMN category TEXT DEFAULT 'hair';")
+
+        # Уникальный индекс для исключения параллельных записей на один и тот же слот (Anti-Race Condition)
+        try:
+            await db.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_booking 
+                ON bookings (barber_id, booking_time) 
+                WHERE status NOT IN ('cancelled') AND barber_id IS NOT NULL AND booking_time IS NOT NULL;
+            """)
+        except Exception as e:
+            logger.warning("Could not create idx_unique_active_booking: %s", e)
+
+        # 6. Таблица настроек салона (Salon Settings)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS salon_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        default_settings = [
+            ("work_start_hour", "8"),
+            ("work_end_hour", "23"),
+            ("max_booking_days_ahead", "7"),
+            ("slot_step_minutes", "30"),
+            ("promo_discount_percent", "30"),
+            ("promo_title", "30% OFF на первую стрижку"),
+            ("promo_subtitle", "Скидка на первую стрижку для новых клиентов!"),
+            ("promo_phone", "+998 97 012-55-55"),
+        ]
+        await db.executemany(
+            "INSERT OR IGNORE INTO salon_settings (key, value) VALUES (?, ?)",
+            default_settings
+        )
+
         # Начальный seed для branches, если таблица пуста
         cursor = await db.execute("SELECT COUNT(*) FROM branches")
         branches_count = (await cursor.fetchone())[0]
@@ -137,23 +197,23 @@ async def init_db(db_path: Optional[str] = None) -> None:
         services_count = (await cursor.fetchone())[0]
         if services_count == 0:
             default_services = [
-                ("Стрижка волос", 100000, 45, "Классическая мужская стрижка, мытье головы и премиальный стайлинг", "ТОП", 1),
-                ("Стрижка под машинку", 50000, 30, "Стрижка одной или несколькими насадками с четкой окантовкой", "", 1),
-                ("Стрижка на лысо", 30000, 20, "Гладкое бритье под ноль с освежающим уходом", "", 1),
-                ("Детская стрижка от 5 лет", 60000, 40, "Стильная и аккуратная стрижка для юных джентльменов", "", 1),
-                ("Укладка", 60000, 30, "Мытье головы и укладка премиум-стайлингом", "", 1),
-                ("Мойка, массаж", 50000, 30, "Релакс-мытье головы и расслабляющий массаж", "РЕЛАКС", 1),
-                ("Укладка, мойка, массаж", 80000, 45, "Полный СПА-уход: мытье, массаж головы и стильная укладка", "СПА СЕТ", 1),
-                ("Бритье опасной бритвой", 70000, 35, "Традиционное королевское бритье с распариванием горячим полотенцем", "", 1),
-                ("Оформление бороды", 50000, 30, "Моделирование контуров, стрижка бороды, горячий компресс и масло", "ПОПУЛЯРНО", 1),
-                ("Покраска бороды", 30000, 30, "Камуфляж седины и тонирование бороды профессиональными составами", "", 1),
-                ("Воск (одна из зон)", 20000, 15, "Удаление нежелательных волос воском (нос, уши или щеки)", "", 1),
-                ("Черная маска", 30000, 20, "Глубокое очищение пор лица от черных точек и загрязнений", "УХОД", 1),
+                ("Стрижка волос", 100000, 45, "Классическая мужская стрижка, мытье головы и премиальный стайлинг", "ТОП", "hair", 1),
+                ("Стрижка под машинку", 50000, 30, "Стрижка одной или несколькими насадками с четкой окантовкой", "", "hair", 1),
+                ("Стрижка на лысо", 30000, 20, "Гладкое бритье под ноль с освежающим уходом", "", "hair", 1),
+                ("Детская стрижка от 5 лет", 60000, 40, "Стильная и аккуратная стрижка для юных джентльменов", "", "hair", 1),
+                ("Укладка", 60000, 30, "Мытье головы и укладка премиум-стайлингом", "", "hair", 1),
+                ("Мойка, массаж", 50000, 30, "Релакс-мытье головы и расслабляющий массаж", "РЕЛАКС", "spa", 1),
+                ("Укладка, мойка, массаж", 80000, 45, "Полный СПА-уход: мытье, массаж головы и стильная укладка", "СПА СЕТ", "spa", 1),
+                ("Бритье опасной бритвой", 70000, 35, "Традиционное королевское бритье с распариванием горячим полотенцем", "", "beard", 1),
+                ("Оформление бороды", 50000, 30, "Моделирование контуров, стрижка бороды, горячий компресс и масло", "ПОПУЛЯРНО", "beard", 1),
+                ("Покраска бороды", 30000, 30, "Камуфляж седины и тонирование бороды профессиональными составами", "", "beard", 1),
+                ("Воск (одна из зон)", 20000, 15, "Удаление нежелательных волос воском (нос, уши или щеки)", "", "spa", 1),
+                ("Черная маска", 30000, 20, "Глубокое очищение пор лица от черных точек и загрязнений", "УХОД", "spa", 1),
             ]
             await db.executemany(
                 """
-                INSERT INTO services (name, price, duration_min, description, badge, is_active)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO services (name, price, duration_min, description, badge, category, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 default_services
             )
@@ -198,7 +258,7 @@ async def init_db(db_path: Optional[str] = None) -> None:
         cursor = await db.execute("SELECT COUNT(*) FROM tenant_subscription")
         tenants_count = (await cursor.fetchone())[0]
         if tenants_count == 0:
-            now_dt = datetime.now()
+            now_dt = get_tashkent_now_naive()
             default_expires_at = (now_dt + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
             await db.execute(
                 """
@@ -220,7 +280,24 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 )
             )
 
+        # 6. Таблица журналов загруженных квитанций об оплате (Receipt OCR / Anti-Replay)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS receipt_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER DEFAULT 1,
+                transaction_id TEXT UNIQUE,
+                amount INTEGER,
+                payment_method TEXT DEFAULT 'p2p',
+                sender_name TEXT,
+                recipient_card_last4 TEXT,
+                raw_ocr_json TEXT,
+                status TEXT DEFAULT 'pending_verification',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         await db.commit()
+
 
 
 async def reseed_brohouse_data(db_path: Optional[str] = None) -> None:
@@ -246,23 +323,23 @@ async def reseed_brohouse_data(db_path: Optional[str] = None) -> None:
         )
 
         default_services = [
-            ("Стрижка волос", 100000, 45, "Классическая мужская стрижка, мытье головы и премиальный стайлинг", "ТОП", 1),
-            ("Стрижка под машинку", 50000, 30, "Стрижка одной или несколькими насадками с четкой окантовкой", "", 1),
-            ("Стрижка на лысо", 30000, 20, "Гладкое бритье под ноль с освежающим уходом", "", 1),
-            ("Детская стрижка от 5 лет", 60000, 40, "Стильная и аккуратная стрижка для юных джентльменов", "", 1),
-            ("Укладка", 60000, 30, "Мытье головы и укладка премиум-стайлингом", "", 1),
-            ("Мойка, массаж", 50000, 30, "Релакс-мытье головы и расслабляющий массаж", "РЕЛАКС", 1),
-            ("Укладка, мойка, массаж", 80000, 45, "Полный СПА-уход: мытье, массаж головы и стильная укладка", "СПА СЕТ", 1),
-            ("Бритье опасной бритвой", 70000, 35, "Традиционное королевское бритье с распариванием горячим полотенцем", "", 1),
-            ("Оформление бороды", 50000, 30, "Моделирование контуров, стрижка бороды, горячий компресс и масло", "ПОПУЛЯРНО", 1),
-            ("Покраска бороды", 30000, 30, "Камуфляж седины и тонирование бороды профессиональными составами", "", 1),
-            ("Воск (одна из зон)", 20000, 15, "Удаление нежелательных волос воском (нос, уши или щеки)", "", 1),
-            ("Черная маска", 30000, 20, "Глубокое очищение пор лица от черных точек и загрязнений", "УХОД", 1),
+            ("Стрижка волос", 100000, 45, "Классическая мужская стрижка, мытье головы и премиальный стайлинг", "ТОП", "hair", 1),
+            ("Стрижка под машинку", 50000, 30, "Стрижка одной или несколькими насадками с четкой окантовкой", "", "hair", 1),
+            ("Стрижка на лысо", 30000, 20, "Гладкое бритье под ноль с освежающим уходом", "", "hair", 1),
+            ("Детская стрижка от 5 лет", 60000, 40, "Стильная и аккуратная стрижка для юных джентльменов", "", "hair", 1),
+            ("Укладка", 60000, 30, "Мытье головы и укладка премиум-стайлингом", "", "hair", 1),
+            ("Мойка, массаж", 50000, 30, "Релакс-мытье головы и расслабляющий массаж", "РЕЛАКС", "spa", 1),
+            ("Укладка, мойка, массаж", 80000, 45, "Полный СПА-уход: мытье, массаж головы и стильная укладка", "СПА СЕТ", "spa", 1),
+            ("Бритье опасной бритвой", 70000, 35, "Традиционное королевское бритье с распариванием горячим полотенцем", "", "beard", 1),
+            ("Оформление бороды", 50000, 30, "Моделирование контуров, стрижка бороды, горячий компресс и масло", "ПОПУЛЯРНО", "beard", 1),
+            ("Покраска бороды", 30000, 30, "Камуфляж седины и тонирование бороды профессиональными составами", "", "beard", 1),
+            ("Воск (одна из зон)", 20000, 15, "Удаление нежелательных волос воском (нос, уши или щеки)", "", "spa", 1),
+            ("Черная маска", 30000, 20, "Глубокое очищение пор лица от черных точек и загрязнений", "УХОД", "spa", 1),
         ]
         await db.executemany(
             """
-            INSERT INTO services (name, price, duration_min, description, badge, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO services (name, price, duration_min, description, badge, category, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             default_services
         )
@@ -382,6 +459,7 @@ async def create_service(
     duration_min: int = 60,
     description: str = "",
     badge: str = "",
+    category: str = "hair",
     is_active: int = 1,
     db_path: Optional[str] = None
 ) -> int:
@@ -390,10 +468,10 @@ async def create_service(
     async with aiosqlite.connect(target_db) as db:
         cursor = await db.execute(
             """
-            INSERT INTO services (name, price, duration_min, description, badge, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO services (name, price, duration_min, description, badge, category, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (name.strip(), price, duration_min, description.strip(), badge.strip(), is_active)
+            (name.strip(), price, duration_min, description.strip(), badge.strip(), category.strip(), is_active)
         )
         await db.commit()
         return cursor.lastrowid
@@ -406,6 +484,7 @@ async def update_service(
     duration_min: int = 60,
     description: str = "",
     badge: str = "",
+    category: str = "hair",
     is_active: int = 1,
     db_path: Optional[str] = None
 ) -> bool:
@@ -415,10 +494,10 @@ async def update_service(
         cursor = await db.execute(
             """
             UPDATE services 
-            SET name = ?, price = ?, duration_min = ?, description = ?, badge = ?, is_active = ?
+            SET name = ?, price = ?, duration_min = ?, description = ?, badge = ?, category = ?, is_active = ?
             WHERE id = ?
             """,
-            (name.strip(), price, duration_min, description.strip(), badge.strip(), is_active, service_id)
+            (name.strip(), price, duration_min, description.strip(), badge.strip(), category.strip(), is_active, service_id)
         )
         await db.commit()
         return cursor.rowcount > 0
@@ -590,19 +669,25 @@ async def save_booking(
         branch_name = b_info["name"] if b_info else f"Филиал #{branch_id}"
 
     target_db = get_db_path(db_path)
-    async with aiosqlite.connect(target_db) as db:
-        cursor = await db.execute(
-            """
-            INSERT INTO bookings (
-                user_id, username, full_name, phone, service, booking_time, status, details,
-                barber_id, barber_name, service_id, branch_id, branch_name
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (user_id, username, full_name, phone, service, booking_time, status, details,
-             barber_id, barber_name, service_id, branch_id, branch_name)
-        )
-        await db.commit()
-        return cursor.lastrowid
+    try:
+        async with aiosqlite.connect(target_db) as db:
+            await db.execute("BEGIN IMMEDIATE;")
+            cursor = await db.execute(
+                """
+                INSERT INTO bookings (
+                    user_id, username, full_name, phone, service, booking_time, status, details,
+                    barber_id, barber_name, service_id, branch_id, branch_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, username, full_name, phone, service, booking_time, status, details,
+                 barber_id, barber_name, service_id, branch_id, branch_name)
+            )
+            await db.commit()
+            return cursor.lastrowid
+    except (sqlite3.IntegrityError, aiosqlite.IntegrityError) as err:
+        logger.warning("Collision detected while saving booking: %s", err)
+        raise BookingConflictError("Выбранный слот уже занят другим клиентом. Пожалуйста, выберите другое время.") from err
+
 
 
 async def has_recent_booking(
@@ -853,6 +938,30 @@ async def get_tenant_by_id(tenant_id: int, db_path: Optional[str] = None) -> Opt
             return dict(row) if row else None
 
 
+async def get_tenant_by_id_or_slug(tenant_identifier: Any, db_path: Optional[str] = None) -> Optional[Dict]:
+    """Получение подписки салона по числовому ID или текстовому слагу (например, 'brohouse')."""
+    if tenant_identifier is None:
+        return None
+    target_db = get_db_path(db_path)
+    ident_str = str(tenant_identifier).strip()
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        if ident_str.isdigit():
+            async with db.execute(
+                "SELECT * FROM tenant_subscription WHERE id = ? OR tenant_slug = ?",
+                (int(ident_str), ident_str.lower())
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+        else:
+            async with db.execute(
+                "SELECT * FROM tenant_subscription WHERE tenant_slug = ?",
+                (ident_str.lower(),)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+
 async def get_all_tenants(db_path: Optional[str] = None) -> List[Dict]:
     """Получение списка всех зарегистрированных заведений сети для пульта Super-Admin."""
     target_db = get_db_path(db_path)
@@ -870,7 +979,7 @@ async def create_tenant(data: Dict, db_path: Optional[str] = None) -> int:
     target_db = get_db_path(db_path)
     days = int(data.get("days", 30))
     grace_period_days = int(data.get("grace_period_days", 2))
-    now_dt = datetime.now()
+    now_dt = get_tashkent_now_naive()
     expires_at = (now_dt + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
     async with aiosqlite.connect(target_db) as db:
@@ -919,18 +1028,20 @@ async def update_tenant_subscription(tenant_id: int, updates: Dict, db_path: Opt
         return cursor.rowcount > 0
 
 
-async def extend_tenant_subscription_30_days(tenant_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+async def extend_tenant_subscription_30_days(tenant_identifier: Any, db_path: Optional[str] = None) -> Optional[Dict]:
     """
     Продление подписки заведения на 30 дней.
+    Поддерживает tenant_identifier как числовой ID или строковый slug.
     Если срок еще не истек — добавляет 30 дней к текущей дате expires_at.
     Если срок уже истек или блокирован — добавляет 30 дней от текущего момента.
     Автоматически переводит is_active = 1 и сбрасывает статус уведомлений.
     """
-    tenant = await get_tenant_by_id(tenant_id, db_path)
+    tenant = await get_tenant_by_id_or_slug(tenant_identifier, db_path)
     if not tenant:
         return None
 
-    now_dt = datetime.now()
+    tenant_id = tenant["id"]
+    now_dt = get_tashkent_now_naive()
     try:
         current_exp = datetime.strptime(tenant["expires_at"], "%Y-%m-%d %H:%M:%S")
     except Exception:
@@ -951,16 +1062,141 @@ async def extend_tenant_subscription_30_days(tenant_id: int, db_path: Optional[s
     return await get_tenant_by_id(tenant_id, db_path)
 
 
-async def toggle_tenant_active(tenant_id: int, is_active: Optional[int] = None, db_path: Optional[str] = None) -> bool:
-    """Переключение ручного выключателя Kill Switch для арендатора."""
-    tenant = await get_tenant_by_id(tenant_id, db_path)
+async def toggle_tenant_active(tenant_identifier: Any, is_active: Optional[int] = None, db_path: Optional[str] = None) -> bool:
+    """Переключение ручного выключателя Kill Switch для арендатора (по id или slug)."""
+    tenant = await get_tenant_by_id_or_slug(tenant_identifier, db_path)
     if not tenant:
         return False
 
+    tenant_id = tenant["id"]
     if is_active is None:
         new_active = 0 if tenant.get("is_active", 1) == 1 else 1
     else:
         new_active = 1 if is_active else 0
 
     return await update_tenant_subscription(tenant_id, {"is_active": new_active}, db_path=db_path)
+
+
+# =============================================================================
+# НАСТРОЙКИ САЛОНА (SALON SETTINGS)
+# =============================================================================
+
+async def get_salon_setting(key: str, default: Optional[str] = None, db_path: Optional[str] = None) -> Optional[str]:
+    """Получение значения настройки салона по ключу."""
+    target_db = get_db_path(db_path)
+    try:
+        async with aiosqlite.connect(target_db) as db:
+            async with db.execute("SELECT value FROM salon_settings WHERE key = ?", (key,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else default
+    except Exception:
+        return default
+
+
+async def get_all_salon_settings(db_path: Optional[str] = None) -> Dict[str, str]:
+    """Получение всех настроек салона единым словарем."""
+    defaults = {
+        "work_start_hour": "8",
+        "work_end_hour": "23",
+        "slot_step_minutes": "30",
+        "max_booking_days_ahead": "7",
+        "promo_discount_text": "30% OFF",
+        "promo_subtitle": "Скидка на первую стрижку для новых клиентов!",
+        "salon_phone": "+998 97 012-55-55",
+    }
+    target_db = get_db_path(db_path)
+    try:
+        async with aiosqlite.connect(target_db) as db:
+            async with db.execute("SELECT key, value FROM salon_settings") as cursor:
+                rows = await cursor.fetchall()
+                res = dict(defaults)
+                res.update({row[0]: row[1] for row in rows})
+                return res
+    except Exception as e:
+        logger.warning("Не удалось прочитать salon_settings из БД, используются значения по умолчанию: %s", e)
+        return defaults
+
+
+async def set_salon_setting(key: str, value: str, db_path: Optional[str] = None) -> bool:
+    """Сохранение или обновление настройки салона."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        await db.execute(
+            """
+            INSERT INTO salon_settings (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+            """,
+            (key, str(value))
+        )
+        await db.commit()
+        return True
+
+
+# =============================================================================
+# УПРАВЛЕНИЕ КВИТАНЦИЯМИ И ЧЕКАМИ ОБ ОПЛАТЕ (RECEIPT OCR LOGS)
+# =============================================================================
+
+async def save_receipt_log(
+    tenant_id: int,
+    transaction_id: str,
+    amount: int,
+    payment_method: str = "p2p",
+    sender_name: Optional[str] = None,
+    recipient_card_last4: Optional[str] = None,
+    raw_ocr_json: Optional[str] = None,
+    status: str = "pending_verification",
+    db_path: Optional[str] = None
+) -> int:
+    """Сохранение записи о распознанном чеке с защитой от повторного использования (Replay Attack)."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        if transaction_id:
+            cursor = await db.execute("SELECT id FROM receipt_logs WHERE transaction_id = ?", (transaction_id,))
+            existing = await cursor.fetchone()
+            if existing:
+                raise ValueError(f"Чек с номером транзакции #{transaction_id} уже был использован ранее!")
+
+        cursor = await db.execute(
+            """
+            INSERT INTO receipt_logs (
+                tenant_id, transaction_id, amount, payment_method, sender_name,
+                recipient_card_last4, raw_ocr_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (tenant_id, transaction_id, amount, payment_method, sender_name,
+             recipient_card_last4, raw_ocr_json, status)
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def get_receipt_log_by_id(receipt_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+    """Получение квитанции по ID."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM receipt_logs WHERE id = ?", (receipt_id,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def update_receipt_log_status(receipt_id: int, new_status: str, db_path: Optional[str] = None) -> bool:
+    """Обновление статуса квитанции ('approved', 'rejected', 'pending_verification')."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute("UPDATE receipt_logs SET status = ? WHERE id = ?", (new_status, receipt_id))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_pending_receipts(db_path: Optional[str] = None) -> List[Dict]:
+    """Получение списка чеков, ожидающих верификации администратором."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM receipt_logs WHERE status = 'pending_verification' ORDER BY id DESC") as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
 

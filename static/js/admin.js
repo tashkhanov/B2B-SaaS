@@ -4,6 +4,28 @@ if (tg) {
   tg.expand();
 }
 
+function getTashkentTodayStr() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date());
+  } catch (e) {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (tg && tg.initData) {
+    headers['X-Telegram-Init-Data'] = tg.initData;
+  }
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+  if (token) {
+    headers['X-Super-Admin-Token'] = token;
+  }
+  return headers;
+}
+
+
 let activeTab = 'bookings';
 let allBookings = [];
 let currentFilter = 'all';
@@ -13,28 +35,40 @@ let allBarbers = [];
 // --- TAB SWITCHING ---
 function switchTab(tab) {
   activeTab = tab;
-  ['bookings', 'services', 'barbers'].forEach(t => {
+  ['bookings', 'services', 'barbers', 'settings', 'billing'].forEach(t => {
     const navBtn = document.getElementById(`nav-${t}`);
     const sec = document.getElementById(`section-${t}`);
-    if (t === tab) {
-      navBtn.className = 'flex-1 py-1.5 px-2 rounded-lg text-center transition flex items-center justify-center gap-1.5 bg-accent text-white font-semibold shadow-sm shadow-accent/20';
-      sec.classList.remove('hidden');
-    } else {
-      navBtn.className = 'flex-1 py-1.5 px-2 rounded-lg text-center transition flex items-center justify-center gap-1.5 text-gray-400 hover:text-white';
-      sec.classList.add('hidden');
+    if (navBtn && sec) {
+      if (t === tab) {
+        navBtn.className = 'flex-shrink-0 flex-1 py-1.5 px-1.5 sm:px-2 rounded-lg text-center transition flex items-center justify-center gap-1 bg-accent text-white font-semibold shadow-sm shadow-accent/20 whitespace-nowrap text-[11px] sm:text-xs';
+        sec.classList.remove('hidden');
+      } else {
+        navBtn.className = 'flex-shrink-0 flex-1 py-1.5 px-1.5 sm:px-2 rounded-lg text-center transition flex items-center justify-center gap-1 text-gray-400 hover:text-white whitespace-nowrap text-[11px] sm:text-xs';
+        sec.classList.add('hidden');
+      }
     }
   });
 
+  const headerActionBtn = document.getElementById('header-action-btn');
   const headerActionText = document.getElementById('header-action-text');
   if (tab === 'bookings') {
-    headerActionText.textContent = 'Записать';
+    if (headerActionBtn) headerActionBtn.classList.remove('hidden');
+    if (headerActionText) headerActionText.textContent = 'Записать';
     fetchBookings();
   } else if (tab === 'services') {
-    headerActionText.textContent = 'Услуга +';
+    if (headerActionBtn) headerActionBtn.classList.remove('hidden');
+    if (headerActionText) headerActionText.textContent = 'Услуга +';
     fetchServices();
   } else if (tab === 'barbers') {
-    headerActionText.textContent = 'Барбер +';
+    if (headerActionBtn) headerActionBtn.classList.remove('hidden');
+    if (headerActionText) headerActionText.textContent = 'Барбер +';
     fetchBarbers();
+  } else if (tab === 'settings') {
+    if (headerActionBtn) headerActionBtn.classList.add('hidden');
+    fetchSettings();
+  } else if (tab === 'billing') {
+    if (headerActionBtn) headerActionBtn.classList.add('hidden');
+    fetchBillingInfo();
   }
 }
 
@@ -48,7 +82,10 @@ function refreshCurrentTab() {
   if (activeTab === 'bookings') fetchBookings();
   else if (activeTab === 'services') fetchServices();
   else if (activeTab === 'barbers') fetchBarbers();
+  else if (activeTab === 'settings') fetchSettings();
+  else if (activeTab === 'billing') fetchBillingInfo();
 }
+
 
 // --- ADMIN SECURITY CHECK ---
 async function checkAdminAccess() {
@@ -94,7 +131,9 @@ async function fetchBookings() {
   emptyState.classList.add('hidden');
 
   try {
-    const response = await fetch('/api/bookings');
+    const response = await fetch('/api/bookings', {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) throw new Error('Network error');
     allBookings = await response.json();
 
@@ -112,7 +151,7 @@ async function fetchBookings() {
 
 function updateStats() {
   document.getElementById('stat-total').textContent = allBookings.length;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getTashkentTodayStr();
   const todayCount = allBookings.filter(b => {
     const d = (b.booking_time || b.created_at || '').toLowerCase();
     return d.includes('сегодня') || d.includes(todayStr) || d.includes('bugun');
@@ -142,7 +181,7 @@ function renderBookings() {
   list.innerHTML = '';
 
   let filtered = allBookings;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getTashkentTodayStr();
 
   if (currentFilter === 'today') {
     filtered = allBookings.filter(b => {
@@ -314,7 +353,7 @@ async function updateBookingStatus(id, newStatus) {
   try {
     const res = await fetch(`/api/bookings/${id}/status`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: getAuthHeaders(),
       body: JSON.stringify({status: newStatus})
     });
     const data = await res.json();
@@ -342,7 +381,7 @@ async function openManualBookingModal() {
   modal.classList.remove('hidden');
   const dateInput = document.getElementById('m-date');
   if (!dateInput.value) {
-    dateInput.value = new Date().toISOString().slice(0, 10);
+    dateInput.value = getTashkentTodayStr();
   }
 
   // Загрузить филиалы для выбора
@@ -432,7 +471,7 @@ async function submitManualBooking() {
   try {
     const res = await fetch('/api/bookings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         full_name: name,
         phone: phone || null,
@@ -491,18 +530,22 @@ function renderServices() {
     return;
   }
 
+  const catLabels = { hair: 'Стрижка', beard: 'Борода', spa: 'Уход / SPA' };
+
   allServices.forEach(s => {
     const card = document.createElement('div');
     card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-sm';
     
     const badgeHtml = s.badge ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-accent/20 text-accent border border-accent/30">${escapeHtml(s.badge)}</span>` : '';
+    const catBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/5 text-gray-300 border border-white/10">${catLabels[s.category] || s.category || 'Стрижка'}</span>`;
     const statusDot = s.is_active ? '<span class="w-2 h-2 rounded-full bg-emerald-500" title="Активна"></span>' : '<span class="w-2 h-2 rounded-full bg-gray-600" title="Отключена"></span>';
 
     card.innerHTML = `
       <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 mb-1">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
           ${statusDot}
           <h4 class="font-semibold text-white text-xs truncate">${escapeHtml(s.name)}</h4>
+          ${catBadge}
           ${badgeHtml}
         </div>
         <div class="flex items-center gap-2 text-[11px] text-gray-400">
@@ -536,6 +579,9 @@ function openServiceModal(serviceId = null) {
       document.getElementById('srv-name').value = s.name;
       document.getElementById('srv-price').value = s.price;
       document.getElementById('srv-duration').value = s.duration || 60;
+      if (document.getElementById('srv-category')) {
+        document.getElementById('srv-category').value = s.category || 'hair';
+      }
       document.getElementById('srv-badge').value = s.badge || '';
       document.getElementById('srv-desc').value = s.description || '';
       delBtn.classList.remove('hidden');
@@ -545,6 +591,9 @@ function openServiceModal(serviceId = null) {
     document.getElementById('srv-name').value = '';
     document.getElementById('srv-price').value = '';
     document.getElementById('srv-duration').value = '60';
+    if (document.getElementById('srv-category')) {
+      document.getElementById('srv-category').value = 'hair';
+    }
     document.getElementById('srv-badge').value = '';
     document.getElementById('srv-desc').value = '';
     delBtn.classList.add('hidden');
@@ -562,6 +611,7 @@ async function saveService() {
   const name = document.getElementById('srv-name').value.trim();
   const price = parseInt(document.getElementById('srv-price').value);
   const duration = parseInt(document.getElementById('srv-duration').value) || 60;
+  const category = (document.getElementById('srv-category')?.value || 'hair').trim();
   const badge = document.getElementById('srv-badge').value.trim();
   const description = document.getElementById('srv-desc').value.trim();
 
@@ -574,13 +624,21 @@ async function saveService() {
   btn.disabled = true;
   btn.textContent = 'Сохранение...';
 
-  const payload = { name, price, duration, badge: badge || null, description: description || null, is_active: 1 };
+  const payload = {
+    name,
+    price,
+    duration,
+    category,
+    badge: badge || null,
+    description: description || null,
+    is_active: 1
+  };
   const url = sId ? `/api/services/${sId}/update` : '/api/services';
 
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
     const data = await res.json();
@@ -605,7 +663,10 @@ async function deleteService() {
   if (!confirm('Вы точно хотите удалить эту услугу из меню?')) return;
 
   try {
-    const res = await fetch(`/api/services/${sId}/delete`, { method: 'POST' });
+    const res = await fetch(`/api/services/${sId}/delete`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     const data = await res.json();
     if (data.ok) {
       closeServiceModal();
@@ -618,96 +679,12 @@ async function deleteService() {
   }
 }
 
-// ==================== 3. БАРБЕРЫ (BARBERS & SHIFTS) ====================
-async function fetchBarbers() {
-  const loader = document.getElementById('barbers-loading');
-  const list = document.getElementById('barbers-list');
-  loader.classList.remove('hidden');
-  list.classList.add('hidden');
-
-  try {
-    const res = await fetch('/api/barbers');
-    allBarbers = await res.json();
-    renderBarbers();
-  } catch (e) {
-    console.error("Ошибка загрузки барберов:", e);
-  } finally {
-    loader.classList.add('hidden');
-    list.classList.remove('hidden');
-  }
-}
-
-function renderBarbers() {
-  const list = document.getElementById('barbers-list');
-  list.innerHTML = '';
-
-  if (allBarbers.length === 0) {
-    list.innerHTML = '<div class="py-6 text-center text-gray-500 text-xs">Мастеров пока нет. Нажмите "+ Добавить".</div>';
-    return;
-  }
-
-  const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-
-  allBarbers.forEach(b => {
-    const card = document.createElement('div');
-    card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-4 shadow-sm';
-
-    const shiftBadge = b.is_on_shift 
-      ? `<button onclick="toggleShift(${b.id})" class="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition active:scale-95 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>На смене</button>`
-      : `<button onclick="toggleShift(${b.id})" class="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-gray-500/15 text-gray-400 border border-gray-500/30 hover:bg-gray-500/25 transition active:scale-95 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-gray-500"></span>Выходной</button>`;
-
-    const workDays = (b.work_days || '0,1,2,3,4,5,6').split(',').map(d => parseInt(d.trim()));
-    const daysBadges = dayNames.map((name, idx) => {
-      const isWorking = workDays.includes(idx);
-      return `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium ${isWorking ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-surfaceBorder/30 text-gray-500'}">${name}</span>`;
-    }).join('');
-
-    const initials = (b.name || 'М').trim().slice(0, 2).toUpperCase();
-
-    card.innerHTML = `
-      <div class="flex items-start justify-between gap-3 mb-3">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-gold/10 border border-gold/25 flex items-center justify-center text-gold font-bold text-xs tracking-wider shadow-sm">
-            ${escapeHtml(initials)}
-          </div>
-          <div>
-            <h4 class="font-bold text-white text-sm leading-tight">${escapeHtml(b.name)}</h4>
-            <div class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gold/10 text-gold border border-gold/20">
-              <svg class="w-2.5 h-2.5 text-gold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="6" cy="6" r="3"/>
-                <circle cx="6" cy="18" r="3"/>
-                <line x1="20" y1="4" x2="8.12" y2="15.88"/>
-                <line x1="14.47" y1="14.48" x2="20" y2="20"/>
-              </svg>
-              <span>${escapeHtml(b.role || 'Барбер')}</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          ${shiftBadge}
-        </div>
-      </div>
-
-      <div class="pt-2 border-t border-surfaceBorder/40 flex items-center justify-between">
-        <div class="flex items-center gap-1 flex-wrap">
-          ${daysBadges}
-        </div>
-        <button onclick="openBarberModal(${b.id})" class="p-1.5 rounded-lg bg-surfaceBorder/40 hover:bg-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Настройки мастера">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-          </svg>
-        </button>
-      </div>
-    `;
-
-    list.appendChild(card);
-  });
-}
-
 async function toggleShift(barberId) {
   try {
-    const res = await fetch(`/api/barbers/${barberId}/toggle-shift`, { method: 'POST' });
+    const res = await fetch(`/api/barbers/${barberId}/toggle-shift`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     const data = await res.json();
     if (data.ok) {
       if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
@@ -816,7 +793,7 @@ async function saveBarber() {
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
     const data = await res.json();
@@ -841,7 +818,10 @@ async function deleteBarber() {
   if (!confirm('Вы точно хотите удалить этого мастера?')) return;
 
   try {
-    const res = await fetch(`/api/barbers/${bId}/delete`, { method: 'POST' });
+    const res = await fetch(`/api/barbers/${bId}/delete`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     const data = await res.json();
     if (data.ok) {
       closeBarberModal();
@@ -851,6 +831,87 @@ async function deleteBarber() {
     }
   } catch (e) {
     alert('Ошибка при удалении');
+  }
+}
+
+// ==================== 4. НАСТРОЙКИ САЛОНА ====================
+async function fetchSettings() {
+  const isAllowed = await checkAdminAccess();
+  if (!isAllowed) return;
+
+  const loader = document.getElementById('settings-loading');
+  const form = document.getElementById('settings-form');
+
+  if (loader) loader.classList.remove('hidden');
+  if (form) form.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/settings', { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Settings fetch failed');
+    const settings = await res.json();
+
+    document.getElementById('set-work-start').value = settings.work_start_hour || '8';
+    document.getElementById('set-work-end').value = settings.work_end_hour || '23';
+    document.getElementById('set-slot-step').value = settings.slot_step_minutes || '30';
+    document.getElementById('set-max-days').value = settings.max_booking_days_ahead || '7';
+    document.getElementById('set-phone').value = settings.salon_phone || '+998 97 012-55-55';
+    document.getElementById('set-promo-badge').value = settings.promo_discount_text || '30% OFF';
+    document.getElementById('set-promo-subtitle').value = settings.promo_subtitle || 'Скидка на первую стрижку для новых клиентов!';
+
+    if (loader) loader.classList.add('hidden');
+    if (form) form.classList.remove('hidden');
+  } catch (e) {
+    console.error('Ошибка загрузки настроек:', e);
+    if (loader) {
+      loader.innerHTML = '<span class="text-rose-400">Ошибка загрузки настроек салона</span>';
+    }
+  }
+}
+
+async function saveSalonSettings() {
+  const startH = document.getElementById('set-work-start').value;
+  const endH = document.getElementById('set-work-end').value;
+  const slotStep = document.getElementById('set-slot-step').value;
+  const maxDays = document.getElementById('set-max-days').value;
+  const phone = document.getElementById('set-phone').value.trim();
+  const promoBadge = document.getElementById('set-promo-badge').value.trim();
+  const promoSub = document.getElementById('set-promo-subtitle').value.trim();
+
+  if (!startH || !endH || !phone) {
+    alert('Пожалуйста, укажите рабочие часы и телефон салона');
+    return;
+  }
+
+  const btn = document.getElementById('save-settings-btn');
+  btn.disabled = true;
+  btn.textContent = 'Сохранение...';
+
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        work_start_hour: startH,
+        work_end_hour: endH,
+        slot_step_minutes: slotStep || '30',
+        max_booking_days_ahead: maxDays || '7',
+        salon_phone: phone,
+        promo_discount_text: promoBadge || '30% OFF',
+        promo_subtitle: promoSub
+      })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      alert('Настройки салона успешно сохранены и применены!');
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    } else {
+      alert(data.error || 'Ошибка при сохранении настроек');
+    }
+  } catch (e) {
+    alert('Ошибка связи с сервером');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Сохранить настройки';
   }
 }
 
@@ -866,3 +927,166 @@ function escapeHtml(str) {
 
 // Первый запуск
 fetchBookings();
+
+// =============================================================================
+// ВКЛАДКА ПОДПИСКИ И БИЛЛИНГА (IN-APP BILLING & P2P RECEIPT OCR)
+// =============================================================================
+
+let currentPricingData = null;
+
+async function fetchBillingInfo() {
+  const loading = document.getElementById('billing-loading');
+  const content = document.getElementById('billing-content');
+  if (loading) loading.classList.remove('hidden');
+  if (content) content.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/billing/subscription-info', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load billing info');
+    const data = await res.json();
+    currentPricingData = data.pricing;
+
+    // Обновляем бейдж статуса
+    const statusBadge = document.getElementById('billing-status-badge');
+    if (statusBadge) {
+      if (data.status === 'active') {
+        statusBadge.textContent = 'Активна';
+        statusBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+      } else if (data.status === 'warning') {
+        statusBadge.textContent = 'Истекает скоро';
+        statusBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30';
+      } else {
+        statusBadge.textContent = 'Заблокирована';
+        statusBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30';
+      }
+    }
+
+    if (data.tenant) {
+      const expElem = document.getElementById('billing-expires-at');
+      if (expElem) expElem.textContent = data.tenant.expires_at ? data.tenant.expires_at.slice(0, 10) : '—';
+    }
+
+    const daysLeftElem = document.getElementById('billing-days-left');
+    if (daysLeftElem) {
+      const days = data.info ? data.info.days_left : 0;
+      daysLeftElem.textContent = days > 0 ? `${days} дн.` : 'Истекла';
+    }
+
+    if (data.pricing) {
+      const priceElem = document.getElementById('billing-price-display');
+      if (priceElem) priceElem.textContent = `${data.pricing.formatted_amount} / мес`;
+
+      const cardElem = document.getElementById('billing-card-number');
+      if (cardElem) cardElem.textContent = data.pricing.card_display;
+
+      const holderElem = document.getElementById('billing-card-holder');
+      if (holderElem) holderElem.textContent = data.pricing.card_holder;
+
+      const paymeBtn = document.getElementById('billing-payme-btn');
+      if (paymeBtn && data.pricing.payme_link) paymeBtn.href = data.pricing.payme_link;
+
+      const clickBtn = document.getElementById('billing-click-btn');
+      if (clickBtn && data.pricing.click_link) clickBtn.href = data.pricing.click_link;
+    }
+
+    if (loading) loading.classList.add('hidden');
+    if (content) content.classList.remove('hidden');
+  } catch (err) {
+    console.error('Ошибка загрузки подписки:', err);
+    if (loading) {
+      loading.innerHTML = '<span class="text-rose-400">Не удалось загрузить данные о подписке. Проверьте соединение.</span>';
+    }
+  }
+}
+
+function copyCardNumber() {
+  if (!currentPricingData || !currentPricingData.card_display) return;
+  const raw = currentPricingData.card_display.replace(/\s+/g, '');
+  navigator.clipboard.writeText(raw).then(() => {
+    alert('Номер карты скопирован в буфер обмена: ' + raw);
+  }).catch(() => {
+    prompt('Скопируйте номер карты:', raw);
+  });
+}
+
+// Предпросмотр изображения чека
+document.addEventListener('DOMContentLoaded', () => {
+  const fileInput = document.getElementById('billing-receipt-file');
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      const previewBox = document.getElementById('receipt-preview-box');
+      const previewImg = document.getElementById('receipt-preview-img');
+      if (file && previewBox && previewImg) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          previewImg.src = evt.target.result;
+          previewBox.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+});
+
+async function submitReceiptUpload() {
+  const fileInput = document.getElementById('billing-receipt-file');
+  const btn = document.getElementById('upload-receipt-btn');
+  if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+    alert('Пожалуйста, выберите скриншот квитанции.');
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const formData = new FormData();
+  formData.append('receipt_file', file);
+
+  btn.disabled = true;
+  btn.innerHTML = `
+    <div class="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+    <span>ИИ проверяет чек...</span>
+  `;
+
+  try {
+    const headers = {};
+    if (tg && tg.initData) {
+      headers['X-Telegram-Init-Data'] = tg.initData;
+    }
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) headers['X-Super-Admin-Token'] = token;
+
+    const res = await fetch('/api/billing/upload-receipt', {
+      method: 'POST',
+      headers: headers,
+      body: formData
+    });
+    const result = await res.json();
+
+    if (res.ok && result.ok) {
+      alert('🎉 Квитанция успешно проверена ИИ!\n\nНомер транзакции: #' + (result.receipt.transaction_id || '—') + '\nСумма: ' + (result.receipt.amount ? result.receipt.amount.toLocaleString() + ' сум' : '—') + '\n\nЗаявка отправлена суперадмину. После одобрения лицензия автоматически продлится на 30 дней.');
+      fileInput.value = '';
+      const previewBox = document.getElementById('receipt-preview-box');
+      if (previewBox) previewBox.classList.add('hidden');
+      fetchBillingInfo();
+    } else {
+      alert('⚠️ ' + (result.message || result.error || 'Не удалось обработать чек.'));
+    }
+  } catch (err) {
+    console.error('Ошибка отправки чека:', err);
+    alert('Ошибка соединения с сервером при отправке чека.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `
+      <svg class="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span>Отправить чек на проверку</span>
+    `;
+  }
+}
+
