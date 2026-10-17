@@ -102,11 +102,11 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
                 )
             ]
             if role == "super_admin":
-                token = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
+                hub_url = getattr(settings, "SAAS_HUB_URL", "https://hub.asatkhanov.uz")
                 row.append(
                     KeyboardButton(
-                        text="👑 SaaS Super-Admin",
-                        web_app=WebAppInfo(url=f"{base_url}/super-admin?token={token}"),
+                        text="👑 SaaS Command Center",
+                        web_app=WebAppInfo(url=hub_url) if hub_url.startswith("https://") else None,
                     )
                 )
             keyboard.append(row)
@@ -195,12 +195,12 @@ def get_start_inline_keyboard(role: str = "client", barber: dict = None) -> Inli
             else InlineKeyboardButton(text="📊 Открыть панель управления", url=url)
         ]
         if role == "super_admin":
-            token = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
-            super_url = f"{base_url}/super-admin?token={token}" if base_url else "http://localhost:8000/super-admin"
+            hub_url = getattr(settings, "SAAS_HUB_URL", "https://hub.asatkhanov.uz")
+            has_hub_https = hub_url.startswith("https://")
             btns.append(
-                InlineKeyboardButton(text="👑 Super-Admin (SaaS)", web_app=WebAppInfo(url=super_url))
-                if has_https
-                else InlineKeyboardButton(text="👑 Super-Admin (SaaS)", url=super_url)
+                InlineKeyboardButton(text="👑 SaaS Command Center", web_app=WebAppInfo(url=hub_url))
+                if has_hub_https
+                else InlineKeyboardButton(text="👑 SaaS Command Center", url=hub_url)
             )
         return InlineKeyboardMarkup(inline_keyboard=[btns])
     elif role == "barber":
@@ -366,18 +366,15 @@ async def handle_super(message: Message):
     if not allowed:
         return
 
-    base_url = (settings.WEBAPP_URL or "").rstrip("/")
-    token = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
-    super_url = f"{base_url}/super-admin?token={token}"
-
-    has_https = base_url.startswith("https://")
+    hub_url = getattr(settings, "SAAS_HUB_URL", "https://hub.asatkhanov.uz")
+    has_hub_https = hub_url.startswith("https://")
     super_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="⚡ Открыть пульт Super-Admin'а",
-                    web_app=WebAppInfo(url=super_url) if has_https else None,
-                    url=super_url if not has_https else None,
+                    text="⚡ Открыть SaaS Command Center",
+                    web_app=WebAppInfo(url=hub_url) if has_hub_https else None,
+                    url=hub_url if not has_hub_https else None,
                 )
             ]
         ]

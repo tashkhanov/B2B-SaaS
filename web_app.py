@@ -58,7 +58,6 @@ logger = logging.getLogger(__name__)
 CLIENT_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "client.html")
 ADMIN_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "index.html")
 BARBER_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "barber.html")
-SUPER_ADMIN_HTML_PATH = os.path.join(os.path.dirname(__file__), "webapp", "super_admin.html")
 STATIC_DIR_PATH = os.path.join(os.path.dirname(__file__), "static")
 BOT_KEY = web.AppKey("bot", object)
 
@@ -909,16 +908,9 @@ def is_super_admin_authorized(request: web.Request) -> bool:
 
 
 async def handle_super_admin_page(request: web.Request) -> web.Response:
-    """Отдача HTML-страницы пульта Super-Admin'а"""
-    if os.path.exists(SUPER_ADMIN_HTML_PATH):
-        with open(SUPER_ADMIN_HTML_PATH, "r", encoding="utf-8") as f:
-            return web.Response(text=f.read(), content_type="text/html")
-    return web.Response(
-        text="""<!DOCTYPE html><html><head><title>Super-Admin Hub</title></head>
-        <body style="background:#121212;color:#fff;font-family:sans-serif;padding:40px;text-align:center;">
-        <h1>👑 Super-Admin Hub</h1><p>Интерфейс подготавливается...</p></body></html>""",
-        content_type="text/html"
-    )
+    """Редирект на центральный SaaS Command Center (hub.asatkhanov.uz)"""
+    hub_url = getattr(settings, "SAAS_HUB_URL", "https://hub.asatkhanov.uz")
+    raise web.HTTPFound(hub_url)
 
 
 async def handle_super_auth(request: web.Request) -> web.Response:

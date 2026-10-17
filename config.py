@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # Мультитенантность и биллинг (SaaS Super-Admin)
     TENANT_SLUG: str = "brohouse"
+    SAAS_HUB_URL: str = "https://hub.asatkhanov.uz"
     SUPER_ADMIN_CHAT_ID: Optional[int] = None
     SUPER_ADMIN_PASSWORD: str = ""
 
