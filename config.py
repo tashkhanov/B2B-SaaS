@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Мультитенантность и биллинг (SaaS Super-Admin)
     TENANT_SLUG: str = "brohouse"
     SUPER_ADMIN_CHAT_ID: Optional[int] = None
-    SUPER_ADMIN_PASSWORD: str = "superadminbrohouse2026"
+    SUPER_ADMIN_PASSWORD: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -60,11 +60,11 @@ AI_BUSINESS_KEYBOARD = InlineKeyboardMarkup(
 
 
 def is_super_admin(user_id: int) -> bool:
-    """Проверка, является ли пользователь Создателем и Супер-Администратором (Иброхим)"""
+    """Проверка, является ли пользователь Создателем и Супер-Администратором"""
     if not user_id:
         return False
     super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
-    return bool((super_admin_id and user_id == super_admin_id) or user_id == 1243374131)
+    return bool(super_admin_id and user_id == super_admin_id)
 
 
 async def get_user_role(user_id: int):
@@ -102,7 +102,7 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
                 )
             ]
             if role == "super_admin":
-                token = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+                token = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
                 row.append(
                     KeyboardButton(
                         text="👑 SaaS Super-Admin",
@@ -195,7 +195,7 @@ def get_start_inline_keyboard(role: str = "client", barber: dict = None) -> Inli
             else InlineKeyboardButton(text="📊 Открыть панель управления", url=url)
         ]
         if role == "super_admin":
-            token = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+            token = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
             super_url = f"{base_url}/super-admin?token={token}" if base_url else "http://localhost:8000/super-admin"
             btns.append(
                 InlineKeyboardButton(text="👑 Super-Admin (SaaS)", web_app=WebAppInfo(url=super_url))
@@ -367,7 +367,7 @@ async def handle_super(message: Message):
         return
 
     base_url = (settings.WEBAPP_URL or "").rstrip("/")
-    token = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+    token = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
     super_url = f"{base_url}/super-admin?token={token}"
 
     has_https = base_url.startswith("https://")

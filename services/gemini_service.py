@@ -32,11 +32,11 @@ logger = logging.getLogger(__name__)
 
 
 def is_super_admin_user(user_id: Optional[int]) -> bool:
-    """Проверка, является ли пользователь Создателем и Супер-Админом (Иброхим)"""
+    """Проверка, является ли пользователь Создателем и Супер-Админом"""
     if not user_id:
         return False
     super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
-    return bool((super_admin_id and user_id == super_admin_id) or user_id == 1243374131)
+    return bool(super_admin_id and user_id == super_admin_id)
 
 
 def clean_voice_disclaimers(text: str) -> str:

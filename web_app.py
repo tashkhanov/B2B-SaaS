@@ -167,15 +167,15 @@ async def subscription_middleware(request: web.Request, handler):
         return await handler(request)
 
     # 2. Проверка Super-Admin bypass (токен в заголовке, query или cookie)
-    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
     auth_header = request.headers.get("X-Super-Admin-Token")
     query_token = request.query.get("token")
     cookie_token = request.cookies.get("super_admin_token")
 
-    if (
-        (auth_header and auth_header == super_pw)
-        or (query_token and query_token == super_pw)
-        or (cookie_token and cookie_token == super_pw)
+    if super_pw and (
+        auth_header == super_pw
+        or query_token == super_pw
+        or cookie_token == super_pw
     ):
         return await handler(request)
 
@@ -215,9 +215,9 @@ async def handle_client(request: web.Request) -> web.Response:
         with open(CLIENT_HTML_PATH, "r", encoding="utf-8") as f:
             content = f.read()
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
-        super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+        super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
-        if token and token == super_pw:
+        if super_pw and token and token == super_pw:
             resp.set_cookie("super_admin_token", super_pw, max_age=86400 * 30, path="/", httponly=False)
         return resp
     return web.Response(text="<h1>Client webapp not found</h1>", content_type="text/html", status=404)
@@ -229,9 +229,9 @@ async def handle_admin(request: web.Request) -> web.Response:
         with open(ADMIN_HTML_PATH, "r", encoding="utf-8") as f:
             content = f.read()
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
-        super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+        super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
-        if token and token == super_pw:
+        if super_pw and token and token == super_pw:
             resp.set_cookie("super_admin_token", super_pw, max_age=86400 * 30, path="/", httponly=False)
         return resp
     return web.Response(text="<h1>Admin webapp not found</h1>", content_type="text/html", status=404)
@@ -243,9 +243,9 @@ async def handle_barber_page(request: web.Request) -> web.Response:
         with open(BARBER_HTML_PATH, "r", encoding="utf-8") as f:
             content = f.read()
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
-        super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+        super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
-        if token and token == super_pw:
+        if super_pw and token and token == super_pw:
             resp.set_cookie("super_admin_token", super_pw, max_age=86400 * 30, path="/", httponly=False)
         return resp
     return web.Response(text="<h1>Barber workspace not found</h1>", content_type="text/html", status=404)
@@ -257,11 +257,10 @@ async def handle_barber_page(request: web.Request) -> web.Response:
 
 async def handle_get_config(request: web.Request) -> web.Response:
     """API: Конфигурационные данные для фронтенда (ID администратора и права суперадмина)"""
-    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
     is_super = is_super_admin_authorized(request)
     return web.json_response({
         "admin_chat_id": settings.ADMIN_CHAT_ID,
-        "super_admin_chat_id": getattr(settings, "SUPER_ADMIN_CHAT_ID", 1243374131),
+        "super_admin_chat_id": getattr(settings, "SUPER_ADMIN_CHAT_ID", None),
         "is_super_admin": is_super,
     })
 
@@ -896,14 +895,16 @@ async def handle_cancel_my_booking(request: web.Request) -> web.Response:
 
 def is_super_admin_authorized(request: web.Request) -> bool:
     """Проверка прав Super-Admin по токену в заголовке, query или cookie"""
-    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
+    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
+    if not super_pw:
+        return False
     auth_header = request.headers.get("X-Super-Admin-Token")
     query_token = request.query.get("token")
     cookie_token = request.cookies.get("super_admin_token")
     return (
-        (auth_header and auth_header == super_pw)
-        or (query_token and query_token == super_pw)
-        or (cookie_token and cookie_token == super_pw)
+        auth_header == super_pw
+        or query_token == super_pw
+        or cookie_token == super_pw
     )
 
 
@@ -928,8 +929,8 @@ async def handle_super_auth(request: web.Request) -> web.Response:
     except Exception:
         password = ""
 
-    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "superadminbrohouse2026")
-    if password == super_pw:
+    super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
+    if super_pw and password == super_pw:
         resp = web.json_response({"ok": True, "token": super_pw})
         resp.set_cookie("super_admin_token", super_pw, max_age=86400 * 30, httponly=False)
         return resp
