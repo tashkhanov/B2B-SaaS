@@ -86,10 +86,10 @@ pip install -r requirements.txt
 ### 2. Настройка файла `.env`
 
 ```env
-BOT_TOKEN=8683027133:AAFEmuiNYCSZEbbDaK9ApbuX6kRaLEwyfK4
-GEMINI_API_KEY=your_gemini_key
+BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
-ADMIN_CHAT_ID=1243374131
+ADMIN_CHAT_ID=your_telegram_id
 DB_NAME=barbershop.db
 WEBAPP_PORT=8080
 WEBAPP_URL=https://your-tunnel.trycloudflare.com

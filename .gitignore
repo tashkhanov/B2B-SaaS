@@ -27,3 +27,8 @@ htmlcov/
 
 # Binaries / Executables
 *.exe
+
+# Reports and internal docs
+PRODUCTION_READINESS_REPORT.md
+docs/
+walkthrough.md
