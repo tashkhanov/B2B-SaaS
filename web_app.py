@@ -672,6 +672,9 @@ async def handle_client(request: web.Request) -> web.Response:
             content = f.read()
         content = apply_html_tokens(content)
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
         super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
         if super_pw and token and token == super_pw:
@@ -687,6 +690,9 @@ async def handle_admin(request: web.Request) -> web.Response:
             content = f.read()
         content = apply_html_tokens(content)
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
         super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
         if super_pw and token and token == super_pw:
@@ -702,6 +708,9 @@ async def handle_barber_page(request: web.Request) -> web.Response:
             content = f.read()
         content = apply_html_tokens(content)
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
         super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
         if super_pw and token and token == super_pw:

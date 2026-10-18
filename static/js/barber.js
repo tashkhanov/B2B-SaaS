@@ -10,7 +10,18 @@ let currentView = 'today';
 
 window.addEventListener('DOMContentLoaded', () => {
   fetchSchedule();
+  setupEventListeners();
 });
+
+function setupEventListeners() {
+  const btn = document.getElementById('btn-manual-booking');
+  if (btn) {
+    btn.addEventListener('click', (e) => {
+      if (e) e.preventDefault();
+      openManualBookingModal();
+    });
+  }
+}
 
 async function fetchSchedule() {
   const loader = document.getElementById('loader');
@@ -340,14 +351,21 @@ function populateServicesDropdown() {
 
 function openManualBookingModal() {
   const modal = document.getElementById('manual-booking-modal');
-  if (!modal) return;
-  document.getElementById('manual-booking-form').reset();
-  document.getElementById('mb-error').classList.add('hidden');
+  if (!modal) {
+    console.warn('manual-booking-modal not found');
+    return;
+  }
+  const form = document.getElementById('manual-booking-form');
+  if (form) form.reset();
+
+  const errEl = document.getElementById('mb-error');
+  if (errEl) errEl.classList.add('hidden');
 
   // Установка сегодняшней даты по умолчанию (Asia/Tashkent)
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  document.getElementById('mb-date').value = todayStr;
+  const dateInput = document.getElementById('mb-date');
+  if (dateInput) dateInput.value = todayStr;
 
   // Округление времени до ближайших 30 минут
   let nextHour = now.getHours();
@@ -355,16 +373,25 @@ function openManualBookingModal() {
   if (nextMin === 0) nextHour += 1;
   if (nextHour < 10) nextHour = 10;
   if (nextHour > 20) nextHour = 20;
-  document.getElementById('mb-time').value = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
+  const timeInput = document.getElementById('mb-time');
+  if (timeInput) timeInput.value = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
 
   loadServicesForBarber();
   modal.classList.remove('hidden');
-  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+  modal.style.display = 'flex';
+  if (tg && tg.HapticFeedback && typeof tg.HapticFeedback.impactOccurred === 'function') {
+    try {
+      tg.HapticFeedback.impactOccurred('light');
+    } catch (_) {}
+  }
 }
 
 function closeManualBookingModal() {
   const modal = document.getElementById('manual-booking-modal');
-  if (modal) modal.classList.add('hidden');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+  }
 }
 
 async function submitManualBooking(e) {
@@ -444,3 +471,12 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+// Явный экспорт глобальных функций для надежности на любых браузерах и ПК
+window.openManualBookingModal = openManualBookingModal;
+window.closeManualBookingModal = closeManualBookingModal;
+window.submitManualBooking = submitManualBooking;
+window.toggleMyShift = toggleMyShift;
+window.switchView = switchView;
+window.fetchSchedule = fetchSchedule;
+window.changeBookingStatus = changeBookingStatus;

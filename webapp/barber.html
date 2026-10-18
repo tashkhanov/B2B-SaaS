@@ -113,22 +113,22 @@
 
     <!-- КНОПКА РУЧНОЙ ЗАПИСИ КЛИЕНТА -->
     <div class="mb-4">
-      <button onclick="openManualBookingModal()" class="w-full py-3 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 bg-accent/15 text-accent border border-accent/40 hover:bg-accent/25 active:scale-95 shadow-sm">
-        <svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <button type="button" id="btn-manual-booking" onclick="openManualBookingModal()" class="w-full py-3 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 bg-accent/15 text-accent border border-accent/40 hover:bg-accent/25 active:scale-95 shadow-sm cursor-pointer">
+        <svg class="w-4 h-4 text-accent pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <line x1="12" y1="8" x2="12" y2="16"></line>
           <line x1="8" y1="12" x2="16" y2="12"></line>
         </svg>
-        <span>+ Записать клиента вручную</span>
+        <span class="pointer-events-none">+ Записать клиента вручную</span>
       </button>
     </div>
 
     <!-- ТАБЫ: СЕГОДНЯ ИЛИ ПРЕДСТОЯЩИЕ -->
     <div class="flex items-center p-1 bg-surface border border-surfaceBorder rounded-xl mb-4 text-xs font-medium">
-      <button onclick="switchView('today')" id="tab-today" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20">
+      <button onclick="switchView('today')" id="tab-today" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20 cursor-pointer">
         Сегодня (<span id="today-count">0</span>)
       </button>
-      <button onclick="switchView('upcoming')" id="tab-upcoming" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white">
+      <button onclick="switchView('upcoming')" id="tab-upcoming" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-gray-400 hover:text-white cursor-pointer">
         Все записи (<span id="upcoming-count">0</span>)
       </button>
     </div>
@@ -156,7 +156,7 @@
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО РУЧНОЙ ЗАПИСИ КЛИЕНТА -->
-  <div id="manual-booking-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm hidden">
+  <div id="manual-booking-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm hidden" style="display: none;">
     <div class="bg-surface border border-surfaceBorder rounded-2xl w-full max-w-sm p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between pb-3 border-b border-surfaceBorder">
         <div class="flex items-center gap-2">
@@ -170,7 +170,7 @@
           </span>
           <h3 class="font-bold text-sm text-white">Записать клиента</h3>
         </div>
-        <button onclick="closeManualBookingModal()" class="text-gray-400 hover:text-white p-1">
+        <button type="button" onclick="closeManualBookingModal()" class="text-gray-400 hover:text-white p-1 cursor-pointer">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
@@ -214,10 +214,10 @@
         <div id="mb-error" class="hidden text-rose-400 text-[11px] p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20"></div>
 
         <div class="pt-2 flex gap-2">
-          <button type="button" onclick="closeManualBookingModal()" class="flex-1 py-2.5 rounded-xl border border-surfaceBorder text-gray-300 text-xs font-semibold hover:bg-surfaceBorder/50 transition">
+          <button type="button" onclick="closeManualBookingModal()" class="flex-1 py-2.5 rounded-xl border border-surfaceBorder text-gray-300 text-xs font-semibold hover:bg-surfaceBorder/50 transition cursor-pointer">
             Отмена
           </button>
-          <button type="submit" id="mb-submit-btn" class="flex-1 py-2.5 rounded-xl bg-accent text-white text-xs font-bold hover:bg-accentHover transition shadow-md shadow-accent/20">
+          <button type="submit" id="mb-submit-btn" class="flex-1 py-2.5 rounded-xl bg-accent text-white text-xs font-bold hover:bg-accentHover transition shadow-md shadow-accent/20 cursor-pointer">
             Записать
           </button>
         </div>
@@ -236,6 +236,6 @@
   </footer>
 
   <!-- Barber TMA Logic -->
-  <script src="/static/js/barber.js"></script>
+  <script src="/static/js/barber.js?v=20261019_3"></script>
 </body>
 </html>
