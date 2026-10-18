@@ -87,3 +87,26 @@ async def test_creator_prompt_injection():
         assert "СОЗДАТЕЛЬ" in system_instruction
         assert "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО СПРАШИВАТЬ ЕГО ИМЯ" in system_instruction
 
+
+def test_dynamic_white_label_prompts():
+    from prompts import (
+        build_client_system_prompt,
+        build_admin_system_prompt,
+        build_creator_identity_prompt,
+    )
+    from config import settings
+
+    client_p = build_client_system_prompt()
+    assert settings.SALON_SHORT_NAME in client_p
+    assert settings.SALON_NAME in client_p
+    assert settings.SALON_CITY in client_p
+    assert str(settings.PROMO_DISCOUNT_PERCENT) in client_p
+
+    admin_p = build_admin_system_prompt()
+    assert settings.SALON_NAME in admin_p
+    assert settings.SALON_CITY in admin_p
+
+    creator_p = build_creator_identity_prompt()
+    assert settings.SALON_SHORT_NAME in creator_p
+
+

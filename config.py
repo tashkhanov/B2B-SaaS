@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     # 1. Заведение и брендинг (White-Label)
     TENANT_SLUG: str = "brohouse"
     TENANT_NAME: str = "Brohouse Barbershop"
+    SALON_NAME: str = "Brohouse Barbershop"
     SALON_SHORT_NAME: str = "Brohouse"
     SALON_TYPE: str = "мужской салон"
     SALON_CITY: str = "Ташкент"
@@ -77,7 +78,9 @@ class Settings(BaseSettings):
 
     # 3. Маркетинг, соцсети и промо-акции
     INSTAGRAM_URL: str = "@brohouseuz"
+    SALON_INSTAGRAM: str = "@brohouseuz"
     ACADEMY_URL: str = "@asbro_academy_"
+    ACADEMY_INSTAGRAM: str = "@asbro_academy_"
     PROMO_DISCOUNT_PERCENT: int = 30
     PROMO_TITLE: str = "30% OFF на первую стрижку"
     PROMO_SUBTITLE: str = "Скидка на первую стрижку для новых клиентов!"

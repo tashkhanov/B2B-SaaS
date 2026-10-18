@@ -24,6 +24,9 @@ from prompts import (
     CREATOR_IDENTITY_PROMPT,
     FALLBACK_RESPONSE,
     ADMIN_FALLBACK_RESPONSE,
+    build_client_system_prompt,
+    build_admin_system_prompt,
+    build_creator_identity_prompt,
 )
 from services.schedule_service import (
     build_schedule_context_for_prompt,
@@ -251,10 +254,10 @@ class GeminiService:
                 salon_settings=salon_settings
             )
 
-            base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
+            base_prompt = build_admin_system_prompt() if is_admin else build_client_system_prompt()
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
             if is_super_admin_user(user_id):
-                dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{CREATOR_IDENTITY_PROMPT}"
+                dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{build_creator_identity_prompt()}"
 
             config = types.GenerateContentConfig(
                 system_instruction=dynamic_system_prompt,
@@ -320,10 +323,10 @@ class GeminiService:
                 branches=branches,
                 salon_settings=salon_settings
             )
-            base_prompt = ADMIN_SYSTEM_PROMPT if is_admin else CLIENT_SYSTEM_PROMPT
+            base_prompt = build_admin_system_prompt() if is_admin else build_client_system_prompt()
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
             if is_super_admin_user(user_id):
-                dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{CREATOR_IDENTITY_PROMPT}"
+                dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{build_creator_identity_prompt()}"
 
             config = types.GenerateContentConfig(
                 system_instruction=dynamic_system_prompt,
@@ -381,8 +384,8 @@ class GeminiService:
             branch_hint = f"\nДОСТУПНЫЕ ФИЛИАЛЫ САЛОНА: {branch_info_str}.\nЕсли клиент упоминает локацию/филиал/метро, сопоставь с филиалом и заполни branch_id и branch_name.\n" if branch_info_str else ""
 
             prompt = (
-                "Ты — анализатор диалогов клиентов мужского салона Brohouse.\n"
-                f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n"
+                f"Ты — анализатор диалогов клиентов салона {settings.SALON_NAME}.\n"
+                f"ТЕКУЩЕЕ ВРЕМЯ В {settings.SALON_CITY.upper()}: {now_str}.\n"
                 f"{branch_hint}"
                 f"{creator_hint}\n"
                 f"Диалог:\n{dialog_context}\n\n"
@@ -436,8 +439,8 @@ class GeminiService:
             branch_hint = f"\nДОСТУПНЫЕ ФИЛИАЛЫ: {branch_info_str}.\n" if branch_info_str else ""
 
             prompt = (
-                "Ты — система управления командами владельца мужского салона Brohouse.\n"
-                f"ТЕКУЩЕЕ ВРЕМЯ В ТАШКЕНТЕ: {now_str}.\n"
+                f"Ты — система управления командами владельца салона {settings.SALON_NAME}.\n"
+                f"ТЕКУЩЕЕ ВРЕМЯ В {settings.SALON_CITY.upper()}: {now_str}.\n"
                 f"{branch_hint}"
                 f"{creator_hint}\n"
                 f"Запрос администратора: {admin_query}\n\n"
