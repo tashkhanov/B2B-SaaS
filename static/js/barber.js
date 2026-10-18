@@ -21,6 +21,15 @@ function setupEventListeners() {
       openManualBookingModal();
     });
   }
+  const dateInput = document.getElementById('mb-date');
+  if (dateInput) {
+    dateInput.addEventListener('change', updateBusySlotsIndicator);
+  }
+  const timeInput = document.getElementById('mb-time');
+  if (timeInput) {
+    timeInput.addEventListener('input', updateBusySlotsIndicator);
+    timeInput.addEventListener('change', updateBusySlotsIndicator);
+  }
 }
 
 async function fetchSchedule() {
@@ -377,12 +386,68 @@ function openManualBookingModal() {
   if (timeInput) timeInput.value = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
 
   loadServicesForBarber();
+  updateBusySlotsIndicator();
   modal.classList.remove('hidden');
   modal.style.display = 'flex';
   if (tg && tg.HapticFeedback && typeof tg.HapticFeedback.impactOccurred === 'function') {
     try {
       tg.HapticFeedback.impactOccurred('light');
     } catch (_) {}
+  }
+}
+
+function updateBusySlotsIndicator() {
+  const dateInput = document.getElementById('mb-date');
+  const busyInfo = document.getElementById('mb-busy-info');
+  const busySlotsEl = document.getElementById('mb-busy-slots');
+  const errEl = document.getElementById('mb-error');
+  const submitBtn = document.getElementById('mb-submit-btn');
+  if (!dateInput || !busyInfo || !busySlotsEl) return;
+
+  const selectedDate = dateInput.value;
+  if (!selectedDate) {
+    busyInfo.classList.add('hidden');
+    return;
+  }
+
+  // Фильтрация активных записей мастера на выбранную дату
+  const activeBookings = (currentSchedule || []).filter(b => {
+    if (!b || b.status === 'cancelled') return false;
+    const bTime = (b.booking_time || '').toLowerCase();
+    return bTime.includes(selectedDate);
+  });
+
+  const busyTimes = [];
+  activeBookings.forEach(b => {
+    const parts = (b.booking_time || '').split(' ');
+    if (parts.length >= 2) {
+      busyTimes.push(parts[1]);
+    }
+  });
+
+  if (busyTimes.length > 0) {
+    busySlotsEl.textContent = busyTimes.join(', ');
+    busyInfo.classList.remove('hidden');
+  } else {
+    busyInfo.classList.add('hidden');
+  }
+
+  // Проверка совпадения введенного времени с занятым слотом
+  const timeInput = document.getElementById('mb-time');
+  if (timeInput && timeInput.value) {
+    const curTime = timeInput.value;
+    if (busyTimes.includes(curTime)) {
+      if (errEl) {
+        errEl.textContent = `⚠️ На ${curTime} у вас уже есть запись! Выберите свободный слот.`;
+        errEl.classList.remove('hidden');
+      }
+      if (submitBtn) submitBtn.disabled = true;
+    } else {
+      if (errEl && errEl.textContent.includes('у вас уже есть запись')) {
+        errEl.classList.add('hidden');
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
   }
 }
 

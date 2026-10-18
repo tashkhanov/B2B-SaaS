@@ -206,6 +206,11 @@
           </div>
         </div>
 
+        <div id="mb-busy-info" class="hidden text-[11px] p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300">
+          <span class="font-medium">⚠️ Занятое время на эту дату:</span>
+          <span id="mb-busy-slots" class="font-bold text-white ml-1"></span>
+        </div>
+
         <div>
           <label class="block text-[11px] font-medium text-gray-300 mb-1">Заметка / Комментарий</label>
           <input type="text" id="mb-notes" placeholder="Звонил лично / постоянный клиент" class="w-full px-3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-white text-xs focus:border-accent focus:outline-none placeholder-gray-600">
@@ -227,11 +232,11 @@
 
   <!-- Футер -->
   <footer class="w-full py-3.5 text-center border-t border-surfaceBorder/80 bg-bgDark/95 backdrop-blur fixed bottom-0 left-0 z-10">
-    <a href="{{PORTFOLIO_URL}}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200">
+    <a href="https://t.me/asatkhanov" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200">
       <svg class="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="currentColor">
         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
       </svg>
-      <span>Powered by <strong class="text-gray-200 font-semibold">{{DEVELOPER_NAME}}</strong></span>
+      <span>Powered by <strong class="text-gray-200 font-semibold">Khan</strong></span>
     </a>
   </footer>
 

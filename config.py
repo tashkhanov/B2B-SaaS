@@ -72,9 +72,10 @@ class Settings(BaseSettings):
     OWNER_ROLE: str = "Директор / Шеф-мастер"
     SUPER_ADMIN_NAME: str = "Иброхим"
     SUPER_ADMIN_TELEGRAM: str = "https://t.me/asatkhanov"
-    DEVELOPER_NAME: str = "Асатханов (@asatkhanov)"
+    DEVELOPER_NAME: str = "Khan"
     PLATFORM_NAME: str = "Khan AI Systems"
     PORTFOLIO_URL: str = "https://asatkhanov.uz"
+    DEVELOPER_TELEGRAM: str = "https://t.me/asatkhanov"
 
     # 3. Маркетинг, соцсети и промо-акции
     INSTAGRAM_URL: str = "@brohouseuz"

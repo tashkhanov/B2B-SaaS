@@ -7,7 +7,7 @@
 """
 
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any
 import logging
 from aiohttp import web
@@ -1248,26 +1248,82 @@ async def handle_barber_manual_booking(request: web.Request) -> web.Response:
         if not service_name:
             service_name = "Стрижка"
 
+        # Валидация даты и времени
+        try:
+            target_dt = datetime.strptime(f"{booking_date} {booking_time}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            return web.json_response({
+                "ok": False,
+                "error": "invalid_datetime",
+                "message": "Некорректный формат даты или времени (ожидается ГГГГ-ММ-ДД и ЧЧ:ММ)"
+            }, status=400)
+
+        # Проверка графика работы мастера (выходной / рабочий день)
+        if not is_barber_working_on_date(barber, target_dt.date()):
+            return web.json_response({
+                "ok": False,
+                "error": "barber_off",
+                "message": f"{booking_date} у мастера {barber['name']} выходной день по расписанию!"
+            }, status=400)
+
+        # Проверка рабочих часов салона
+        if target_dt.hour < settings.WORK_START_HOUR or target_dt.hour >= settings.WORK_END_HOUR:
+            return web.json_response({
+                "ok": False,
+                "error": "outside_working_hours",
+                "message": f"Салон работает с {settings.WORK_START_HOUR}:00 до {settings.WORK_END_HOUR}:00. Выберите доступное рабочее время."
+            }, status=400)
+
         # Форматирование времени со днем недели: "YYYY-MM-DD HH:MM (Пн)"
         day_names_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-        try:
-            dt = datetime.strptime(f"{booking_date} {booking_time}", "%Y-%m-%d %H:%M")
-            day_ru = day_names_ru[dt.weekday()]
-            normalized_time = f"{booking_date} {booking_time} ({day_ru})"
-        except Exception:
-            normalized_time = f"{booking_date} {booking_time}"
+        day_ru = day_names_ru[target_dt.weekday()]
+        normalized_time = f"{booking_date} {booking_time} ({day_ru})"
 
-        # Проверка на наложение существующих активных записей этого мастера
+        # Расчет длительности новой услуги
+        new_duration = 45
+        if service_id:
+            s_obj = await get_service_by_id(int(service_id))
+            if s_obj and s_obj.get("duration_min"):
+                new_duration = int(s_obj["duration_min"])
+        new_dt_start = target_dt
+        new_dt_end = new_dt_start + timedelta(minutes=new_duration)
+
+        # Проверка на наложение существующих активных записей этого мастера на эту дату
         existing_bookings = await get_bookings_for_barber(barber["id"], target_date=booking_date)
         for b in existing_bookings:
             if b.get("status") in ("new", "confirmed", "pending_vip"):
-                b_time_str = b.get("booking_time") or ""
-                if booking_time in b_time_str:
+                b_raw = (b.get("booking_time") or "").strip()
+                # 1. Прямое совпадение времени слота
+                if booking_time in b_raw:
+                    client_info = b.get("full_name") or "Клиент"
                     return web.json_response({
                         "ok": False,
                         "error": "slot_taken",
-                        "message": f"У вас уже есть запись на {booking_time} ({b.get('full_name', 'Клиент')})!"
+                        "message": f"Время {booking_time} уже занято клиентом {client_info} ({b.get('service', 'Услуга')})!"
                     }, status=409)
+
+                # 2. Интервальное пересечение по длительности записи
+                parts = b_raw.split()
+                if len(parts) >= 2:
+                    try:
+                        exist_start = datetime.strptime(f"{parts[0]} {parts[1]}", "%Y-%m-%d %H:%M")
+                        exist_duration = 45
+                        if b.get("service_id"):
+                            ex_s = await get_service_by_id(int(b["service_id"]))
+                            if ex_s and ex_s.get("duration_min"):
+                                exist_duration = int(ex_s["duration_min"])
+                        exist_end = exist_start + timedelta(minutes=exist_duration)
+
+                        if max(new_dt_start, exist_start) < min(new_dt_end, exist_end):
+                            client_info = b.get("full_name") or "Клиент"
+                            time_range = f"{exist_start.strftime('%H:%M')} — {exist_end.strftime('%H:%M')}"
+                            return web.json_response({
+                                "ok": False,
+                                "error": "slot_overlap",
+                                "message": f"Выбранное время пересекается с записью: {client_info} ({time_range}, {b.get('service', 'Услуга')})!"
+                            }, status=409)
+                    except Exception as parse_err:
+                        logger.debug("Skip overlap parse for booking %s: %s", b.get("id"), parse_err)
 
         branch_info = await get_branch_by_id(int(branch_id))
         branch_name = branch_info["name"] if branch_info else settings.SALON_SHORT_NAME
