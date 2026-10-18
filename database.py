@@ -175,14 +175,14 @@ async def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
         default_settings = [
-            ("work_start_hour", "8"),
-            ("work_end_hour", "23"),
-            ("max_booking_days_ahead", "7"),
-            ("slot_step_minutes", "30"),
-            ("promo_discount_percent", "30"),
-            ("promo_title", "30% OFF на первую стрижку"),
-            ("promo_subtitle", "Скидка на первую стрижку для новых клиентов!"),
-            ("promo_phone", "+998 97 012-55-55"),
+            ("work_start_hour", str(settings.WORK_START_HOUR)),
+            ("work_end_hour", str(settings.WORK_END_HOUR)),
+            ("max_booking_days_ahead", str(settings.MAX_BOOKING_DAYS_AHEAD)),
+            ("slot_step_minutes", str(settings.SLOT_STEP_MINUTES)),
+            ("promo_discount_percent", str(settings.PROMO_DISCOUNT_PERCENT)),
+            ("promo_title", settings.PROMO_TITLE),
+            ("promo_subtitle", settings.PROMO_SUBTITLE),
+            ("promo_phone", settings.SALON_PHONE),
         ]
         await db.executemany(
             "INSERT OR IGNORE INTO salon_settings (key, value) VALUES (?, ?)",
@@ -194,8 +194,15 @@ async def init_db(db_path: Optional[str] = None) -> None:
         branches_count = (await cursor.fetchone())[0]
         if branches_count == 0:
             default_branches = [
-                (1, "Миллий бог", "г. Ташкент, метро «Миллий бог», 8B", "станция метро Milliy Bog'", "+998 97 012-55-55", 1),
-                (2, "Чиланзар (2-й кв.)", "г. Ташкент, Чиланзарский район, массив Чиланзар, 2-й квартал, 58/5", "Чиланзар, 2-й квартал, дом 58/5", "+998 97 012-55-55", 1),
+                (
+                    b.get("id"),
+                    b.get("name"),
+                    b.get("address"),
+                    b.get("landmark", ""),
+                    b.get("phone", settings.SALON_PHONE),
+                    b.get("is_active", 1),
+                )
+                for b in settings.get_initial_branches()
             ]
             await db.executemany(
                 """
@@ -210,18 +217,16 @@ async def init_db(db_path: Optional[str] = None) -> None:
         services_count = (await cursor.fetchone())[0]
         if services_count == 0:
             default_services = [
-                ("Стрижка волос", 100000, 45, "Классическая мужская стрижка, мытье головы и премиальный стайлинг", "ТОП", "hair", 1),
-                ("Стрижка под машинку", 50000, 30, "Стрижка одной или несколькими насадками с четкой окантовкой", "", "hair", 1),
-                ("Стрижка на лысо", 30000, 20, "Гладкое бритье под ноль с освежающим уходом", "", "hair", 1),
-                ("Детская стрижка от 5 лет", 60000, 40, "Стильная и аккуратная стрижка для юных джентльменов", "", "hair", 1),
-                ("Укладка", 60000, 30, "Мытье головы и укладка премиум-стайлингом", "", "hair", 1),
-                ("Мойка, массаж", 50000, 30, "Релакс-мытье головы и расслабляющий массаж", "РЕЛАКС", "spa", 1),
-                ("Укладка, мойка, массаж", 80000, 45, "Полный СПА-уход: мытье, массаж головы и стильная укладка", "СПА СЕТ", "spa", 1),
-                ("Бритье опасной бритвой", 70000, 35, "Традиционное королевское бритье с распариванием горячим полотенцем", "", "beard", 1),
-                ("Оформление бороды", 50000, 30, "Моделирование контуров, стрижка бороды, горячий компресс и масло", "ПОПУЛЯРНО", "beard", 1),
-                ("Покраска бороды", 30000, 30, "Камуфляж седины и тонирование бороды профессиональными составами", "", "beard", 1),
-                ("Воск (одна из зон)", 20000, 15, "Удаление нежелательных волос воском (нос, уши или щеки)", "", "spa", 1),
-                ("Черная маска", 30000, 20, "Глубокое очищение пор лица от черных точек и загрязнений", "УХОД", "spa", 1),
+                (
+                    s.get("name"),
+                    s.get("price"),
+                    s.get("duration_min", 45),
+                    s.get("description", ""),
+                    s.get("badge", ""),
+                    s.get("category", "hair"),
+                    s.get("is_active", 1),
+                )
+                for s in settings.get_initial_services()
             ]
             await db.executemany(
                 """
@@ -236,10 +241,17 @@ async def init_db(db_path: Optional[str] = None) -> None:
         barbers_count = (await cursor.fetchone())[0]
         if barbers_count == 0:
             default_barbers = [
-                ("Mr. Akmal", "Директор / Шеф-мастер", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 1),
-                ("Mr. Dilshod", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 0),
-                ("Ismailov Abbos", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 0),
-                ("Tursunov Nodir", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 0),
+                (
+                    b.get("name"),
+                    b.get("role_title", "Стилист"),
+                    b.get("phone", settings.SALON_PHONE),
+                    b.get("telegram_id"),
+                    b.get("work_days", "0,1,2,3,4,5,6"),
+                    b.get("is_working_today", 1),
+                    b.get("is_active", 1),
+                    b.get("is_vip", 0),
+                )
+                for b in settings.get_initial_barbers()
             ]
             await db.executemany(
                 """
@@ -249,8 +261,8 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 default_barbers
             )
         else:
-            # Гарантируем разметку VIP для Шеф-мастера / Директора
-            await db.execute("UPDATE barbers SET is_vip = 1 WHERE name LIKE '%Akmal%' OR role_title LIKE '%Шеф%' OR role_title LIKE '%Директор%';")
+            # Гарантируем разметку VIP по роли (Шеф / Директор / Главный) без хардкода конкретных имен
+            await db.execute("UPDATE barbers SET is_vip = 1 WHERE role_title LIKE '%Шеф%' OR role_title LIKE '%Директор%' OR role_title LIKE '%Главный%' OR role_title LIKE '%Владелец%';")
 
         # 5. Таблица подписок салонов (Billing / Multi-tenant SaaS / Kill Switch)
         await db.execute("""
@@ -291,15 +303,15 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "brohouse",
-                    "Brohouse Barbershop",
+                    settings.TENANT_SLUG,
+                    settings.TENANT_NAME,
                     "PRO",
                     1,
                     default_expires_at,
                     2,
                     settings.ADMIN_CHAT_ID,
-                    "+998 97 012-55-55",
-                    "Brohouse Admin",
+                    settings.SALON_PHONE,
+                    f"{settings.SALON_SHORT_NAME} Admin",
                     "none",
                 )
             )
@@ -325,7 +337,7 @@ async def init_db(db_path: Optional[str] = None) -> None:
 
 
 async def reseed_brohouse_data(db_path: Optional[str] = None) -> None:
-    """Полная очистка и переинициализация базы актуальными данными салона Brohouse."""
+    """Полная очистка и переинициализация базы актуальными данными салона из конфигурации settings."""
     target_db = get_db_path(db_path)
     async with aiosqlite.connect(target_db) as db:
         await db.execute("DELETE FROM services;")
@@ -335,8 +347,15 @@ async def reseed_brohouse_data(db_path: Optional[str] = None) -> None:
         await db.execute("DELETE FROM messages;")
 
         default_branches = [
-            (1, "Миллий бог", "г. Ташкент, метро «Миллий бог», 8B", "станция метро Milliy Bog'", "+998 97 012-55-55", 1),
-            (2, "Чиланзар (2-й кв.)", "г. Ташкент, Чиланзарский район, массив Чиланзар, 2-й квартал, 58/5", "Чиланзар, 2-й квартал, дом 58/5", "+998 97 012-55-55", 1),
+            (
+                b.get("id"),
+                b.get("name"),
+                b.get("address"),
+                b.get("landmark", ""),
+                b.get("phone", settings.SALON_PHONE),
+                b.get("is_active", 1),
+            )
+            for b in settings.get_initial_branches()
         ]
         await db.executemany(
             """
@@ -347,18 +366,16 @@ async def reseed_brohouse_data(db_path: Optional[str] = None) -> None:
         )
 
         default_services = [
-            ("Стрижка волос", 100000, 45, "Классическая мужская стрижка, мытье головы и премиальный стайлинг", "ТОП", "hair", 1),
-            ("Стрижка под машинку", 50000, 30, "Стрижка одной или несколькими насадками с четкой окантовкой", "", "hair", 1),
-            ("Стрижка на лысо", 30000, 20, "Гладкое бритье под ноль с освежающим уходом", "", "hair", 1),
-            ("Детская стрижка от 5 лет", 60000, 40, "Стильная и аккуратная стрижка для юных джентльменов", "", "hair", 1),
-            ("Укладка", 60000, 30, "Мытье головы и укладка премиум-стайлингом", "", "hair", 1),
-            ("Мойка, массаж", 50000, 30, "Релакс-мытье головы и расслабляющий массаж", "РЕЛАКС", "spa", 1),
-            ("Укладка, мойка, массаж", 80000, 45, "Полный СПА-уход: мытье, массаж головы и стильная укладка", "СПА СЕТ", "spa", 1),
-            ("Бритье опасной бритвой", 70000, 35, "Традиционное королевское бритье с распариванием горячим полотенцем", "", "beard", 1),
-            ("Оформление бороды", 50000, 30, "Моделирование контуров, стрижка бороды, горячий компресс и масло", "ПОПУЛЯРНО", "beard", 1),
-            ("Покраска бороды", 30000, 30, "Камуфляж седины и тонирование бороды профессиональными составами", "", "beard", 1),
-            ("Воск (одна из зон)", 20000, 15, "Удаление нежелательных волос воском (нос, уши или щеки)", "", "spa", 1),
-            ("Черная маска", 30000, 20, "Глубокое очищение пор лица от черных точек и загрязнений", "УХОД", "spa", 1),
+            (
+                s.get("name"),
+                s.get("price"),
+                s.get("duration_min", 45),
+                s.get("description", ""),
+                s.get("badge", ""),
+                s.get("category", "hair"),
+                s.get("is_active", 1),
+            )
+            for s in settings.get_initial_services()
         ]
         await db.executemany(
             """
@@ -369,19 +386,30 @@ async def reseed_brohouse_data(db_path: Optional[str] = None) -> None:
         )
 
         default_barbers = [
-            ("Mr. Akmal", "Директор / Шеф-мастер", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
-            ("Mr. Dilshod", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
-            ("Ismailov Abbos", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
-            ("Tursunov Nodir", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
+            (
+                b.get("name"),
+                b.get("role_title", "Стилист"),
+                b.get("phone", settings.SALON_PHONE),
+                b.get("telegram_id"),
+                b.get("work_days", "0,1,2,3,4,5,6"),
+                b.get("is_working_today", 1),
+                b.get("is_active", 1),
+                b.get("is_vip", 0),
+            )
+            for b in settings.get_initial_barbers()
         ]
         await db.executemany(
             """
-            INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active, is_vip)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             default_barbers
         )
         await db.commit()
+
+
+# Алиас для поддержки универсального мультиарендного вызова
+reseed_tenant_data = reseed_brohouse_data
 
 
 
@@ -1343,13 +1371,13 @@ async def get_salon_setting(key: str, default: Optional[str] = None, db_path: Op
 async def get_all_salon_settings(db_path: Optional[str] = None) -> Dict[str, str]:
     """Получение всех настроек салона единым словарем."""
     defaults = {
-        "work_start_hour": "8",
-        "work_end_hour": "23",
-        "slot_step_minutes": "30",
-        "max_booking_days_ahead": "7",
-        "promo_discount_text": "30% OFF",
-        "promo_subtitle": "Скидка на первую стрижку для новых клиентов!",
-        "salon_phone": "+998 97 012-55-55",
+        "work_start_hour": str(settings.WORK_START_HOUR),
+        "work_end_hour": str(settings.WORK_END_HOUR),
+        "slot_step_minutes": str(settings.SLOT_STEP_MINUTES),
+        "max_booking_days_ahead": str(settings.MAX_BOOKING_DAYS_AHEAD),
+        "promo_discount_text": f"{settings.PROMO_DISCOUNT_PERCENT}% OFF",
+        "promo_subtitle": settings.PROMO_SUBTITLE,
+        "salon_phone": settings.SALON_PHONE,
     }
     target_db = get_db_path(db_path)
     try:

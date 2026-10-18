@@ -309,4 +309,50 @@ async def test_branches_database():
     assert saved["branch_name"] == "Чиланзар (2-й кв.)"
 
 
+@pytest.mark.asyncio
+async def test_white_label_seed_and_settings():
+    from config import settings
+    from database import (
+        get_all_salon_settings,
+        get_branches,
+        get_barbers,
+        get_services,
+        get_tenant_subscription,
+        reseed_tenant_data,
+        reseed_brohouse_data
+    )
+
+    # 1. Проверяем настройки салона
+    salon_settings = await get_all_salon_settings(db_path=TEST_DB)
+    assert salon_settings["work_start_hour"] == str(settings.WORK_START_HOUR)
+    assert salon_settings["work_end_hour"] == str(settings.WORK_END_HOUR)
+    assert salon_settings["salon_phone"] == settings.SALON_PHONE
+
+    # 2. Проверяем филиалы
+    branches = await get_branches(active_only=False, db_path=TEST_DB)
+    expected_branches = settings.get_initial_branches()
+    assert len(branches) == len(expected_branches)
+    assert branches[0]["name"] == expected_branches[0]["name"]
+
+    # 3. Проверяем сервисы и барберов
+    services = await get_services(active_only=False, db_path=TEST_DB)
+    assert len(services) == len(settings.get_initial_services())
+
+    barbers = await get_barbers(active_only=False, db_path=TEST_DB)
+    assert len(barbers) == len(settings.get_initial_barbers())
+
+    # 4. Проверяем tenant_subscription
+    sub = await get_tenant_subscription(settings.TENANT_SLUG, db_path=TEST_DB)
+    assert sub is not None
+    assert sub["name"] == settings.TENANT_NAME
+    assert sub["is_active"] == 1
+
+    # 5. Проверяем alias reseed_tenant_data
+    assert reseed_tenant_data is reseed_brohouse_data
+    await reseed_tenant_data(db_path=TEST_DB)
+    branches_after = await get_branches(active_only=False, db_path=TEST_DB)
+    assert len(branches_after) == len(expected_branches)
+
+
+
 
