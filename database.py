@@ -242,6 +242,7 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tenant_slug TEXT UNIQUE NOT NULL,
                 name TEXT NOT NULL,
+                tier TEXT DEFAULT 'PRO',
                 is_active INTEGER DEFAULT 1,
                 expires_at TIMESTAMP NOT NULL,
                 grace_period_days INTEGER DEFAULT 2,
@@ -254,6 +255,12 @@ async def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
+        # Миграция: добавление колонки tier, если таблица была создана ранее
+        cursor = await db.execute("PRAGMA table_info(tenant_subscription);")
+        sub_columns = [row[1] for row in await cursor.fetchall()]
+        if "tier" not in sub_columns:
+            await db.execute("ALTER TABLE tenant_subscription ADD COLUMN tier TEXT DEFAULT 'PRO';")
+
         # Начальный seed для tenant_subscription, если таблица пуста
         cursor = await db.execute("SELECT COUNT(*) FROM tenant_subscription")
         tenants_count = (await cursor.fetchone())[0]
@@ -263,13 +270,14 @@ async def init_db(db_path: Optional[str] = None) -> None:
             await db.execute(
                 """
                 INSERT INTO tenant_subscription (
-                    tenant_slug, name, is_active, expires_at, grace_period_days,
+                    tenant_slug, name, tier, is_active, expires_at, grace_period_days,
                     admin_chat_id, contact_phone, contact_name, last_notification_stage
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "brohouse",
                     "Brohouse Barbershop",
+                    "PRO",
                     1,
                     default_expires_at,
                     2,
@@ -1010,7 +1018,7 @@ async def update_tenant_subscription(tenant_id: int, updates: Dict, db_path: Opt
     """Обновление параметров подписки салона."""
     allowed_keys = {
         "name", "is_active", "expires_at", "grace_period_days",
-        "admin_chat_id", "contact_phone", "contact_name", "last_notification_stage"
+        "admin_chat_id", "contact_phone", "contact_name", "last_notification_stage", "tier"
     }
     filtered = {k: v for k, v in updates.items() if k in allowed_keys}
     if not filtered:
@@ -1075,6 +1083,15 @@ async def toggle_tenant_active(tenant_identifier: Any, is_active: Optional[int] 
         new_active = 1 if is_active else 0
 
     return await update_tenant_subscription(tenant_id, {"is_active": new_active}, db_path=db_path)
+
+
+async def set_tenant_tier(tenant_identifier: Any, tier: str, db_path: Optional[str] = None) -> bool:
+    """Установка тарифа заведения ('START', 'PRO', 'ENTERPRISE')."""
+    tenant = await get_tenant_by_id_or_slug(tenant_identifier, db_path)
+    if not tenant:
+        return False
+    return await update_tenant_subscription(tenant["id"], {"tier": tier.strip().upper()}, db_path=db_path)
+
 
 
 # =============================================================================

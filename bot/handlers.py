@@ -50,6 +50,7 @@ from services.schedule_service import (
     format_booking_datetime,
     check_slot_availability,
 )
+from services.tier_service import is_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -638,6 +639,30 @@ async def handle_voice_message(message: Message):
 
     voice = message.voice
     if not voice:
+        return
+
+    # Проверка доступности функции голосового ИИ по тарифу заведения (Feature-Gating)
+    if not is_staff and not await is_feature_enabled("has_voice_ai", tenant_identifier="brohouse"):
+        await message.answer(
+            "Здравствуйте! 🙏 На данный момент я принимаю сообщения только текстом.\n\n"
+            "Напишите, пожалуйста, какую услугу и в какое удобное время вы хотели бы забронировать — я сразу проверю свободные окна!"
+        )
+        admin_id = getattr(settings, "ADMIN_CHAT_ID", None)
+        if admin_id and user_id != admin_id:
+            client_mention = f"@{message.from_user.username}" if message.from_user and message.from_user.username else f"ID {user_id}"
+            try:
+                await message.bot.send_message(
+                    chat_id=admin_id,
+                    text=(
+                        f"💡 **Уведомление для владельца салона**\n\n"
+                        f"Клиент {client_mention} отправил голосовое сообщение в бот.\n"
+                        "На вашем текущем тарифе (START) автоматическое распознавание речи выключено.\n\n"
+                        "⚡ Чтобы бот сам автоматически записывал клиентов по их голосовым сообщениям — перейдите на тариф **PRO BUSINESS**."
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить уведомление администратору о голосовом сообщении: {e}")
         return
 
     # Anti-DoS: проверка размера и длительности аудио
