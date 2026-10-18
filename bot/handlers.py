@@ -326,23 +326,23 @@ async def handle_start(message: Message):
 
     if role == "super_admin":
         welcome_text = (
-            "Салам алейкум, Иброхим ака! 👑\n\n"
-            "Вы авторизованы в системе как **Создатель платформы и Супер-Администратор** (Khan AI Systems).\n"
-            "Вам открыт полный доступ к расписанию заведения, панели Brohouse и пульту SaaS `/super`.\n\n"
+            f"Салам алейкум, {settings.SUPER_ADMIN_NAME} ака! 👑\n\n"
+            f"Вы авторизованы в системе как **Создатель платформы и Супер-Администратор** ({settings.PLATFORM_NAME}).\n"
+            f"Вам открыт полный доступ к расписанию заведения, панели {settings.SALON_SHORT_NAME} и пульту SaaS `/super`.\n\n"
             "💡 *Чтобы записаться на стрижку лично, просто напишите или скажите голосом:* "
             "«**Запиши меня на завтра в 16:00**» — *я сразу оформлю бронь на ваше имя без лишних вопросов!*"
         )
     elif role == "admin":
         welcome_text = (
             "Салам алейкум, Управляющий! 👑\n\n"
-            "Вы вошли в систему как **Администратор** мужского салона Brohouse.\n"
+            f"Вы вошли в систему как **Администратор** ({settings.SALON_NAME}).\n"
             "Вам доступно голосовое и текстовое управление записями, а также кнопка **«📊 Открыть панель управления»** прямо под этим сообщением!"
         )
     elif role == "barber":
         b_role = barber.get("role_title") or barber.get("role") or "Стилист"
         welcome_text = (
             f"Салам алейкум, {barber['name']}! 💈\n\n"
-            f"Вы авторизованы как мастер салона Brohouse (**{b_role}**).\n\n"
+            f"Вы авторизованы как мастер салона {settings.SALON_SHORT_NAME} (**{b_role}**).\n\n"
             "Прямо под этим сообщением для вас доступна кнопка **«💈 Моя смена (Кабинет)»** — "
             "нажмите её, чтобы посмотреть очередь клиентов на сегодня или изменить статус смены!"
         )
@@ -350,8 +350,8 @@ async def handle_start(message: Message):
         user_name = message.from_user.first_name if message.from_user else "братан"
         welcome_text = (
             f"Салам алейкум, {user_name}! 🤝\n\n"
-            "Добро пожаловать в мужской салон **Brohouse** в Ташкенте!\n"
-            "Я — Brohouse Ассистент. Нажмите кнопку **«✂️ Открыть меню записи»** под сообщением, "
+            f"Добро пожаловать в {settings.SALON_TYPE} **{settings.SALON_SHORT_NAME}** в г. {settings.SALON_CITY}!\n"
+            f"Я — {settings.SALON_SHORT_NAME} Ассистент. Нажмите кнопку **«✂️ Открыть меню записи»** под сообщением, "
             "чтобы выбрать услугу, мастера и время, либо просто напишите или отправьте голосовое сообщение прямо сюда в чат!"
         )
 
@@ -382,24 +382,33 @@ async def handle_about(message: Message):
             branch_lines.append(f"{idx}. {b['name']}: {b['address']}{landmark_str}")
     branch_block = "\n".join(branch_lines) if branch_lines else "г. Ташкент"
 
+    social_parts = []
+    if getattr(settings, "INSTAGRAM_URL", None):
+        social_parts.append(f"**Instagram:** {settings.INSTAGRAM_URL}")
+    if getattr(settings, "ACADEMY_URL", None):
+        social_parts.append(f"**Академия:** {settings.ACADEMY_URL}")
+    social_block = f"📸 {' | '.join(social_parts)}\n\n" if social_parts else ""
+
+    portfolio_short = settings.PORTFOLIO_URL.replace("https://", "").replace("http://", "").rstrip("/")
+
     about_text = (
-        "💈 **AI-Администратор для Мужского Салона 'Brohouse' (Ташкент)**\n\n"
-        "📍 **Филиалы в Ташкенте:**\n"
+        f"💈 **AI-Администратор для салона '{settings.SALON_NAME}' ({settings.SALON_CITY})**\n\n"
+        f"📍 **Филиалы в г. {settings.SALON_CITY}:**\n"
         f"{branch_block}\n\n"
         f"📞 **Единый телефон:** {contact_phone}\n"
         f"⏰ **График:** {sched_str}\n"
-        "📸 **Instagram:** @brohouseuz | **Академия:** @asbro_academy_\n\n"
+        f"{social_block}"
         f"🎁 **Акция:** {promo_text} • {promo_sub}\n\n"
-        "👨‍💻 **Разработка:** Асатханов (@asatkhanov)\n"
-        "⚡ **Платформа:** Khan AI Systems\n"
-        "🌐 **Сайт / Портфолио:** [asatkhanov.uz](https://asatkhanov.uz)\n\n"
+        f"👨‍💻 **Разработка:** {settings.DEVELOPER_NAME}\n"
+        f"⚡ **Платформа:** {settings.PLATFORM_NAME}\n"
+        f"🌐 **Сайт / Портфолио:** [{portfolio_short}]({settings.PORTFOLIO_URL})\n\n"
         "_Хотите автоматизировать продажи или клиентский сервис в вашем бизнесе с помощью ИИ?_"
     )
     about_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="💬 Написать разработчику", url="https://t.me/asatkhanov"),
-                InlineKeyboardButton(text="🌐 asatkhanov.uz", url="https://asatkhanov.uz"),
+                InlineKeyboardButton(text="💬 Написать разработчику", url=settings.SUPER_ADMIN_TELEGRAM),
+                InlineKeyboardButton(text=f"🌐 {portfolio_short}", url=settings.PORTFOLIO_URL),
             ]
         ]
     )
@@ -431,7 +440,7 @@ async def handle_admin(message: Message):
             ]
         )
         await message.answer(
-            "🛠 **Панель управления Brohouse:**\n"
+            f"🛠 **Панель управления {settings.SALON_SHORT_NAME}:**\n"
             "Нажмите кнопку ниже, чтобы открыть Telegram Mini App со всеми актуальными записями клиентов.",
             reply_markup=admin_keyboard,
             parse_mode="Markdown",
@@ -449,7 +458,7 @@ async def handle_admin(message: Message):
             ]
         )
         await message.answer(
-            "🛠 **Панель управления Brohouse:**\n\n"
+            f"🛠 **Панель управления {settings.SALON_SHORT_NAME}:**\n\n"
             f"🔗 Локальный адрес панели: `{admin_url}`\n\n"
             "💡 *Telegram требует HTTPS для встраивания кнопок Mini App.*\n"
             "Чтобы панель открывалась прямо внутри Telegram:\n"
@@ -569,10 +578,11 @@ async def handle_price(message: Message):
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
     services = await get_services(active_only=True)
+    promo_title = await get_salon_setting("promo_title", settings.PROMO_TITLE)
 
     lines = [
-        "🔥 **Прайс-лист мужского салона 'Brohouse' (Ташкент):**\n",
-        "🎁 **СПЕЦПРЕДЛОЖЕНИЕ:** 30% OFF на первую стрижку для новых клиентов!\n",
+        f"🔥 **Прайс-лист салона '{settings.SALON_NAME}' ({settings.SALON_CITY}):**\n",
+        f"🎁 **СПЕЦПРЕДЛОЖЕНИЕ:** {promo_title} для новых клиентов!\n",
     ]
     if services:
         for s in services:
@@ -580,7 +590,7 @@ async def handle_price(message: Message):
             dur_str = f" ({s['duration_min']} мин)" if s.get("duration_min") else ""
             price_val = f"{s['price']:,}".replace(",", " ")
             desc_str = f"\n   _{s['description']}_" if s.get("description") else ""
-            lines.append(f"• **{s['name']}**{badge_str} — {price_val} сум{dur_str}{desc_str}")
+            lines.append(f"• **{s['name']}**{badge_str} — {price_val} {settings.CURRENCY_SYMBOL}{dur_str}{desc_str}")
         lines.append("\n_В стрижку включены мытье головы, премиум-стайлинг и напитки._ ☕\n")
     else:
         lines.append("Информация об услугах обновляется администрацией.\n")
@@ -600,11 +610,11 @@ async def handle_location(message: Message):
     branches = await get_branches(active_only=True)
 
     lines = [
-        "💈 **Локации мужского салона Brohouse ждут вас в Ташкенте:**\n"
+        f"💈 **Локации салона {settings.SALON_SHORT_NAME} ждут вас в г. {settings.SALON_CITY}:**\n"
     ]
-    salon_phone = await get_salon_setting("salon_phone", "+998 97 012-55-55")
-    start_h = await get_salon_setting("work_start_hour", "8")
-    end_h = await get_salon_setting("work_end_hour", "23")
+    salon_phone = await get_salon_setting("salon_phone", settings.SALON_PHONE)
+    start_h = await get_salon_setting("work_start_hour", str(settings.WORK_START_HOUR))
+    end_h = await get_salon_setting("work_end_hour", str(settings.WORK_END_HOUR))
     sched_str = f"ежедневно с {int(start_h):02d}:00 до {int(end_h):02d}:00 без выходных"
 
     if branches:
@@ -615,7 +625,7 @@ async def handle_location(message: Message):
                 lines.append(f"🚇 Ориентир: {b['landmark']}")
             lines.append("")
     else:
-        lines.append("📍 г. Ташкент\n")
+        lines.append(f"📍 г. {settings.SALON_CITY}\n")
 
     lines.extend([
         f"📞 **Единый телефон для связи:** {salon_phone}",
@@ -644,7 +654,7 @@ async def handle_voice_message(message: Message):
         return
 
     # Проверка доступности функции голосового ИИ по тарифу заведения (Feature-Gating)
-    if not is_staff and not await is_feature_enabled("has_voice_ai", tenant_identifier="brohouse"):
+    if not is_staff and not await is_feature_enabled("has_voice_ai", tenant_identifier=settings.TENANT_SLUG):
         await message.answer(
             "Здравствуйте! 🙏 На данный момент я принимаю сообщения только текстом.\n\n"
             "Напишите, пожалуйста, какую услугу и в какое удобное время вы хотели бы забронировать — я сразу проверю свободные окна!"
@@ -808,13 +818,13 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 b_branch_id = booking.get("branch_id") or 1
                 branch_info = await get_branch_by_id(b_branch_id)
                 branch_addr = branch_info["address"] if branch_info else "г. Ташкент"
-                branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Brohouse")
-                branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", "+998 97 012-55-55")
+                branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else settings.SALON_SHORT_NAME)
+                branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", settings.SALON_PHONE)
                 try:
                     await message.bot.send_message(
                         chat_id=booking["user_id"],
                         text=(
-                            f"✅ **Ваша запись в Brohouse подтверждена!**\n\n"
+                            f"✅ **Ваша запись в {settings.SALON_SHORT_NAME} подтверждена!**\n\n"
                             f"✂️ **Услуга:** {booking['service']}\n"
                             f"⏰ **Время:** {booking['booking_time']}\n"
                             f"📍 **Филиал:** {branch_title} ({branch_addr})\n"
@@ -952,7 +962,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     f"⏰ **Время:** {normalized_time}\n"
                     f"{master_str}\n"
                     f"📍 **Филиал:** {target_branch_name} ({branch_address})\n\n"
-                    "Всегда рады видеть вас в Brohouse, Создатель! 🤝",
+                    f"Всегда рады видеть вас в {settings.SALON_SHORT_NAME}, Создатель! 🤝",
                     parse_mode="Markdown"
                 )
             else:
@@ -1097,15 +1107,16 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             branch_name=getattr(client_action, "branch_name", None),
         )
 
-        # Определение VIP-мастера и защиты графика (Mr. Akmal / Директор / Шеф)
+        # Определение VIP-мастера и защиты графика (по флагу или руководящей роли)
         barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None) if final_barber_id else None
         is_vip_master = False
         if barber_obj:
             is_vip_master = bool(
                 barber_obj.get("is_vip")
-                or "akmal" in (barber_obj.get("name") or "").lower()
                 or "шеф" in (barber_obj.get("role_title") or "").lower()
                 or "директор" in (barber_obj.get("role_title") or "").lower()
+                or "главный" in (barber_obj.get("role_title") or "").lower()
+                or "владелец" in (barber_obj.get("role_title") or "").lower()
             )
 
         has_vip_protection = await is_feature_enabled("has_vip_protection")
@@ -1175,7 +1186,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         if settings.ADMIN_CHAT_ID:
             master_str = f"💈 **Мастер:** {final_barber_name}\n" if final_barber_name else ""
             admin_card = (
-                "💈 **НОВАЯ ЗАПИСЬ В BROHOUSE!**\n\n"
+                f"💈 **НОВАЯ ЗАПИСЬ В {settings.SALON_SHORT_NAME.upper()}!**\n\n"
                 f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
                 f"{master_str}"
                 f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
@@ -1218,7 +1229,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                     await message.bot.send_message(
                         chat_id=barber_obj["telegram_id"],
                         text=(
-                            "💈 **У ВАС НОВАЯ ЗАПИСЬ В BROHOUSE!**\n\n"
+                            f"💈 **У ВАС НОВАЯ ЗАПИСЬ В {settings.SALON_SHORT_NAME.upper()}!**\n\n"
                             f"👤 **Клиент:** {full_name}\n"
                             f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
                             f"✂️ **Услуга:** {canonical_service}\n"
@@ -1234,7 +1245,7 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
 
         # Предлагаем аккуратную кнопку брендинга разработчика
         await message.answer(
-            "🤝 Мы ценим ваше доверие! До встречи в Brohouse.",
+            f"🤝 Мы ценим ваше доверие! До встречи в {settings.SALON_SHORT_NAME}.",
             reply_markup=AI_BUSINESS_KEYBOARD,
         )
 
@@ -1293,10 +1304,10 @@ async def handle_booking_status_callback(callback: CallbackQuery):
             b_branch_id = booking.get("branch_id") or 1
             branch_info = await get_branch_by_id(b_branch_id)
             branch_addr = branch_info["address"] if branch_info else "г. Ташкент"
-            branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Brohouse")
-            branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", "+998 97 012-55-55")
+            branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else settings.SALON_SHORT_NAME)
+            branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", settings.SALON_PHONE)
             msg = (
-                "✅ **Ваша запись в Brohouse ПОДТВЕРЖДЕНА!**\n\n"
+                f"✅ **Ваша запись в {settings.SALON_SHORT_NAME} ПОДТВЕРЖДЕНА!**\n\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"💈 **Мастер:** {b_name}\n"
                 f"⏰ **Время:** {b_time}\n"
@@ -1310,7 +1321,7 @@ async def handle_booking_status_callback(callback: CallbackQuery):
                 logger.warning(f"Не удалось отправить клиенту уведомление: {e}")
         elif new_status == "cancelled":
             msg = (
-                "ℹ️ **Ваша запись в Brohouse была отменена.**\n\n"
+                f"ℹ️ **Ваша запись в {settings.SALON_SHORT_NAME} была отменена.**\n\n"
                 f"⏰ Время: {b_time}\n"
                 f"✂️ Услуга: {service}\n\n"
                 "Если вы хотите выбрать другое время или мастера — просто откройте онлайн-меню или напишите мне в чат."
@@ -1366,7 +1377,7 @@ async def handle_confirm_visit_callback(callback: CallbackQuery):
             f"👤 Клиент: **{client_name}**\n"
             f"⏰ Время: **{b_time}**\n"
             f"💈 Мастер: {b_name}\n"
-            f"📍 Филиал: {booking.get('branch_name', 'Brohouse')}"
+            f"📍 Филиал: {booking.get('branch_name', settings.SALON_SHORT_NAME)}"
         )
 
         notified = False
@@ -1440,7 +1451,7 @@ async def handle_cancel_visit_callback(callback: CallbackQuery):
             f"👤 Клиент: **{client_name}**\n"
             f"⏰ Время: **{b_time}** (СЛОТ СВОБОДЕН)\n"
             f"💈 Мастер: {b_name}\n"
-            f"📍 Филиал: {booking.get('branch_name', 'Brohouse')}\n\n"
+            f"📍 Филиал: {booking.get('branch_name', settings.SALON_SHORT_NAME)}\n\n"
             "💡 _Слот снова доступен для записи других клиентов!_"
         )
 
@@ -1499,17 +1510,17 @@ async def handle_vip_accept_callback(callback: CallbackQuery):
         # Уведомляем клиента
         client_tg_id = booking.get("user_id")
         if client_tg_id and client_tg_id != 0:
-            b_name = booking.get("barber_name") or "Mr. Akmal"
+            b_name = booking.get("barber_name") or settings.OWNER_NAME
             b_time = booking.get("booking_time") or ""
             service = booking.get("service") or "Стрижка"
-            branch = booking.get("branch_name") or "Brohouse"
+            branch = booking.get("branch_name") or settings.SALON_SHORT_NAME
             msg = (
                 "👑 **Шеф-мастер ПОДТВЕРДИЛ вашу запись!**\n\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"💈 **Мастер:** {b_name}\n"
                 f"⏰ **Время:** {b_time}\n"
                 f"📍 **Филиал:** {branch}\n\n"
-                "Акмаль ждет вас в назначенное время, ака! 💈"
+                f"{b_name} ждет вас в назначенное время, ака! 💈"
             )
             try:
                 await callback.bot.send_message(chat_id=client_tg_id, text=msg, parse_mode="Markdown")
@@ -1557,7 +1568,7 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
         # Уведомляем клиента с предложением перезаписи
         client_tg_id = booking.get("user_id")
         if client_tg_id and client_tg_id != 0:
-            b_name = booking.get("barber_name") or "Mr. Akmal"
+            b_name = booking.get("barber_name") or settings.OWNER_NAME
             b_time = booking.get("booking_time") or ""
             base_url = (getattr(settings, "WEBAPP_URL", "") or "").rstrip("/")
             has_https = base_url.startswith("https://")
@@ -1636,7 +1647,7 @@ async def handle_approve_receipt(callback: CallbackQuery):
         new_text = (
             f"{old_text}\n\n"
             "✅ **ОПЛАТА ПОДТВЕРЖДЕНА!**\n"
-            "🎉 Лицензия заведения Brohouse успешно продлена на **+30 дней**!\n"
+            f"🎉 Лицензия заведения {settings.SALON_SHORT_NAME} успешно продлена на **+30 дней**!\n"
             f"👤 Подтвердил: {callback.from_user.first_name}"
         )
         await callback.message.edit_text(new_text, reply_markup=None, parse_mode="Markdown")

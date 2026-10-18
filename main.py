@@ -174,9 +174,10 @@ async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
     base_url = (settings.WEBAPP_URL or "http://localhost:8000").rstrip("/")
     logger.info(
-        "🚀 Бот 'Brohouse Ассистент' запущен!\n"
+        "🚀 Бот '%s Ассистент' запущен!\n"
         "   👉 Онлайн-запись для клиентов: %s/book\n"
         "   👉 Панель управляющего:         %s/admin",
+        settings.SALON_SHORT_NAME,
         base_url,
         base_url,
     )

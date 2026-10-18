@@ -564,6 +564,54 @@ async def test_process_client_intent_branch_selection():
         assert kwargs["branch_name"] == "Чиланзар (2-й кв.)"
 
 
+@pytest.mark.asyncio
+async def test_white_label_handlers_output():
+    from bot.handlers import handle_start, handle_about, handle_price
+    from config import settings
+
+    # 1. Test /start for client
+    client_msg = MagicMock(spec=Message)
+    client_msg.from_user = MagicMock()
+    client_msg.from_user.id = 987654321
+    client_msg.from_user.first_name = "Алишер"
+    client_msg.answer = AsyncMock()
+
+    with patch("bot.handlers.get_user_role", new_callable=AsyncMock, return_value=("client", None)), \
+         patch("bot.handlers.update_chat_menu_button", new_callable=AsyncMock):
+        await handle_start(client_msg)
+        args, kwargs = client_msg.answer.call_args
+        text = args[0]
+        assert settings.SALON_SHORT_NAME in text
+        assert settings.SALON_CITY in text
+
+    # 2. Test /about
+    about_msg = MagicMock(spec=Message)
+    about_msg.answer = AsyncMock()
+    with patch("bot.handlers.get_branches", new_callable=AsyncMock, return_value=[]), \
+         patch("bot.handlers.get_salon_setting", new_callable=AsyncMock, side_effect=lambda k, d: d):
+        await handle_about(about_msg)
+        args, kwargs = about_msg.answer.call_args
+        text = args[0]
+        assert settings.SALON_NAME in text
+        assert settings.DEVELOPER_NAME in text
+        assert settings.PLATFORM_NAME in text
+
+    # 3. Test /price
+    price_msg = MagicMock(spec=Message)
+    price_msg.from_user = MagicMock()
+    price_msg.from_user.id = 987654321
+    price_msg.answer = AsyncMock()
+    with patch("bot.handlers.get_user_role", new_callable=AsyncMock, return_value=("client", None)), \
+         patch("bot.handlers.get_services", new_callable=AsyncMock, return_value=[{"name": "Стрижка", "price": 100000, "duration_min": 45, "badge": "", "description": ""}]), \
+         patch("bot.handlers.get_salon_setting", new_callable=AsyncMock, side_effect=lambda k, d: d):
+        await handle_price(price_msg)
+        args, kwargs = price_msg.answer.call_args
+        text = args[0]
+        assert settings.SALON_NAME in text
+        assert settings.CURRENCY_SYMBOL in text
+
+
+
 
 
 
