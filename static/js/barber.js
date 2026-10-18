@@ -186,6 +186,9 @@ function renderBookings() {
       statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">Отменена</span>';
     }
 
+    const isManual = Boolean(b.details && b.details.includes('Ручная запись'));
+    const manualBadge = isManual ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30">📞 Ручная запись</span>' : '';
+
     const phone = b.phone ? b.phone.trim() : null;
 
     let actionButtonsHtml = '';
@@ -219,7 +222,10 @@ function renderBookings() {
           <div class="font-bold text-white text-sm">${escapeHtml(b.full_name || 'Гость')}</div>
           <div class="text-xs text-accent font-medium mt-0.5">${escapeHtml(b.service || 'Стрижка')}</div>
         </div>
-        <div>${statusBadge}</div>
+        <div class="flex flex-col items-end gap-1">
+          ${statusBadge}
+          ${manualBadge}
+        </div>
       </div>
 
       <div class="bg-bgDark/60 rounded-xl p-2.5 my-2.5 border border-surfaceBorder/40 space-y-1.5 text-xs">
@@ -237,6 +243,15 @@ function renderBookings() {
             </svg>
             <span class="text-gray-400 w-14 shrink-0">Телефон:</span>
             <span class="font-medium text-white">${escapeHtml(phone)}</span>
+          </div>
+        ` : ''}
+        ${b.details && !b.details.startsWith('Онлайн-запись') ? `
+          <div class="flex items-center text-gray-300 gap-2">
+            <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <span class="text-gray-400 w-14 shrink-0">Инфо:</span>
+            <span class="text-gray-300 truncate">${escapeHtml(b.details)}</span>
           </div>
         ` : ''}
       </div>
@@ -285,6 +300,138 @@ async function changeBookingStatus(bookingId, newStatus) {
   } catch (e) {
     console.error('Ошибка изменения статуса:', e);
     alert('Ошибка связи с сервером');
+  }
+}
+
+// =============================================================================
+// РУЧНАЯ ЗАПИСЬ КЛИЕНТА МАСТЕРОМ
+// =============================================================================
+
+let allServices = [];
+
+async function loadServicesForBarber() {
+  if (allServices.length > 0) {
+    populateServicesDropdown();
+    return;
+  }
+  try {
+    const res = await fetch('/api/services');
+    if (res.ok) {
+      allServices = await res.json();
+      populateServicesDropdown();
+    }
+  } catch (e) {
+    console.error('Ошибка загрузки услуг:', e);
+  }
+}
+
+function populateServicesDropdown() {
+  const select = document.getElementById('mb-service');
+  if (!select) return;
+  select.innerHTML = '<option value="">Выберите услугу...</option>';
+  allServices.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = `${s.name} (${Number(s.price).toLocaleString('ru-RU')} сум • ${s.duration_min || 45} мин)`;
+    opt.dataset.name = s.name;
+    select.appendChild(opt);
+  });
+}
+
+function openManualBookingModal() {
+  const modal = document.getElementById('manual-booking-modal');
+  if (!modal) return;
+  document.getElementById('manual-booking-form').reset();
+  document.getElementById('mb-error').classList.add('hidden');
+
+  // Установка сегодняшней даты по умолчанию (Asia/Tashkent)
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  document.getElementById('mb-date').value = todayStr;
+
+  // Округление времени до ближайших 30 минут
+  let nextHour = now.getHours();
+  let nextMin = now.getMinutes() < 30 ? 30 : 0;
+  if (nextMin === 0) nextHour += 1;
+  if (nextHour < 10) nextHour = 10;
+  if (nextHour > 20) nextHour = 20;
+  document.getElementById('mb-time').value = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
+
+  loadServicesForBarber();
+  modal.classList.remove('hidden');
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+}
+
+function closeManualBookingModal() {
+  const modal = document.getElementById('manual-booking-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function submitManualBooking(e) {
+  e.preventDefault();
+  if (!barberData) {
+    alert('Мастер не идентифицирован');
+    return;
+  }
+
+  const errEl = document.getElementById('mb-error');
+  const btn = document.getElementById('mb-submit-btn');
+  errEl.classList.add('hidden');
+
+  const clientName = document.getElementById('mb-name').value.trim();
+  const clientPhone = document.getElementById('mb-phone').value.trim();
+  const serviceSelect = document.getElementById('mb-service');
+  const serviceId = serviceSelect.value;
+  const selectedOption = serviceSelect.options[serviceSelect.selectedIndex];
+  const serviceName = selectedOption ? selectedOption.dataset.name : '';
+  const bookingDate = document.getElementById('mb-date').value;
+  const bookingTime = document.getElementById('mb-time').value;
+  const notes = document.getElementById('mb-notes').value.trim();
+
+  if (!clientName || !bookingDate || !bookingTime || !serviceId) {
+    errEl.textContent = 'Пожалуйста, заполните все обязательные поля';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Сохранение...';
+
+  try {
+    const res = await fetch('/api/barber/manual-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        barber_id: barberData.id,
+        client_name: clientName,
+        client_phone: clientPhone,
+        service_id: serviceId,
+        service_name: serviceName,
+        booking_date: bookingDate,
+        booking_time: bookingTime,
+        notes: notes,
+        branch_id: barberData.branch_id || 1
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      closeManualBookingModal();
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      // Обновляем график мастера
+      await fetchSchedule();
+    } else {
+      errEl.textContent = data.message || data.error || 'Ошибка при сохранении';
+      errEl.classList.remove('hidden');
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+    }
+  } catch (err) {
+    console.error('Ошибка записи:', err);
+    errEl.textContent = 'Ошибка связи с сервером. Попробуйте еще раз.';
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Записать';
   }
 }
 

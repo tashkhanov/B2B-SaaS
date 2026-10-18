@@ -203,6 +203,36 @@ async def test_web_app_endpoints(monkeypatch):
         assert "is_on_shift" in sched_data["barber"]
         assert sched_data["barber"]["is_on_shift"] is True
 
+        # 13.1 Test Barber Workspace manual booking (/api/barber/manual-booking)
+        resp_manual = await client.post("/api/barber/manual-booking", json={
+            "barber_id": first_barber["id"],
+            "client_name": "Тестовый Клиент (Звонок)",
+            "client_phone": "+998901112233",
+            "service_name": "Мужская стрижка",
+            "booking_date": "2026-10-25",
+            "booking_time": "14:00",
+            "notes": "Позвонил лично на телефон",
+            "branch_id": 1
+        })
+        assert resp_manual.status == 200
+        manual_data = await resp_manual.json()
+        assert manual_data["ok"] is True
+        assert manual_data["status"] == "confirmed"
+        assert "2026-10-25 14:00" in manual_data["booking_time"]
+
+        # Conflict test on the same slot
+        resp_conflict = await client.post("/api/barber/manual-booking", json={
+            "barber_id": first_barber["id"],
+            "client_name": "Второй Клиент",
+            "client_phone": "+998909998877",
+            "service_name": "Стрижка",
+            "booking_date": "2026-10-25",
+            "booking_time": "14:00",
+        })
+        assert resp_conflict.status == 409
+        conflict_data = await resp_conflict.json()
+        assert conflict_data["error"] == "slot_taken"
+
         # 14. Test User Role endpoint (/api/user-role)
         # 14.1 Admin role
         resp_admin_role = await client.get("/api/user-role?user_id=999888")

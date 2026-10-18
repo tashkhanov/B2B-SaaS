@@ -1207,6 +1207,118 @@ async def handle_get_barber_my_schedule(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_barber_manual_booking(request: web.Request) -> web.Response:
+    """API: Ручное создание брони мастером из личного кабинета (/barber)"""
+    try:
+        data = await request.json()
+        barber_id = data.get("barber_id")
+        client_name = (data.get("client_name") or "").strip()
+        client_phone = (data.get("client_phone") or "").strip()
+        service_id = data.get("service_id")
+        service_name = (data.get("service_name") or "").strip()
+        booking_date = (data.get("booking_date") or "").strip()  # "YYYY-MM-DD"
+        booking_time = (data.get("booking_time") or "").strip()  # "HH:MM"
+        notes = (data.get("notes") or "").strip()
+        branch_id = data.get("branch_id") or 1
+
+        if not barber_id or not client_name or not booking_date or not booking_time:
+            return web.json_response({
+                "ok": False,
+                "error": "missing_fields",
+                "message": "Укажите имя клиента, дату и время записи"
+            }, status=400)
+
+        barber = await get_barber_by_id(int(barber_id))
+        if not barber:
+            return web.json_response({"ok": False, "error": "barber_not_found", "message": "Мастер не найден"}, status=404)
+
+        if not service_name and service_id:
+            s_obj = await get_service_by_id(int(service_id))
+            if s_obj:
+                service_name = s_obj.get("name")
+        if not service_name:
+            service_name = "Стрижка"
+
+        # Форматирование времени со днем недели: "YYYY-MM-DD HH:MM (Пн)"
+        day_names_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        try:
+            dt = datetime.strptime(f"{booking_date} {booking_time}", "%Y-%m-%d %H:%M")
+            day_ru = day_names_ru[dt.weekday()]
+            normalized_time = f"{booking_date} {booking_time} ({day_ru})"
+        except Exception:
+            normalized_time = f"{booking_date} {booking_time}"
+
+        # Проверка на наложение существующих активных записей этого мастера
+        existing_bookings = await get_bookings_for_barber(barber["id"], target_date=booking_date)
+        for b in existing_bookings:
+            if b.get("status") in ("new", "confirmed", "pending_vip"):
+                b_time_str = b.get("booking_time") or ""
+                if booking_time in b_time_str:
+                    return web.json_response({
+                        "ok": False,
+                        "error": "slot_taken",
+                        "message": f"У вас уже есть запись на {booking_time} ({b.get('full_name', 'Клиент')})!"
+                    }, status=409)
+
+        branch_info = await get_branch_by_id(int(branch_id))
+        branch_name = branch_info["name"] if branch_info else settings.SALON_SHORT_NAME
+
+        details_str = "Ручная запись мастером"
+        if notes:
+            details_str += f": {notes}"
+
+        booking_id = await save_booking(
+            user_id=0,
+            username=None,
+            full_name=client_name,
+            phone=client_phone or None,
+            service=service_name,
+            booking_time=normalized_time,
+            status="confirmed",
+            details=details_str,
+            barber_id=barber["id"],
+            barber_name=barber["name"],
+            service_id=int(service_id) if service_id else None,
+            branch_id=int(branch_id),
+            branch_name=branch_name,
+        )
+
+        # Оповещение администратора салона
+        bot = request.app.get(BOT_KEY)
+        if bot and settings.ADMIN_CHAT_ID:
+            msg = (
+                f"📞 **Мастер {barber['name']} внес запись вручную!**\n\n"
+                f"👤 **Клиент:** {client_name}\n"
+                f"📞 **Телефон:** {client_phone or 'не указан'}\n"
+                f"✂️ **Услуга:** {service_name}\n"
+                f"⏰ **Время:** {normalized_time}\n"
+                f"📍 **Филиал:** {branch_name}\n"
+            )
+            if notes:
+                msg += f"📝 **Заметка:** {notes}\n"
+            try:
+                await bot.send_message(chat_id=settings.ADMIN_CHAT_ID, text=msg, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning("Failed to notify admin about manual booking: %s", e)
+
+        return web.json_response({
+            "ok": True,
+            "id": booking_id,
+            "booking_time": normalized_time,
+            "barber_id": barber["id"],
+            "barber_name": barber["name"],
+            "client_name": client_name,
+            "status": "confirmed",
+            "message": "Клиент успешно записан!"
+        })
+    except BookingConflictError as bce:
+        return web.json_response({"ok": False, "error": "conflict", "message": str(bce)}, status=409)
+    except Exception as e:
+        logger.error(f"Ошибка при создании ручной записи мастером: {e}", exc_info=True)
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+
 # =============================================================================
 # API ФИЛИАЛОВ (BRANCHES)
 # =============================================================================
@@ -2010,6 +2122,7 @@ def create_web_app(bot: Bot = None) -> web.Application:
 
     # Кабинет мастера
     app.router.add_get("/api/barber/my-schedule", handle_get_barber_my_schedule)
+    app.router.add_post("/api/barber/manual-booking", handle_barber_manual_booking)
 
     # Филиалы
     app.router.add_get("/api/branches", handle_get_branches)

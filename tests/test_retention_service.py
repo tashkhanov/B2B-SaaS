@@ -128,7 +128,7 @@ async def test_confirm_and_cancel_by_client():
 @pytest.mark.asyncio
 async def test_winback_query_and_marking():
     now = get_now_tashkent()
-    past_25d = (now - timedelta(days=25)).strftime("%Y-%m-%d 14:00")
+    past_25d = (now - timedelta(days=26)).strftime("%Y-%m-%d %H:%M")
     b_id = await save_booking(
         user_id=777,
         username="@loyal_client",

@@ -111,6 +111,18 @@
       </button>
     </div>
 
+    <!-- КНОПКА РУЧНОЙ ЗАПИСИ КЛИЕНТА -->
+    <div class="mb-4">
+      <button onclick="openManualBookingModal()" class="w-full py-3 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 bg-accent/15 text-accent border border-accent/40 hover:bg-accent/25 active:scale-95 shadow-sm">
+        <svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="16"></line>
+          <line x1="8" y1="12" x2="16" y2="12"></line>
+        </svg>
+        <span>+ Записать клиента вручную</span>
+      </button>
+    </div>
+
     <!-- ТАБЫ: СЕГОДНЯ ИЛИ ПРЕДСТОЯЩИЕ -->
     <div class="flex items-center p-1 bg-surface border border-surfaceBorder rounded-xl mb-4 text-xs font-medium">
       <button onclick="switchView('today')" id="tab-today" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-accent text-white font-semibold shadow-sm shadow-accent/20">
@@ -141,6 +153,76 @@
       <p class="text-xs text-gray-500 mt-1">На этот период у вас пока нет запланированных клиентов.</p>
     </div>
 
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО РУЧНОЙ ЗАПИСИ КЛИЕНТА -->
+  <div id="manual-booking-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm hidden">
+    <div class="bg-surface border border-surfaceBorder rounded-2xl w-full max-w-sm p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-surfaceBorder">
+        <div class="flex items-center gap-2">
+          <span class="p-1.5 rounded-lg bg-accent/20 text-accent">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <line x1="19" y1="8" x2="19" y2="14"/>
+              <line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+          </span>
+          <h3 class="font-bold text-sm text-white">Записать клиента</h3>
+        </div>
+        <button onclick="closeManualBookingModal()" class="text-gray-400 hover:text-white p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <form id="manual-booking-form" onsubmit="submitManualBooking(event)" class="space-y-3.5">
+        <div>
+          <label class="block text-[11px] font-medium text-gray-300 mb-1">Имя клиента *</label>
+          <input type="text" id="mb-name" required placeholder="Например: Дмитрий" class="w-full px-3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-white text-xs focus:border-accent focus:outline-none placeholder-gray-600">
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-medium text-gray-300 mb-1">Номер телефона</label>
+          <input type="tel" id="mb-phone" placeholder="+998 90 123 45 67" class="w-full px-3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-white text-xs focus:border-accent focus:outline-none placeholder-gray-600">
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-medium text-gray-300 mb-1">Услуга *</label>
+          <select id="mb-service" required class="w-full px-3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-white text-xs focus:border-accent focus:outline-none">
+            <option value="">Загрузка услуг...</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[11px] font-medium text-gray-300 mb-1">Дата *</label>
+            <input type="date" id="mb-date" required class="w-full px-3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-white text-xs focus:border-accent focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[11px] font-medium text-gray-300 mb-1">Время *</label>
+            <input type="time" id="mb-time" required step="1800" class="w-full px-3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-white text-xs focus:border-accent focus:outline-none">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-medium text-gray-300 mb-1">Заметка / Комментарий</label>
+          <input type="text" id="mb-notes" placeholder="Звонил лично / постоянный клиент" class="w-full px-3 py-2.5 rounded-xl bg-bgDark border border-surfaceBorder text-white text-xs focus:border-accent focus:outline-none placeholder-gray-600">
+        </div>
+
+        <div id="mb-error" class="hidden text-rose-400 text-[11px] p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20"></div>
+
+        <div class="pt-2 flex gap-2">
+          <button type="button" onclick="closeManualBookingModal()" class="flex-1 py-2.5 rounded-xl border border-surfaceBorder text-gray-300 text-xs font-semibold hover:bg-surfaceBorder/50 transition">
+            Отмена
+          </button>
+          <button type="submit" id="mb-submit-btn" class="flex-1 py-2.5 rounded-xl bg-accent text-white text-xs font-bold hover:bg-accentHover transition shadow-md shadow-accent/20">
+            Записать
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- Футер -->
