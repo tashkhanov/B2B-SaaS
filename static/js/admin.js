@@ -759,7 +759,7 @@ function renderBarbers() {
     const card = document.createElement('div');
     card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-sm';
 
-    const isVip = Boolean(b.is_vip || (b.name && b.name.toLowerCase().includes('akmal')));
+    const isVip = Boolean(b.is_vip || (b.role_title && (b.role_title.toLowerCase().includes('шеф') || b.role_title.toLowerCase().includes('директор') || b.role_title.toLowerCase().includes('главный'))));
     const vipBadge = isVip ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">👑 VIP График</span>' : '';
     const isOnShift = Boolean(b.is_working_today !== undefined ? b.is_working_today : b.is_on_shift);
     const shiftBadge = isOnShift 

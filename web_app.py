@@ -100,7 +100,7 @@ def get_booking_action_keyboard(booking_id: int) -> InlineKeyboardMarkup:
 def render_lockout_page(info: dict, settings_dict: Optional[dict] = None) -> str:
     """Генерация премиальной полноэкранной страницы блокировки (Kill Switch / Expired)."""
     raw = info.get("raw") or {}
-    name = raw.get("name") or info.get("name") or "Brohouse Barbershop"
+    name = raw.get("name") or info.get("name") or settings.SALON_NAME
     
     settings_data = settings_dict or {}
     card_number = settings_data.get("p2p_card_number", "8600 1234 5678 9012")
@@ -508,7 +508,7 @@ def render_lockout_page(info: dict, settings_dict: Optional[dict] = None) -> str
     </div>
 
     <!-- Главная кнопка связи / оплаты -->
-    <a href="https://t.me/asatkhanov" target="_blank" class="btn-main" onclick="openContact(event)">
+    <a href="{settings.SUPER_ADMIN_TELEGRAM}" target="_blank" class="btn-main" onclick="openContact(event)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
       </svg>
@@ -516,7 +516,7 @@ def render_lockout_page(info: dict, settings_dict: Optional[dict] = None) -> str
     </a>
 
     <div class="footer-bar">
-      <span>Khan AI Systems</span>
+      <span>{settings.PLATFORM_NAME}</span>
       <span>B2B SaaS Cloud Platform</span>
     </div>
   </div>
@@ -640,14 +640,37 @@ async def subscription_middleware(request: web.Request, handler):
 
 
 # =============================================================================
-# HTML СТРАНИЦЫ (TMA INTERFACES)
+# HTML СТРАНИЦЫ (TMA INTERFACES С SSR-ПОДСТАНОВКОЙ ТОКЕНОВ)
 # =============================================================================
+
+def apply_html_tokens(content: str) -> str:
+    """Подстановка white-label токенов в HTML шаблоны перед отдачей клиенту."""
+    tokens = {
+        "{{SALON_NAME}}": settings.SALON_NAME,
+        "{{SALON_SHORT_NAME}}": settings.SALON_SHORT_NAME,
+        "{{SALON_TYPE}}": settings.SALON_TYPE,
+        "{{SALON_CITY}}": settings.SALON_CITY,
+        "{{SALON_PHONE}}": settings.SALON_PHONE,
+        "{{CURRENCY_SYMBOL}}": settings.CURRENCY_SYMBOL,
+        "{{CURRENCY_CODE}}": settings.CURRENCY_CODE,
+        "{{LOGO_URL}}": settings.LOGO_URL,
+        "{{PROMO_TITLE}}": settings.PROMO_TITLE,
+        "{{PROMO_SUBTITLE}}": settings.PROMO_SUBTITLE,
+        "{{PLATFORM_NAME}}": settings.PLATFORM_NAME,
+        "{{DEVELOPER_NAME}}": settings.DEVELOPER_NAME,
+        "{{PORTFOLIO_URL}}": settings.PORTFOLIO_URL,
+    }
+    for placeholder, val in tokens.items():
+        content = content.replace(placeholder, str(val))
+    return content
+
 
 async def handle_client(request: web.Request) -> web.Response:
     """Отдача клиентской страницы онлайн-записи (/book, /)"""
     if os.path.exists(CLIENT_HTML_PATH):
         with open(CLIENT_HTML_PATH, "r", encoding="utf-8") as f:
             content = f.read()
+        content = apply_html_tokens(content)
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
         super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
@@ -662,6 +685,7 @@ async def handle_admin(request: web.Request) -> web.Response:
     if os.path.exists(ADMIN_HTML_PATH):
         with open(ADMIN_HTML_PATH, "r", encoding="utf-8") as f:
             content = f.read()
+        content = apply_html_tokens(content)
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
         super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
@@ -676,6 +700,7 @@ async def handle_barber_page(request: web.Request) -> web.Response:
     if os.path.exists(BARBER_HTML_PATH):
         with open(BARBER_HTML_PATH, "r", encoding="utf-8") as f:
             content = f.read()
+        content = apply_html_tokens(content)
         resp = web.Response(text=content, content_type="text/html", charset="utf-8")
         super_pw = getattr(settings, "SUPER_ADMIN_PASSWORD", "")
         token = request.query.get("token")
@@ -723,6 +748,7 @@ def is_admin_or_super(request: web.Request) -> bool:
         valid_passwords.add(super_pw)
     if settings.ADMIN_CHAT_ID:
         valid_passwords.add(str(settings.ADMIN_CHAT_ID))
+    valid_passwords.add(f"{settings.TENANT_SLUG}_admin_session")
     valid_passwords.add("brohouse_admin_session")
 
     if admin_session and admin_session in valid_passwords:
@@ -765,7 +791,9 @@ async def handle_auth_login(request: web.Request) -> web.Response:
         # Пароль администратора салона
         if (settings.ADMIN_CHAT_ID and password == str(settings.ADMIN_CHAT_ID)) or password == "admin123":
             resp = web.json_response({"ok": True, "role": "admin"})
-            resp.set_cookie("admin_session_token", "brohouse_admin_session", max_age=86400 * 30, path="/", httponly=False)
+            admin_token = f"{settings.TENANT_SLUG}_admin_session"
+            resp.set_cookie("admin_session_token", admin_token, max_age=86400 * 30, path="/", httponly=False)
+            resp.set_cookie(settings.get_admin_cookie_name(), admin_token, max_age=86400 * 30, path="/", httponly=False)
             return resp
 
         return web.json_response({"ok": False, "error": "Неверный пароль администратора"}, status=401)
@@ -778,12 +806,23 @@ async def handle_auth_login(request: web.Request) -> web.Response:
 async def handle_get_config(request: web.Request) -> web.Response:
     """API: Конфигурационные данные для фронтенда (ID администратора, права суперадмина и лимиты тарифа)"""
     is_super = is_super_admin_authorized(request)
-    tier = await get_tenant_tier("brohouse")
+    tier = await get_tenant_tier(settings.TENANT_SLUG)
     limits = get_tier_limits(tier)
     active_barbers = await get_barbers(active_only=True)
     active_branches = await get_branches(active_only=True)
 
     return web.json_response({
+        "salon_name": settings.SALON_NAME,
+        "salon_short_name": settings.SALON_SHORT_NAME,
+        "salon_type": settings.SALON_TYPE,
+        "salon_city": settings.SALON_CITY,
+        "salon_phone": settings.SALON_PHONE,
+        "currency_symbol": settings.CURRENCY_SYMBOL,
+        "currency_code": settings.CURRENCY_CODE,
+        "logo_url": settings.LOGO_URL,
+        "platform_name": settings.PLATFORM_NAME,
+        "developer_name": settings.DEVELOPER_NAME,
+        "portfolio_url": settings.PORTFOLIO_URL,
         "admin_chat_id": settings.ADMIN_CHAT_ID,
         "super_admin_chat_id": getattr(settings, "SUPER_ADMIN_CHAT_ID", None),
         "is_super_admin": is_super,
@@ -1420,10 +1459,10 @@ async def handle_create_booking(request: web.Request) -> web.Response:
 
         # 1. Мгновенное подтверждение клиенту в личный чат Telegram
         if bot and user_id and user_id != 0:
-            branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", "+998 97 012-55-55")
+            branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", settings.SALON_PHONE)
             master_line = f"💈 **Мастер:** {final_barber_name}\n" if final_barber_name else ""
             client_msg = (
-                "💈 **Вы успешно записаны в барбершоп Brohouse!**\n\n"
+                f"💈 **Вы успешно записаны в {settings.SALON_TYPE} {settings.SALON_SHORT_NAME}!**\n\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"{master_line}"
                 f"⏰ **Время:** {normalized_time}\n"
@@ -1528,11 +1567,11 @@ async def handle_update_status(request: web.Request) -> web.Response:
             if new_status == "confirmed":
                 b_branch_id = booking.get("branch_id") or 1
                 branch_info = await get_branch_by_id(b_branch_id)
-                branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else "Brohouse")
+                branch_title = booking.get("branch_name") or (branch_info["name"] if branch_info else settings.SALON_SHORT_NAME)
                 branch_addr = branch_info["address"] if branch_info else "г. Ташкент"
-                branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", "+998 97 012-55-55")
+                branch_phone = (branch_info.get("phone") if branch_info else None) or await get_salon_setting("salon_phone", settings.SALON_PHONE)
                 msg = (
-                    "✅ **Ваша запись в Brohouse ПОДТВЕРЖДЕНА!**\n\n"
+                    f"✅ **Ваша запись в {settings.SALON_SHORT_NAME} ПОДТВЕРЖДЕНА!**\n\n"
                     f"✂️ **Услуга:** {service}\n"
                     f"💈 **Мастер:** {barber}\n"
                     f"⏰ **Время:** {b_time}\n"
@@ -1548,7 +1587,7 @@ async def handle_update_status(request: web.Request) -> web.Response:
 
             elif new_status == "cancelled":
                 msg = (
-                    "ℹ️ **Ваша запись в Brohouse была отменена.**\n\n"
+                    f"ℹ️ **Ваша запись в {settings.SALON_SHORT_NAME} была отменена.**\n\n"
                     f"⏰ Время: {b_time}\n"
                     f"✂️ Услуга: {service}\n\n"
                     "Если вы хотите выбрать другое время или мастера — просто откройте онлайн-меню или напишите мне в чат."
@@ -1793,12 +1832,12 @@ async def handle_get_subscription_info(request: web.Request) -> web.Response:
     if not is_admin_or_super(request):
         return web.json_response({"error": "unauthorized"}, status=401)
 
-    tenant = await get_tenant_by_id_or_slug("brohouse")
+    tenant = await get_tenant_by_id_or_slug(settings.TENANT_SLUG)
     if not tenant:
         tenants = await get_all_tenants()
         tenant = tenants[0] if tenants else None
 
-    tier = await get_tenant_tier("brohouse") if tenant else SubscriptionTier.PRO
+    tier = await get_tenant_tier(settings.TENANT_SLUG) if tenant else SubscriptionTier.PRO
     limits = get_tier_limits(tier)
 
     now_dt = get_now_tashkent().replace(tzinfo=None)
@@ -1807,7 +1846,7 @@ async def handle_get_subscription_info(request: web.Request) -> web.Response:
     settings_dict = await get_all_salon_settings()
     raw_card = settings_dict.get("p2p_card_number", "8600 1234 5678 9012")
     card_number = raw_card.replace(" ", "")
-    card_holder = settings_dict.get("p2p_card_holder", "Akmal A.")
+    card_holder = settings_dict.get("p2p_card_holder", settings.OWNER_NAME)
     amount = int(settings_dict.get("subscription_price", "500000"))
 
     return web.json_response({
@@ -1894,7 +1933,7 @@ async def handle_upload_receipt(request: web.Request) -> web.Response:
             formatted_amount = f"{receipt.amount:,} сум".replace(",", " ")
             txt = (
                 "💳 **ПОСТУПИЛ ЧЕК НА ОПЛАТУ ПОДПИСКИ!**\n\n"
-                "🏢 **Заведение:** Brohouse Barbershop\n"
+                f"🏢 **Заведение:** {settings.SALON_NAME}\n"
                 f"💰 **Сумма:** {formatted_amount}\n"
                 f"🧾 **Чек / Транзакция:** `#{receipt.transaction_id}`\n"
                 f"📱 **Система:** {receipt.payment_system.upper()}\n"

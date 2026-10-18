@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Brohouse — Рабочее место мастера</title>
+  <title>{{SALON_SHORT_NAME}} — Рабочее место мастера</title>
   
   <!-- Telegram Web App SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -54,7 +54,7 @@
     </div>
     <h2 class="text-base font-semibold text-white">Вы не зарегистрированы как мастер</h2>
     <p class="text-xs text-gray-400 max-w-xs mx-auto">
-      Этот раздел доступен только для мастеров мужского салона Brohouse. Попросите управляющего привязать ваш Telegram ID в панели администратора.
+      Этот раздел доступен только для мастеров {{SALON_TYPE}} {{SALON_SHORT_NAME}}. Попросите управляющего привязать ваш Telegram ID в панели администратора.
     </p>
     <div class="pt-4">
       <a href="/book" class="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-semibold text-xs bg-accent text-white hover:bg-accentHover transition shadow-lg shadow-accent/20">
@@ -70,11 +70,11 @@
     <header class="flex items-center justify-between mb-4 pb-3.5 border-b border-surfaceBorder/80">
       <div class="flex items-center space-x-3">
         <div class="w-11 h-11 rounded-xl bg-surface border border-accent/30 flex items-center justify-center p-1.5 shadow-sm shadow-accent/10">
-          <img src="/static/logo.png" alt="Brohouse Logo" class="w-full h-full object-contain">
+          <img src="{{LOGO_URL}}" alt="{{SALON_SHORT_NAME}} Logo" class="w-full h-full object-contain">
         </div>
         <div>
           <h1 class="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
-            <span>Brohouse Master</span>
+            <span>{{SALON_SHORT_NAME}} Master</span>
             <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
           </h1>
           <p class="text-[11px] text-gray-400 font-normal">Рабочее место мастера • Смена</p>
@@ -145,11 +145,11 @@
 
   <!-- Футер -->
   <footer class="w-full py-3.5 text-center border-t border-surfaceBorder/80 bg-bgDark/95 backdrop-blur fixed bottom-0 left-0 z-10">
-    <a href="https://asatkhanov.uz" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200">
+    <a href="{{PORTFOLIO_URL}}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-accent transition duration-200">
       <svg class="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="currentColor">
         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
       </svg>
-      <span>Powered by <strong class="text-gray-200 font-semibold">Khan</strong></span>
+      <span>Powered by <strong class="text-gray-200 font-semibold">{{DEVELOPER_NAME}}</strong></span>
     </a>
   </footer>
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Brohouse — Панель администратора</title>
+  <title>{{SALON_SHORT_NAME}} — Панель администратора</title>
 
   <!-- Telegram Web App SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -52,7 +52,7 @@
     </div>
     <h2 class="text-base font-semibold text-white">Доступ ограничен</h2>
     <p class="text-xs text-gray-400 max-w-xs mx-auto">
-      Эта панель предназначена только для управляющего мужским салоном Brohouse.
+      Эта панель предназначена только для управляющего {{SALON_TYPE}} {{SALON_SHORT_NAME}}.
     </p>
     <div class="pt-4">
       <a href="/book" class="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-semibold text-xs bg-accent text-white hover:bg-accentHover transition shadow-lg shadow-accent/20">
@@ -71,14 +71,14 @@
     <header class="flex items-center justify-between pb-3.5 border-b border-surfaceBorder mb-3">
       <div class="flex items-center space-x-3">
         <div class="w-11 h-11 rounded-xl bg-surface border border-accent/30 flex items-center justify-center p-1.5 shadow-sm shadow-accent/10">
-          <img src="/static/logo.png" alt="Brohouse Logo" class="w-full h-full object-contain">
+          <img src="{{LOGO_URL}}" alt="{{SALON_SHORT_NAME}} Logo" class="w-full h-full object-contain">
         </div>
         <div>
           <h1 class="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
-            <span>Brohouse Pro</span>
+            <span>{{SALON_SHORT_NAME}} Pro</span>
             <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 pulse-dot" title="Онлайн"></span>
           </h1>
-          <p class="text-[11px] text-gray-400 font-normal">Панель управления • Ташкент</p>
+          <p class="text-[11px] text-gray-400 font-normal">Панель управления • {{SALON_CITY}}</p>
         </div>
       </div>
       <div class="flex items-center space-x-2">
