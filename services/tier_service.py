@@ -26,7 +26,7 @@ class SubscriptionTier(str, Enum):
 TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
     SubscriptionTier.START: {
         "tier": SubscriptionTier.START,
-        "label": "START (Solo)",
+        "label": "START",
         "max_branches": 1,
         "max_masters": 5,
         "setup_fee_uzs": 2400000,
@@ -42,7 +42,7 @@ TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
     },
     SubscriptionTier.PRO: {
         "tier": SubscriptionTier.PRO,
-        "label": "PRO BUSINESS (Хит)",
+        "label": "PRO",
         "max_branches": 3,
         "max_masters": 15,
         "setup_fee_uzs": 3500000,         # Спеццена: ~3 000 000 сум
@@ -58,7 +58,7 @@ TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
     },
     SubscriptionTier.ENTERPRISE: {
         "tier": SubscriptionTier.ENTERPRISE,
-        "label": "ULTRA (VIP / Сеть)",
+        "label": "ULTRA",
         "max_branches": 9999,
         "max_masters": 9999,
         "setup_fee_uzs": 7500000,         # 7.5 млн сум
@@ -74,7 +74,7 @@ TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
     },
     SubscriptionTier.ULTRA: {
         "tier": SubscriptionTier.ULTRA,
-        "label": "ULTRA (VIP / Сеть)",
+        "label": "ULTRA",
         "max_branches": 9999,
         "max_masters": 9999,
         "setup_fee_uzs": 7500000,
@@ -153,12 +153,12 @@ async def check_can_add_master(
         if tier == SubscriptionTier.START:
             msg = (
                 f"Достигнут лимит мастеров тарифа START (максимум {max_masters}). "
-                "Для подключения дополнительных мастеров и кресел перейдите на тариф PRO BUSINESS."
+                "Для подключения дополнительных мастеров и кресел перейдите на тариф PRO."
             )
         elif tier == SubscriptionTier.PRO:
             msg = (
-                f"Достигнут лимит мастеров тарифа PRO BUSINESS (максимум {max_masters}). "
-                "Для масштабирования сети перейдите на тариф ULTRA (ENTERPRISE)."
+                f"Достигнут лимит мастеров тарифа PRO (максимум {max_masters}). "
+                "Для масштабирования сети перейдите на тариф ULTRA."
             )
         else:
             msg = f"Достигнут лимит мастеров ({max_masters})."
@@ -184,12 +184,12 @@ async def check_can_add_branch(
         if tier == SubscriptionTier.START:
             msg = (
                 f"Тариф START поддерживает только {max_branches} филиал. "
-                "Для добавления новых точек и филиалов перейдите на тариф PRO BUSINESS."
+                "Для добавления новых точек и филиалов перейдите на тариф PRO."
             )
         elif tier == SubscriptionTier.PRO:
             msg = (
-                f"Тариф PRO BUSINESS поддерживает до {max_branches} филиалов. "
-                "Для безлимитного подключения точек сети перейдите на тариф ULTRA (ENTERPRISE)."
+                f"Тариф PRO поддерживает до {max_branches} филиалов. "
+                "Для безлимитного подключения точек сети перейдите на тариф ULTRA."
             )
         else:
             msg = f"Достигнут лимит филиалов ({max_branches})."

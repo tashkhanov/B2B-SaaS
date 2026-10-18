@@ -736,7 +736,7 @@ function handleOpenBarberModalClick() {
     const max = currentTierConfig.max_masters;
     const tier = currentTierConfig.tier || 'START';
     if (tier === 'START') {
-      alert(`⚠️ Достигнут лимит тарифа START (максимум ${max} мастеров).\n\nДля подключения до 15 мастеров и 3 филиалов перейдите на тариф PRO BUSINESS.`);
+      alert(`⚠️ Достигнут лимит тарифа START (максимум ${max} мастеров).\n\nДля подключения до 15 мастеров и 3 филиалов перейдите на тариф PRO.`);
     } else {
       alert(`⚠️ Достигнут лимит тарифа ${tier} (максимум ${max} мастеров).`);
     }

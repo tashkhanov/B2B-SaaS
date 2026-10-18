@@ -61,7 +61,7 @@ async def test_start_tier_master_capacity_limit():
         assert resp_6.status == 403
         data_6 = await resp_6.json()
         assert data_6.get("code") == "tier_limit_reached"
-        assert "PRO BUSINESS" in data_6.get("error", "")
+        assert "PRO" in data_6.get("error", "")
 
     finally:
         await client.close()
@@ -91,7 +91,7 @@ async def test_start_tier_branch_capacity_limit():
         assert resp_new.status == 403
         data_new = await resp_new.json()
         assert data_new.get("code") == "tier_limit_reached"
-        assert "PRO BUSINESS" in data_new.get("error", "")
+        assert "PRO" in data_new.get("error", "")
 
     finally:
         await client.close()
@@ -133,7 +133,7 @@ async def test_pro_tier_extended_capacity():
         assert resp_b4.status == 403
         data_b4 = await resp_b4.json()
         assert data_b4.get("code") == "tier_limit_reached"
-        assert "ENTERPRISE" in data_b4.get("error", "")
+        assert "ULTRA" in data_b4.get("error", "")
 
     finally:
         await client.close()

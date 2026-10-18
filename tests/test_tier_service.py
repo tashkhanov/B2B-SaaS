@@ -96,11 +96,11 @@ async def test_capacity_checks():
 
     can_add_m5, err_m5 = await check_can_add_master(5, "brohouse", db_path=TEST_DB)
     assert can_add_m5 is False
-    assert "PRO BUSINESS" in err_m5
+    assert "PRO" in err_m5
 
     can_add_b1, err_b1 = await check_can_add_branch(1, "brohouse", db_path=TEST_DB)
     assert can_add_b1 is False
-    assert "PRO BUSINESS" in err_b1
+    assert "PRO" in err_b1
 
     # На тарифе PRO (лимит 15 мастеров, 3 филиала)
     await set_tenant_tier("brohouse", "PRO", db_path=TEST_DB)
@@ -112,4 +112,4 @@ async def test_capacity_checks():
 
     can_add_b3, err_b3 = await check_can_add_branch(3, "brohouse", db_path=TEST_DB)
     assert can_add_b3 is False
-    assert "ENTERPRISE" in err_b3
+    assert "ULTRA" in err_b3
