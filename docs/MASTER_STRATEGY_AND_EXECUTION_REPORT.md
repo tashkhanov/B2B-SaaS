@@ -134,7 +134,7 @@ database.py     prompts.py      bot/handlers.py  services/*.py    web_app.py
 
 ---
 
-## 6. ПОЛНАЯ ХРОНОЛОГИЯ КОММИТОВ В GIT (12 ВЕХ)
+## 6. ПОЛНАЯ ХРОНОЛОГИЯ КОММИТОВ В GIT (14 ВЕХ)
 
 | № | Хэш коммита | Тип | Описание изменений |
 |---|:---:|:---:|---|
@@ -150,6 +150,8 @@ database.py     prompts.py      bot/handlers.py  services/*.py    web_app.py
 | 10 | `50c583a` | `docs` | Архитектурный отчет White-Label и опросник онбординга для владельцев салонов |
 | 11 | `2c947f3` | `feat(barber)` | Ручная запись клиентов в кабинете мастера, внедрение тарифа ULTRA |
 | 12 | `db99420` | `refactor(tiers)` | Очистка названий тарифов до идеальной триады: START, PRO, ULTRA |
+| 13 | `5110df4` | `fix(barber)` | Стили модального окна, `cursor-pointer`, экспорт функций и cache-busting для ПК |
+| 14 | `3eca5f2` | `fix(branding)` | Брендинг `Powered by Khan` со ссылкой `https://t.me/asatkhanov` и многоуровневая проверка занятости слотов |
 
 ---
 
