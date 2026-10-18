@@ -46,7 +46,7 @@ def build_winback_keyboard(base_url_override: Optional[str] = None) -> InlineKey
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="💈 Записаться в Brohouse (TMA)",
+                        text=f"💈 Записаться в {settings.SALON_SHORT_NAME} (TMA)",
                         web_app=WebAppInfo(url=f"{base_url}/book"),
                     )
                 ]
@@ -91,11 +91,11 @@ async def check_and_send_2h_reminders(bot: Bot, db_path: Optional[str] = None) -
             client_name = booking.get("full_name") or "Дорогой клиент"
             booking_time = booking.get("booking_time") or "сегодня"
             service = booking.get("service") or "Стрижка"
-            barber = booking.get("barber_name") or "Мастер Brohouse"
-            branch = booking.get("branch_name") or "Brohouse"
+            barber = booking.get("barber_name") or f"Мастер {settings.SALON_SHORT_NAME}"
+            branch = booking.get("branch_name") or settings.SALON_SHORT_NAME
 
             text = (
-                f"💈 **Напоминаем о вашем визите в Brohouse!**\n\n"
+                f"💈 **Напоминаем о вашем визите в {settings.SALON_SHORT_NAME}!**\n\n"
                 f"👤 Клиент: **{client_name}**\n"
                 f"⏰ Время визита: **{booking_time}** (через ~2 часа)\n"
                 f"✂️ Услуга: {service}\n"
@@ -150,7 +150,7 @@ async def check_and_send_winback_pushes(bot: Bot, db_path: Optional[str] = None)
             first_name = client_name.split()[0] if client_name else "Ака"
 
             text = (
-                f"💈 **{first_name}, прошло 25 дней со стрижки в Brohouse!**\n\n"
+                f"💈 **{first_name}, прошло 25 дней со стрижки в {settings.SALON_SHORT_NAME}!**\n\n"
                 f"Самое время освежить образ, подравнять контуры бороды и отдохнуть в мужской атмосфере. ✂️\n\n"
                 f"Ваш барбер готов вас принять. Забронируйте удобное время за 10 секунд:"
             )

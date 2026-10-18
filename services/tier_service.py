@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Dict, Any, Optional, Tuple, Union
 
 from database import get_tenant_by_id_or_slug, get_tenant_subscription
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +97,12 @@ def get_tier_limits(tier: Union[SubscriptionTier, str, None]) -> Dict[str, Any]:
 
 
 async def get_tenant_tier(
-    tenant_identifier: Any = "brohouse",
+    tenant_identifier: Any = None,
     db_path: Optional[str] = None
 ) -> SubscriptionTier:
     """Получение текущего тарифа заведения из базы данных."""
-    tenant = await get_tenant_by_id_or_slug(tenant_identifier, db_path=db_path)
+    ident = tenant_identifier or getattr(settings, "TENANT_SLUG", "brohouse")
+    tenant = await get_tenant_by_id_or_slug(ident, db_path=db_path)
     if not tenant:
         return SubscriptionTier.PRO
     return normalize_tier(tenant.get("tier", "PRO"))
@@ -108,7 +110,7 @@ async def get_tenant_tier(
 
 async def is_feature_enabled(
     feature_key: str,
-    tenant_identifier: Any = "brohouse",
+    tenant_identifier: Any = None,
     db_path: Optional[str] = None
 ) -> bool:
     """Проверка, разрешена ли конкретная функция на текущем тарифе заведения."""
@@ -119,7 +121,7 @@ async def is_feature_enabled(
 
 async def check_can_add_master(
     current_count: int,
-    tenant_identifier: Any = "brohouse",
+    tenant_identifier: Any = None,
     db_path: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """
@@ -150,7 +152,7 @@ async def check_can_add_master(
 
 async def check_can_add_branch(
     current_count: int,
-    tenant_identifier: Any = "brohouse",
+    tenant_identifier: Any = None,
     db_path: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """

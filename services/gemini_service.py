@@ -294,10 +294,10 @@ class GeminiService:
             contents = self.format_history_to_contents(raw_history=raw_history)
 
             audio_part = types.Part.from_bytes(data=voice_bytes, mime_type=mime_type)
-            role_desc = "AI-Ассистент управляющего" if is_admin else "Brohouse Ассистент"
+            role_desc = "AI-Ассистент управляющего" if is_admin else f"{settings.SALON_SHORT_NAME} Ассистент"
             instruction_part = types.Part.from_text(
                 text=(
-                    f"Ты — {role_desc} мужского салона Brohouse. Получено голосовое сообщение. "
+                    f"Ты — {role_desc} салона {settings.SALON_NAME}. Получено голосовое сообщение. "
                     "1. В поле user_transcript укажи точный распознанный текст слов на русском или узбекском языке. "
                     "2. В поле bot_reply дай ответ с учетом контекста диалога и графика занятых окон. "
                     "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО говорить 'я не слышу голосовые'!"

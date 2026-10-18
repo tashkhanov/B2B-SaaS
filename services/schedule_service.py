@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Tuple, Any
 import re
 import logging
 import random
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +22,12 @@ except Exception:
 # Базовая длительность процедуры в барбершопе по умолчанию (1 час = 60 минут)
 SERVICE_DURATION_MINUTES = 60
 
-# Рабочие часы барбершопа Brohouse
-WORK_START_HOUR = 8   # 08:00
-WORK_END_HOUR = 23    # 23:00
+# Рабочие часы барбершопа
+WORK_START_HOUR = getattr(settings, "WORK_START_HOUR", 8)   # 08:00
+WORK_END_HOUR = getattr(settings, "WORK_END_HOUR", 23)    # 23:00
 
 # Горизонт бронирования вперед
-MAX_BOOKING_DAYS_AHEAD = 7
+MAX_BOOKING_DAYS_AHEAD = getattr(settings, "MAX_BOOKING_DAYS_AHEAD", 7)
 
 DAYS_RU = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 MONTHS_RU = ["", "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]

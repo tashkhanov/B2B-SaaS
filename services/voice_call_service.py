@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from services.tier_service import is_feature_enabled
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +77,13 @@ class VoiceCallService:
         if speech_text:
             low = speech_text.lower()
             if any(w in low for w in ["да", "буду", "подтверждаю", "приду", "albatta", "kelaman"]):
-                response_text = "Отлично! Ваша бронь подтверждена. Ждем вас в мужском салоне Brohouse!"
+                response_text = f"Отлично! Ваша бронь подтверждена. Ждем вас в {settings.SALON_TYPE} {settings.SALON_SHORT_NAME}!"
                 action = "hangup"
             elif any(w in low for w in ["нет", "отмен", "не могу", "не смогу", "перенес", "yo'q", "kelolmayman", "bekor"]):
                 response_text = "Понял вас. Мы освободили это время. Вы можете записаться на другое время в нашем боте!"
                 action = "hangup"
             else:
-                response_text = "Вас понял. До скорой встречи в Brohouse!"
+                response_text = f"Вас понял. До скорой встречи в {settings.SALON_SHORT_NAME}!"
 
         return {
             "ok": True,
