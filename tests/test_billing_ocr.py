@@ -43,9 +43,8 @@ async def test_billing_subscription_info_endpoint(monkeypatch):
         data = await res.json()
         assert data["ok"] is True
         assert "pricing" in data
-        assert "payme_link" in data["pricing"]
-        assert "click_link" in data["pricing"]
         assert "card_display" in data["pricing"]
+        assert "card_holder" in data["pricing"]
         assert data["pricing"]["amount"] == 500000
 
     finally:

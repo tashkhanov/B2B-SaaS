@@ -68,6 +68,7 @@ from services.schedule_service import (
 )
 from services.billing_service import calculate_subscription_status
 from services.tier_service import (
+    SubscriptionTier,
     get_tenant_tier,
     get_tier_limits,
     is_feature_enabled,
@@ -1770,6 +1771,10 @@ async def handle_super_sync_subscription(request: web.Request) -> web.Response:
     if "monthly_fee" in data:
         fee_str = str(int(data["monthly_fee"]))
         await set_salon_setting("subscription_price", fee_str)
+    if "tier" in data:
+        t_val = str(data["tier"]).strip().upper()
+        if t_val in ("START", "PRO", "ENTERPRISE"):
+            updates["tier"] = t_val
 
     if updates:
         await update_tenant_subscription(tenant_id, updates)
@@ -1793,6 +1798,9 @@ async def handle_get_subscription_info(request: web.Request) -> web.Response:
         tenants = await get_all_tenants()
         tenant = tenants[0] if tenants else None
 
+    tier = await get_tenant_tier("brohouse") if tenant else SubscriptionTier.PRO
+    limits = get_tier_limits(tier)
+
     now_dt = get_now_tashkent().replace(tzinfo=None)
     status, info = calculate_subscription_status(tenant, now=now_dt) if tenant else (None, {})
 
@@ -1802,13 +1810,11 @@ async def handle_get_subscription_info(request: web.Request) -> web.Response:
     card_holder = settings_dict.get("p2p_card_holder", "Akmal A.")
     amount = int(settings_dict.get("subscription_price", "500000"))
 
-    # P2P-ссылки Payme и Click
-    payme_link = f"https://payme.uz/fallback/pay/{card_number}?amount={amount * 100}"
-    click_link = f"https://my.click.uz/clickp2p/{card_number}?amount={amount}"
-
     return web.json_response({
         "ok": True,
         "tenant": tenant,
+        "tier": tier.value,
+        "tier_label": limits.get("label", tier.value),
         "status": status.value if status else "active",
         "info": info,
         "pricing": {
@@ -1817,8 +1823,6 @@ async def handle_get_subscription_info(request: web.Request) -> web.Response:
             "formatted_amount": f"{amount:,} сум".replace(",", " "),
             "card_display": raw_card,
             "card_holder": card_holder,
-            "payme_link": payme_link,
-            "click_link": click_link,
         }
     })
 

@@ -308,11 +308,11 @@
           <div class="flex items-center justify-between">
             <div>
               <div class="text-[11px] font-semibold text-accent uppercase tracking-wider">Тарифный план</div>
-              <div class="text-sm font-bold text-white mt-0.5">Brohouse Enterprise Pro</div>
+              <div id="billing-tier-name" class="text-sm font-bold text-white mt-0.5">PRO BUSINESS</div>
             </div>
             <div class="text-right">
               <div class="text-[11px] text-gray-400">Стоимость</div>
-              <div id="billing-price-display" class="text-xs font-semibold text-white">1 000 000 сум / мес</div>
+              <div id="billing-price-display" class="text-xs font-semibold text-white">1 190 000 сум / мес</div>
             </div>
           </div>
 
@@ -332,11 +332,10 @@
         <div class="bg-surface border border-surfaceBorder rounded-xl p-3.5 space-y-3 text-xs">
           <div class="text-[11px] font-semibold text-accent uppercase tracking-wider flex items-center justify-between">
             <span>Продление лицензии (+30 дней)</span>
-            <span class="text-[10px] font-normal text-gray-400">Без комиссии</span>
           </div>
 
           <p class="text-gray-300 text-[11px] leading-relaxed">
-            Нажмите кнопку для быстрого перевода через мобильный банк или скопируйте номер карты:
+            Скопируйте номер карты для оплаты в любом банковском приложении:
           </p>
 
           <div class="p-2.5 rounded-lg bg-bgDark border border-surfaceBorder flex items-center justify-between">
@@ -348,21 +347,6 @@
             <button type="button" onclick="copyCardNumber()" class="py-1 px-2.5 rounded-md bg-surface hover:bg-surfaceBorder border border-surfaceBorder text-gray-300 hover:text-white text-[11px] font-medium transition active:scale-95">
               Копировать
             </button>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2 pt-1">
-            <a id="billing-payme-btn" href="#" target="_blank" rel="noopener noreferrer" class="py-2.5 px-3 rounded-xl bg-[#00CCCC]/20 hover:bg-[#00CCCC]/30 border border-[#00CCCC]/40 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition active:scale-95">
-              <span>Payme P2P</span>
-              <svg class="w-3.5 h-3.5 text-[#00CCCC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
-            </a>
-            <a id="billing-click-btn" href="#" target="_blank" rel="noopener noreferrer" class="py-2.5 px-3 rounded-xl bg-[#0073FF]/20 hover:bg-[#0073FF]/30 border border-[#0073FF]/40 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition active:scale-95">
-              <span>Click P2P</span>
-              <svg class="w-3.5 h-3.5 text-[#0073FF]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
-            </a>
           </div>
         </div>
 

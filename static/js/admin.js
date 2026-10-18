@@ -677,6 +677,8 @@ async function deleteService() {
   } catch (e) {
     alert('Ошибка при удалении');
   }
+}
+
 // ==================== 3. БАРБЕРЫ (BARBERS MANAGEMENT & CAPACITY) ====================
 let currentTierConfig = null;
 
@@ -1081,6 +1083,13 @@ async function fetchBillingInfo() {
       }
     }
 
+    if (data.tier_label || (data.tenant && data.tenant.tier)) {
+      const tierNameElem = document.getElementById('billing-tier-name');
+      if (tierNameElem) {
+        tierNameElem.textContent = data.tier_label || data.tenant.tier;
+      }
+    }
+
     if (data.tenant) {
       const expElem = document.getElementById('billing-expires-at');
       if (expElem) expElem.textContent = data.tenant.expires_at ? data.tenant.expires_at.slice(0, 10) : '—';
@@ -1101,12 +1110,6 @@ async function fetchBillingInfo() {
 
       const holderElem = document.getElementById('billing-card-holder');
       if (holderElem) holderElem.textContent = data.pricing.card_holder;
-
-      const paymeBtn = document.getElementById('billing-payme-btn');
-      if (paymeBtn && data.pricing.payme_link) paymeBtn.href = data.pricing.payme_link;
-
-      const clickBtn = document.getElementById('billing-click-btn');
-      if (clickBtn && data.pricing.click_link) clickBtn.href = data.pricing.click_link;
     }
 
     if (loading) loading.classList.add('hidden');
