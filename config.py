@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     SUPER_ADMIN_CHAT_ID: Optional[int] = None
     SUPER_ADMIN_PASSWORD: str = ""
 
+    # Eskiz SMS (Тариф ENTERPRISE)
+    ESKIZ_EMAIL: str = ""
+    ESKIZ_PASSWORD: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

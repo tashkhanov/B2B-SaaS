@@ -80,9 +80,16 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 work_days TEXT DEFAULT '0,1,2,3,4,5,6',
                 is_working_today INTEGER DEFAULT 1,
                 is_active INTEGER DEFAULT 1,
+                is_vip INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+
+        # Миграция колонок barbers (is_vip)
+        cursor = await db.execute("PRAGMA table_info(barbers);")
+        barber_cols = [row[1] for row in await cursor.fetchall()]
+        if "is_vip" not in barber_cols:
+            await db.execute("ALTER TABLE barbers ADD COLUMN is_vip INTEGER DEFAULT 0;")
 
         # 4. Таблица филиалов барбершопа (Branches)
         await db.execute("""
@@ -114,6 +121,9 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 service_id INTEGER DEFAULT NULL,
                 branch_id INTEGER DEFAULT 1,
                 branch_name TEXT DEFAULT 'Миллий бог',
+                reminder_2h_sent INTEGER DEFAULT 0,
+                client_confirmed INTEGER DEFAULT 0,
+                winback_sent INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -132,6 +142,9 @@ async def init_db(db_path: Optional[str] = None) -> None:
             ("service_id", "INTEGER", "DEFAULT NULL"),
             ("branch_id", "INTEGER", "DEFAULT 1"),
             ("branch_name", "TEXT", "DEFAULT 'Миллий бог'"),
+            ("reminder_2h_sent", "INTEGER", "DEFAULT 0"),
+            ("client_confirmed", "INTEGER", "DEFAULT 0"),
+            ("winback_sent", "INTEGER", "DEFAULT 0"),
         ]:
             if col_name not in columns:
                 await db.execute(f"ALTER TABLE bookings ADD COLUMN {col_name} {col_type} {col_def};")
@@ -223,18 +236,21 @@ async def init_db(db_path: Optional[str] = None) -> None:
         barbers_count = (await cursor.fetchone())[0]
         if barbers_count == 0:
             default_barbers = [
-                ("Mr. Akmal", "Директор / Шеф-мастер", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
-                ("Mr. Dilshod", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
-                ("Ismailov Abbos", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
-                ("Tursunov Nodir", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1),
+                ("Mr. Akmal", "Директор / Шеф-мастер", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 1),
+                ("Mr. Dilshod", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 0),
+                ("Ismailov Abbos", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 0),
+                ("Tursunov Nodir", "Стилист", "+998 97 012-55-55", None, "0,1,2,3,4,5,6", 1, 1, 0),
             ]
             await db.executemany(
                 """
-                INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active, is_vip)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 default_barbers
             )
+        else:
+            # Гарантируем разметку VIP для Шеф-мастера / Директора
+            await db.execute("UPDATE barbers SET is_vip = 1 WHERE name LIKE '%Akmal%' OR role_title LIKE '%Шеф%' OR role_title LIKE '%Директор%';")
 
         # 5. Таблица подписок салонов (Billing / Multi-tenant SaaS / Kill Switch)
         await db.execute("""
@@ -433,6 +449,28 @@ async def get_branch_by_id(branch_id: int, db_path: Optional[str] = None) -> Opt
             return dict(row) if row else None
 
 
+async def create_branch(
+    name: str,
+    address: str,
+    landmark: Optional[str] = "",
+    phone: str = "+998 97 012-55-55",
+    is_active: int = 1,
+    db_path: Optional[str] = None
+) -> int:
+    """Создание нового филиала салона."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute(
+            """
+            INSERT INTO branches (name, address, landmark, phone, is_active)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (name.strip(), address.strip(), landmark.strip() if landmark else "", phone.strip(), is_active)
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
 # =============================================================================
 # УПРАВЛЕНИЕ УСЛУГАМИ (SERVICES CRUD)
 # =============================================================================
@@ -566,6 +604,25 @@ async def get_barber_by_telegram_id(telegram_id: int, db_path: Optional[str] = N
             return dict(row) if row else None
 
 
+async def get_barber_by_id(barber_id: int, db_path: Optional[str] = None) -> Optional[Dict]:
+    """Получение информации о мастере по его ID."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM barbers WHERE id = ?", (barber_id,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def set_barber_vip_status(barber_id: int, is_vip: int, db_path: Optional[str] = None) -> bool:
+    """Установка VIP-статуса мастера (1=требует ручного подтверждения директором, 0=автопилот)."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute("UPDATE barbers SET is_vip = ? WHERE id = ?", (is_vip, barber_id))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def create_barber(
     name: str,
     role_title: str = "Барбер",
@@ -574,6 +631,7 @@ async def create_barber(
     work_days: str = "0,1,2,3,4,5,6",
     is_working_today: int = 1,
     is_active: int = 1,
+    is_vip: int = 0,
     db_path: Optional[str] = None
 ) -> int:
     """Создание нового мастера администратором."""
@@ -581,10 +639,10 @@ async def create_barber(
     async with aiosqlite.connect(target_db) as db:
         cursor = await db.execute(
             """
-            INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO barbers (name, role_title, phone, telegram_id, work_days, is_working_today, is_active, is_vip)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (name.strip(), role_title.strip(), phone, telegram_id, work_days, is_working_today, is_active)
+            (name.strip(), role_title.strip(), phone, telegram_id, work_days, is_working_today, is_active, is_vip)
         )
         await db.commit()
         return cursor.lastrowid
@@ -599,20 +657,32 @@ async def update_barber(
     work_days: str = "0,1,2,3,4,5,6",
     is_working_today: int = 1,
     is_active: int = 1,
+    is_vip: Optional[int] = None,
     db_path: Optional[str] = None
 ) -> bool:
     """Обновление карточки мастера."""
     target_db = get_db_path(db_path)
     async with aiosqlite.connect(target_db) as db:
-        cursor = await db.execute(
-            """
-            UPDATE barbers 
-            SET name = ?, role_title = ?, phone = ?, telegram_id = ?, 
-                work_days = ?, is_working_today = ?, is_active = ?
-            WHERE id = ?
-            """,
-            (name.strip(), role_title.strip(), phone, telegram_id, work_days, is_working_today, is_active, barber_id)
-        )
+        if is_vip is not None:
+            cursor = await db.execute(
+                """
+                UPDATE barbers 
+                SET name = ?, role_title = ?, phone = ?, telegram_id = ?, 
+                    work_days = ?, is_working_today = ?, is_active = ?, is_vip = ?
+                WHERE id = ?
+                """,
+                (name.strip(), role_title.strip(), phone, telegram_id, work_days, is_working_today, is_active, is_vip, barber_id)
+            )
+        else:
+            cursor = await db.execute(
+                """
+                UPDATE barbers 
+                SET name = ?, role_title = ?, phone = ?, telegram_id = ?, 
+                    work_days = ?, is_working_today = ?, is_active = ?
+                WHERE id = ?
+                """,
+                (name.strip(), role_title.strip(), phone, telegram_id, work_days, is_working_today, is_active, barber_id)
+            )
         await db.commit()
         return cursor.rowcount > 0
 
@@ -763,7 +833,8 @@ async def get_all_bookings(db_path: Optional[str] = None) -> List[Dict]:
         async with db.execute(
             """
             SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-                   barber_id, barber_name, service_id, branch_id, branch_name, created_at 
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at,
+                   reminder_2h_sent, client_confirmed, winback_sent
             FROM bookings ORDER BY id DESC
             """
         ) as cursor:
@@ -891,6 +962,165 @@ async def cancel_user_booking(user_id: int, booking_id: Optional[int] = None, db
         await db.commit()
         booking["status"] = "cancelled"
         return booking
+
+
+async def get_bookings_due_for_2h_reminder(
+    window_start_minutes: int = 105,
+    window_end_minutes: int = 135,
+    db_path: Optional[str] = None
+) -> List[Dict]:
+    """
+    Выборка активных записей, до начала которых осталось примерно 2 часа
+    (по умолчанию окно от 105 до 135 минут), которым напоминание еще не отправлялось.
+    """
+    from services.schedule_service import parse_booking_datetime, get_now_tashkent
+
+    target_db = get_db_path(db_path)
+    now = get_now_tashkent()
+    due_bookings = []
+
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT * FROM bookings 
+            WHERE status IN ('new', 'confirmed') 
+              AND (reminder_2h_sent IS NULL OR reminder_2h_sent = 0)
+              AND booking_time IS NOT NULL AND booking_time != ''
+            ORDER BY id ASC
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        for row in rows:
+            booking = dict(row)
+            raw_time = booking.get("booking_time") or ""
+            dt = parse_booking_datetime(raw_time)
+            if dt:
+                diff_sec = (dt - now).total_seconds()
+                diff_min = diff_sec / 60.0
+                if window_start_minutes <= diff_min <= window_end_minutes:
+                    due_bookings.append(booking)
+
+    return due_bookings
+
+
+async def mark_booking_reminder_sent(booking_id: int, db_path: Optional[str] = None) -> bool:
+    """Отметка об отправке 2-часового пуша клиенту."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute(
+            "UPDATE bookings SET reminder_2h_sent = 1 WHERE id = ?",
+            (booking_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def confirm_booking_by_client(booking_id: int, db_path: Optional[str] = None) -> bool:
+    """Подтверждение явки клиентом по кнопке «Буду вовремя ✅»."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute(
+            "UPDATE bookings SET client_confirmed = 1, status = 'confirmed' WHERE id = ?",
+            (booking_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def cancel_booking_by_client(booking_id: int, db_path: Optional[str] = None) -> bool:
+    """Отмена записи клиентом по кнопке «Не смогу прийти ❌»."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute(
+            "UPDATE bookings SET status = 'cancelled' WHERE id = ?",
+            (booking_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_clients_due_for_winback(
+    days_threshold: int = 25,
+    db_path: Optional[str] = None,
+    days_ago: Optional[int] = None,
+) -> List[Dict]:
+    """
+    Выборка клиентов для повторного вовлечения (Win-Back):
+    1. Последняя запись завершена ('completed') не менее days_threshold дней назад.
+    2. Клиенту еще не отправлялся winback-пуш по этой записи (winback_sent = 0).
+    3. У клиента нет никаких активных будущих записей ('new', 'confirmed', 'pending_vip').
+    """
+    from services.schedule_service import parse_booking_datetime, get_now_tashkent, TASHKENT_TZ
+
+    effective_threshold = days_ago if days_ago is not None else days_threshold
+    target_db = get_db_path(db_path)
+    now = get_now_tashkent()
+    due_clients = []
+
+    async with aiosqlite.connect(target_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT * FROM bookings
+            WHERE status = 'completed'
+              AND (winback_sent IS NULL OR winback_sent = 0)
+              AND user_id IS NOT NULL AND user_id > 0
+            ORDER BY id DESC
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        seen_users = set()
+        for row in rows:
+            booking = dict(row)
+            uid = booking["user_id"]
+            if uid in seen_users:
+                continue
+
+            raw_time = booking.get("booking_time") or ""
+            dt = parse_booking_datetime(raw_time)
+            if not dt and booking.get("created_at"):
+                try:
+                    dt = datetime.fromisoformat(str(booking["created_at"]).replace("Z", "+00:00"))
+                    if not dt.tzinfo:
+                        dt = dt.replace(tzinfo=TASHKENT_TZ)
+                except Exception:
+                    dt = None
+
+            if not dt:
+                continue
+
+            diff_days = (now - dt).total_seconds() / 86400.0
+            if diff_days >= effective_threshold:
+                async with db.execute(
+                    """
+                    SELECT id FROM bookings
+                    WHERE user_id = ? AND status IN ('new', 'confirmed', 'pending_vip')
+                    LIMIT 1
+                    """,
+                    (uid,)
+                ) as active_cur:
+                    has_active = await active_cur.fetchone()
+
+                if not has_active:
+                    seen_users.add(uid)
+                    due_clients.append(booking)
+
+    return due_clients
+
+
+async def mark_client_winback_sent(booking_id: int, db_path: Optional[str] = None) -> bool:
+    """Отметка об отправке winback-пуша клиенту (по booking_id или user_id)."""
+    target_db = get_db_path(db_path)
+    async with aiosqlite.connect(target_db) as db:
+        cursor = await db.execute(
+            "UPDATE bookings SET winback_sent = 1 WHERE id = ? OR user_id = ?",
+            (booking_id, booking_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def find_booking_by_client_name(query: str, db_path: Optional[str] = None) -> Optional[Dict]:

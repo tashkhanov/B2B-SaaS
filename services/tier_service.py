@@ -33,6 +33,9 @@ TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
         "has_smart_reminders": False,     # Без пушей за 2 часа
         "has_winback_pushes": False,      # Без возврата через 25 дней
         "has_custom_tma_brand": False,    # Базовый шаблон без кастомного бренда
+        "has_promo_discount": False,      # Без акции -30%
+        "has_vip_protection": False,      # Без ручного согласования VIP-записей
+        "has_sms_eskiz": False,           # Без SMS-шлюза
         "has_voice_call_agent": False,    # Без телефонного робота
     },
     SubscriptionTier.PRO: {
@@ -45,7 +48,10 @@ TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
         "has_voice_ai": True,             # Текст + Голос (Узб/Рус)
         "has_smart_reminders": True,      # Пуши за 2ч до визита
         "has_winback_pushes": True,       # Автовозврат через 25 дней
-        "has_custom_tma_brand": True,     # Dark Gold + лого + скидка -30%
+        "has_custom_tma_brand": True,     # Dark Gold + логотипы Brohouse
+        "has_promo_discount": True,       # Фирменная акция -30%
+        "has_vip_protection": True,       # Защита графика Mr. Akmal (ручное подтверждение)
+        "has_sms_eskiz": False,
         "has_voice_call_agent": False,
     },
     SubscriptionTier.ENTERPRISE: {
@@ -59,6 +65,9 @@ TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
         "has_smart_reminders": True,
         "has_winback_pushes": True,
         "has_custom_tma_brand": True,
+        "has_promo_discount": True,
+        "has_vip_protection": True,
+        "has_sms_eskiz": True,            # SMS через Eskiz.uz
         "has_voice_call_agent": True,     # Голосовой агент по номеру телефона
     },
 }

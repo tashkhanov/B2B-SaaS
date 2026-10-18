@@ -677,6 +677,124 @@ async function deleteService() {
   } catch (e) {
     alert('Ошибка при удалении');
   }
+// ==================== 3. БАРБЕРЫ (BARBERS MANAGEMENT & CAPACITY) ====================
+let currentTierConfig = null;
+
+async function loadTierConfig() {
+  try {
+    const res = await fetch('/api/config');
+    currentTierConfig = await res.json();
+    return currentTierConfig;
+  } catch (e) {
+    console.warn("Could not load tier config", e);
+    return null;
+  }
+}
+
+async function fetchBarbers() {
+  const loader = document.getElementById('barbers-loading');
+  const list = document.getElementById('barbers-list');
+  if (loader) loader.classList.remove('hidden');
+  if (list) list.classList.add('hidden');
+
+  try {
+    const [barbersRes, cfg] = await Promise.all([
+      fetch('/api/barbers'),
+      loadTierConfig()
+    ]);
+    allBarbers = await barbersRes.json();
+    renderBarbers();
+    updateCapacityUI(allBarbers.length, cfg);
+  } catch (e) {
+    console.error("Ошибка загрузки мастеров:", e);
+  } finally {
+    if (loader) loader.classList.add('hidden');
+    if (list) list.classList.remove('hidden');
+  }
+}
+
+function updateCapacityUI(count, cfg) {
+  const badge = document.getElementById('barbers-capacity-badge');
+  if (!badge || !cfg) return;
+
+  const max = cfg.max_masters || 15;
+  const tierName = cfg.tier || 'PRO';
+  badge.textContent = `Мастера: ${count} / ${max} (${tierName})`;
+  badge.classList.remove('hidden');
+
+  if (count >= max) {
+    badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30';
+  } else {
+    badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-accent/20 text-accent border border-accent/30';
+  }
+}
+
+function handleOpenBarberModalClick() {
+  if (currentTierConfig && allBarbers.length >= (currentTierConfig.max_masters || 15)) {
+    const max = currentTierConfig.max_masters;
+    const tier = currentTierConfig.tier || 'START';
+    if (tier === 'START') {
+      alert(`⚠️ Достигнут лимит тарифа START (максимум ${max} мастеров).\n\nДля подключения до 15 мастеров и 3 филиалов перейдите на тариф PRO BUSINESS.`);
+    } else {
+      alert(`⚠️ Достигнут лимит тарифа ${tier} (максимум ${max} мастеров).`);
+    }
+    return;
+  }
+  openBarberModal();
+}
+
+function renderBarbers() {
+  const list = document.getElementById('barbers-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!allBarbers || allBarbers.length === 0) {
+    list.innerHTML = '<div class="py-6 text-center text-gray-500 text-xs">Мастеров пока нет. Нажмите "+ Добавить".</div>';
+    return;
+  }
+
+  allBarbers.forEach(b => {
+    const card = document.createElement('div');
+    card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-sm';
+
+    const isVip = Boolean(b.is_vip || (b.name && b.name.toLowerCase().includes('akmal')));
+    const vipBadge = isVip ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">👑 VIP График</span>' : '';
+    const isOnShift = Boolean(b.is_working_today !== undefined ? b.is_working_today : b.is_on_shift);
+    const shiftBadge = isOnShift 
+      ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">На смене</span>'
+      : '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-500/20 text-gray-400 border border-gray-500/30">Выходной</span>';
+
+    const tgInfo = b.telegram_id ? `<span class="text-gray-400">TG: ${b.telegram_id}</span>` : '<span class="text-gray-500">TG не привязан</span>';
+
+    card.innerHTML = `
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
+          <span class="w-2 h-2 rounded-full ${isOnShift ? 'bg-emerald-500' : 'bg-gray-600'}"></span>
+          <h4 class="font-semibold text-white text-xs truncate">${escapeHtml(b.name)}</h4>
+          <span class="text-[11px] text-gray-400 font-medium">(${escapeHtml(b.role_title || b.role || 'Барбер')})</span>
+          ${vipBadge}
+          ${shiftBadge}
+        </div>
+        <div class="flex items-center gap-2 text-[11px] text-gray-400">
+          <span>${b.phone ? escapeHtml(b.phone) : 'Телефон не указан'}</span>
+          <span>•</span>
+          <span>${tgInfo}</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 flex-shrink-0">
+        <button onclick="toggleShift(${b.id})" class="px-2 py-1 rounded-lg text-[10px] font-semibold transition active:scale-95 ${isOnShift ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 border border-rose-500/30' : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30'}">
+          ${isOnShift ? 'Снять' : 'На смену'}
+        </button>
+        <button onclick="openBarberModal(${b.id})" class="p-2 rounded-xl bg-surfaceBorder/40 hover:bg-surfaceBorder text-gray-300 hover:text-white transition active:scale-95" title="Редактировать">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
 }
 
 async function toggleShift(barberId) {

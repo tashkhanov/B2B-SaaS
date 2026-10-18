@@ -45,6 +45,7 @@ from database import (
     toggle_tenant_active,
     get_branches,
     get_branch_by_id,
+    create_branch,
     get_salon_setting,
     get_all_salon_settings,
     set_salon_setting,
@@ -66,6 +67,13 @@ from services.schedule_service import (
     is_barber_working_on_date,
 )
 from services.billing_service import calculate_subscription_status
+from services.tier_service import (
+    get_tenant_tier,
+    get_tier_limits,
+    is_feature_enabled,
+    check_can_add_master,
+    check_can_add_branch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -767,12 +775,30 @@ async def handle_auth_login(request: web.Request) -> web.Response:
 
 
 async def handle_get_config(request: web.Request) -> web.Response:
-    """API: Конфигурационные данные для фронтенда (ID администратора и права суперадмина)"""
+    """API: Конфигурационные данные для фронтенда (ID администратора, права суперадмина и лимиты тарифа)"""
     is_super = is_super_admin_authorized(request)
+    tier = await get_tenant_tier("brohouse")
+    limits = get_tier_limits(tier)
+    active_barbers = await get_barbers(active_only=True)
+    active_branches = await get_branches(active_only=True)
+
     return web.json_response({
         "admin_chat_id": settings.ADMIN_CHAT_ID,
         "super_admin_chat_id": getattr(settings, "SUPER_ADMIN_CHAT_ID", None),
         "is_super_admin": is_super,
+        "tier": tier.value,
+        "tier_label": limits["label"],
+        "max_masters": limits["max_masters"],
+        "current_masters_count": len(active_barbers),
+        "max_branches": limits["max_branches"],
+        "current_branches_count": len(active_branches),
+        "has_custom_tma_brand": limits.get("has_custom_tma_brand", False),
+        "has_promo_discount": limits.get("has_promo_discount", False),
+        "has_smart_reminders": limits.get("has_smart_reminders", False),
+        "has_winback_pushes": limits.get("has_winback_pushes", False),
+        "has_vip_protection": limits.get("has_vip_protection", False),
+        "has_sms_eskiz": limits.get("has_sms_eskiz", False),
+        "has_voice_call_agent": limits.get("has_voice_call_agent", False),
     })
 
 
@@ -989,6 +1015,11 @@ async def handle_create_barber(request: web.Request) -> web.Response:
         if not name:
             return web.json_response({"error": "Имя барбера обязательно"}, status=400)
 
+        existing_barbers = await get_barbers(active_only=True)
+        can_add, err_msg = await check_can_add_master(len(existing_barbers))
+        if not can_add:
+            return web.json_response({"ok": False, "error": err_msg, "code": "tier_limit_reached"}, status=403)
+
         b_id = await create_barber(
             name=name,
             role_title=role_title,
@@ -1150,6 +1181,32 @@ async def handle_get_branches(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_create_branch(request: web.Request) -> web.Response:
+    """API: Добавление нового филиала с проверкой лимита тарифа"""
+    if not is_admin_or_super(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        existing_branches = await get_branches(active_only=True)
+        can_add, err_msg = await check_can_add_branch(len(existing_branches))
+        if not can_add:
+            return web.json_response({"ok": False, "error": err_msg, "code": "tier_limit_reached"}, status=403)
+
+        data = await request.json()
+        name = (data.get("name") or "").strip()
+        address = (data.get("address") or "").strip()
+        landmark = (data.get("landmark") or "").strip()
+        phone = (data.get("phone") or "+998 97 012-55-55").strip()
+
+        if not name or not address:
+            return web.json_response({"error": "Название и адрес обязательны"}, status=400)
+
+        branch_id = await create_branch(name=name, address=address, landmark=landmark, phone=phone)
+        return web.json_response({"ok": True, "id": branch_id})
+    except Exception as e:
+        logger.error(f"Ошибка при создании филиала: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 # =============================================================================
 # API БРОНИРОВАНИЙ (BOOKINGS)
 # =============================================================================
@@ -1256,6 +1313,29 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             final_barber_id = barber_id
             final_barber_name = barber_name
 
+        # Проверка защиты VIP-графика (Mr. Akmal / Директор / Шеф)
+        is_vip_master = False
+        if assigned_barber:
+            is_vip_master = bool(
+                assigned_barber.get("is_vip")
+                or "akmal" in (assigned_barber.get("name") or "").lower()
+                or "шеф" in (assigned_barber.get("role_title") or "").lower()
+                or "директор" in (assigned_barber.get("role_title") or "").lower()
+            )
+        elif final_barber_id:
+            b_obj = await get_barber_by_id(final_barber_id)
+            if b_obj:
+                is_vip_master = bool(
+                    b_obj.get("is_vip")
+                    or "akmal" in (b_obj.get("name") or "").lower()
+                    or "шеф" in (b_obj.get("role_title") or "").lower()
+                    or "директор" in (b_obj.get("role_title") or "").lower()
+                )
+                assigned_barber = b_obj
+
+        has_vip_protection = await is_feature_enabled("has_vip_protection")
+        booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "new"
+
         # Сохранение в базу
         try:
             booking_id = await save_booking(
@@ -1266,7 +1346,7 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 phone=phone,
                 service=service,
                 booking_time=normalized_time,
-                status="new",
+                status=booking_status,
                 barber_id=final_barber_id,
                 barber_name=final_barber_name,
                 service_id=service_id,
@@ -1281,8 +1361,61 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 "message": str(bce)
             }, status=409)
 
-
         bot = request.app.get(BOT_KEY)
+
+        if booking_status == "pending_vip":
+            # Уведомление Шефу (в личку или админу)
+            vip_target_chat = (assigned_barber.get("telegram_id") if assigned_barber else None) or settings.ADMIN_CHAT_ID
+            if bot and vip_target_chat:
+                vip_card = (
+                    "👑 **ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ (из Web App)!**\n\n"
+                    f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
+                    f"💈 **Мастер:** {final_barber_name}\n"
+                    f"📍 **Филиал:** {branch_name} ({branch_address})\n"
+                    f"✂️ **Услуга:** {service}\n"
+                    f"⏰ **Время:** {normalized_time}\n"
+                    f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
+                    "👑 _На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование._"
+                )
+                vip_kb = InlineKeyboardMarkup(
+                    inline_keyboard=[[
+                        InlineKeyboardButton(text="Принять ✅", callback_data=f"vip_accept:{booking_id}"),
+                        InlineKeyboardButton(text="Отклонить ❌", callback_data=f"vip_reject:{booking_id}"),
+                    ]]
+                )
+                try:
+                    await bot.send_message(chat_id=vip_target_chat, text=vip_card, reply_markup=vip_kb, parse_mode="Markdown")
+                except Exception as e:
+                    logger.warning("Failed to send VIP request to chef: %s", e)
+
+            # Сообщение клиенту в личку в Telegram
+            if bot and user_id and user_id != 0:
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"👑 **Ваш запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!**\n\n"
+                            f"⏰ **Время:** {normalized_time}\n"
+                            f"✂️ **Услуга:** {service}\n"
+                            f"📍 **Филиал:** {branch_name}\n\n"
+                            "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning("Failed to notify client on VIP booking: %s", e)
+
+            return web.json_response({
+                "ok": True,
+                "id": booking_id,
+                "booking_time": normalized_time,
+                "barber_id": final_barber_id,
+                "barber_name": final_barber_name,
+                "branch_id": branch_id,
+                "branch_name": branch_name,
+                "status": "pending_vip",
+                "message": "Запрос отправлен на согласование Шеф-мастеру",
+            })
 
         # 1. Мгновенное подтверждение клиенту в личный чат Telegram
         if bot and user_id and user_id != 0:
@@ -1355,6 +1488,7 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             "barber_name": final_barber_name,
             "branch_id": branch_id,
             "branch_name": branch_name,
+            "status": "new",
         })
 
     except Exception as e:
@@ -1836,6 +1970,7 @@ def create_web_app(bot: Bot = None) -> web.Application:
 
     # Филиалы
     app.router.add_get("/api/branches", handle_get_branches)
+    app.router.add_post("/api/branches", handle_create_branch)
 
     # Аутентификация
     app.router.add_post("/api/auth/login", handle_auth_login)

@@ -186,11 +186,17 @@ async def main() -> None:
     billing_task = asyncio.create_task(run_billing_notifier(bot))
     logger.info("Фоновая служба проверки подписок и Kill Switch успешно запущена.")
 
+    # 10. Запуск фонового воркера удержания клиентов (напоминания за 2ч и Win-Back 25 дней)
+    from services.retention_service import run_retention_notifier
+    retention_task = asyncio.create_task(run_retention_notifier(bot))
+    logger.info("Фоновая служба удержания клиентов (Smart Reminders & Win-Back) успешно запущена.")
+
     try:
         await dp.start_polling(bot)
     finally:
         logger.info("Остановка бота и веб-сервера...")
         billing_task.cancel()
+        retention_task.cancel()
         await web_runner.cleanup()
         await bot.session.close()
 

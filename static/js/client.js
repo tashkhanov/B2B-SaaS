@@ -126,6 +126,25 @@ async function loadSettings() {
   } catch (e) {
     console.warn("Could not load dynamic settings:", e);
   }
+
+  // Загрузка конфигурации тарифа для feature-gating в клиентском TMA
+  try {
+    const cfgRes = await fetch('/api/config');
+    const config = await cfgRes.json();
+    if (config) {
+      window._appConfig = config;
+      const promoBanner = document.getElementById('promo-discount-banner');
+      if (promoBanner) {
+        if (config.has_promo_discount === false) {
+          promoBanner.classList.add('hidden');
+        } else {
+          promoBanner.classList.remove('hidden');
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Could not load tier config in client:", e);
+  }
 }
 
 window.addEventListener('DOMContentLoaded', async () => {

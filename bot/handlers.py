@@ -42,6 +42,8 @@ from database import (
     update_receipt_log_status,
     get_receipt_log_by_id,
     extend_tenant_subscription_30_days,
+    confirm_booking_by_client,
+    cancel_booking_by_client,
 )
 
 from services.gemini_service import GeminiService
@@ -1095,6 +1097,20 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             branch_name=getattr(client_action, "branch_name", None),
         )
 
+        # Определение VIP-мастера и защиты графика (Mr. Akmal / Директор / Шеф)
+        barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None) if final_barber_id else None
+        is_vip_master = False
+        if barber_obj:
+            is_vip_master = bool(
+                barber_obj.get("is_vip")
+                or "akmal" in (barber_obj.get("name") or "").lower()
+                or "шеф" in (barber_obj.get("role_title") or "").lower()
+                or "директор" in (barber_obj.get("role_title") or "").lower()
+            )
+
+        has_vip_protection = await is_feature_enabled("has_vip_protection")
+        booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "new"
+
         # Сохранение в базу
         booking_id = await save_booking(
             user_id=user_id,
@@ -1104,13 +1120,56 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             phone=phone,
             service=canonical_service,
             booking_time=booking_time,
-            status="new",
+            status=booking_status,
             barber_id=final_barber_id,
             barber_name=final_barber_name,
             service_id=matched_service_id,
             branch_id=target_branch_id,
             branch_name=target_branch_name,
         )
+
+        if booking_status == "pending_vip":
+            # Уведомление Шеф-мастеру (в личку при наличии telegram_id, иначе в ADMIN_CHAT_ID)
+            vip_target_chat = (barber_obj.get("telegram_id") if barber_obj else None) or settings.ADMIN_CHAT_ID
+            if vip_target_chat:
+                vip_card = (
+                    "👑 **ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ!**\n\n"
+                    f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
+                    f"💈 **Мастер:** {final_barber_name}\n"
+                    f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
+                    f"✂️ **Услуга:** {canonical_service}\n"
+                    f"⏰ **Время:** {booking_time}\n"
+                    f"📞 **Телефон:** {phone or 'Не указан'}\n"
+                    f"🆔 **Telegram ID:** `{user_id}`\n\n"
+                    "👑 _На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование._"
+                )
+                vip_kb = InlineKeyboardMarkup(
+                    inline_keyboard=[[
+                        InlineKeyboardButton(text="Принять ✅", callback_data=f"vip_accept:{booking_id}"),
+                        InlineKeyboardButton(text="Отклонить ❌", callback_data=f"vip_reject:{booking_id}"),
+                    ]]
+                )
+                try:
+                    await message.bot.send_message(
+                        chat_id=vip_target_chat,
+                        text=vip_card,
+                        parse_mode="Markdown",
+                        reply_markup=vip_kb,
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить VIP-запрос шефу: {e}")
+
+            # Клиенту сообщаем о передаче на согласование
+            await message.answer(
+                f"👑 **Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!**\n\n"
+                f"⏰ **Время:** {booking_time}\n"
+                f"✂️ **Услуга:** {canonical_service}\n"
+                f"📍 **Филиал:** {target_branch_name}\n\n"
+                "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
+                parse_mode="Markdown",
+                reply_markup=AI_BUSINESS_KEYBOARD,
+            )
+            return
 
         # Отправляем уведомление администратору в личку
         if settings.ADMIN_CHAT_ID:
@@ -1146,7 +1205,6 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
 
         # Уведомление назначенному барберу в Telegram
         if final_barber_id:
-            barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None)
             if barber_obj and barber_obj.get("telegram_id"):
                 action_kb_barber = InlineKeyboardMarkup(
                     inline_keyboard=[
@@ -1273,6 +1331,275 @@ async def handle_booking_status_callback(callback: CallbackQuery):
         pass
 
     await callback.answer(f"Запись успешно {status_ru.lower()}!")
+
+
+@router.callback_query(F.data.startswith("confirm_visit:"))
+async def handle_confirm_visit_callback(callback: CallbackQuery):
+    """Клиент подтверждает визит за 2 часа до записи по пуш-уведомлению."""
+    try:
+        booking_id = int(callback.data.split(":")[1])
+        booking = await get_booking_by_id(booking_id)
+        if not booking:
+            await callback.answer("Запись не найдена в базе.", show_alert=True)
+            return
+
+        await confirm_booking_by_client(booking_id)
+
+        try:
+            old_text = callback.message.text or ""
+            await callback.message.edit_text(
+                f"{old_text}\n\n✅ **Явка подтверждена!** Мы ждем вас в назначенное время! 💈",
+                reply_markup=None,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+        # Оповещаем мастера или админа
+        client_name = booking.get("full_name") or "Клиент"
+        b_time = booking.get("booking_time") or ""
+        b_name = booking.get("barber_name") or "Мастер"
+        barber_id = booking.get("barber_id")
+
+        alert_text = (
+            f"✅ **Клиент подтвердил явку за 2 часа!**\n\n"
+            f"👤 Клиент: **{client_name}**\n"
+            f"⏰ Время: **{b_time}**\n"
+            f"💈 Мастер: {b_name}\n"
+            f"📍 Филиал: {booking.get('branch_name', 'Brohouse')}"
+        )
+
+        notified = False
+        if barber_id:
+            barber = await get_barber_by_id(barber_id)
+            if barber and barber.get("telegram_id"):
+                try:
+                    await callback.bot.send_message(chat_id=barber["telegram_id"], text=alert_text, parse_mode="Markdown")
+                    notified = True
+                except Exception as e:
+                    logger.warning("Failed to notify barber on confirm_visit: %s", e)
+
+        if not notified and settings.ADMIN_CHAT_ID:
+            try:
+                await callback.bot.send_message(chat_id=settings.ADMIN_CHAT_ID, text=alert_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning("Failed to notify admin on confirm_visit: %s", e)
+
+        await callback.answer("Явка подтверждена! Ждем вас 💈")
+    except Exception as e:
+        logger.error("Error in handle_confirm_visit_callback: %s", e)
+        await callback.answer("Произошла ошибка при подтверждении.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("cancel_visit:"))
+async def handle_cancel_visit_callback(callback: CallbackQuery):
+    """Клиент сообщает, что не сможет прийти (за 2 часа): слот освобождается и предлагается перезапись."""
+    try:
+        booking_id = int(callback.data.split(":")[1])
+        booking = await get_booking_by_id(booking_id)
+        if not booking:
+            await callback.answer("Запись не найдена в базе.", show_alert=True)
+            return
+
+        await cancel_booking_by_client(booking_id)
+
+        base_url = (getattr(settings, "WEBAPP_URL", "") or "").rstrip("/")
+        has_https = base_url.startswith("https://")
+        if has_https:
+            reschedule_kb = InlineKeyboardMarkup(
+                inline_keyboard=[[
+                    InlineKeyboardButton(text="📅 Выбрать другое время (TMA)", web_app=WebAppInfo(url=f"{base_url}/book"))
+                ]]
+            )
+        else:
+            reschedule_kb = InlineKeyboardMarkup(
+                inline_keyboard=[[
+                    InlineKeyboardButton(text="📅 Выбрать другое время", callback_data="open_booking_dialog")
+                ]]
+            )
+
+        try:
+            await callback.message.edit_text(
+                "❌ **Ваша запись была отменена.**\n\n"
+                "Жаль, что у вас не получается прийти! Слот освобожден. "
+                "Если захотите выбрать другое удобное время, нажмите кнопку ниже:",
+                reply_markup=reschedule_kb,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+        # Оповещаем мастера и админа об освободившемся слоте
+        client_name = booking.get("full_name") or "Клиент"
+        b_time = booking.get("booking_time") or ""
+        b_name = booking.get("barber_name") or "Мастер"
+        barber_id = booking.get("barber_id")
+
+        alert_text = (
+            f"⚠️ **Клиент отменил запись за 2 часа!**\n\n"
+            f"👤 Клиент: **{client_name}**\n"
+            f"⏰ Время: **{b_time}** (СЛОТ СВОБОДЕН)\n"
+            f"💈 Мастер: {b_name}\n"
+            f"📍 Филиал: {booking.get('branch_name', 'Brohouse')}\n\n"
+            "💡 _Слот снова доступен для записи других клиентов!_"
+        )
+
+        if barber_id:
+            barber = await get_barber_by_id(barber_id)
+            if barber and barber.get("telegram_id"):
+                try:
+                    await callback.bot.send_message(chat_id=barber["telegram_id"], text=alert_text, parse_mode="Markdown")
+                except Exception as e:
+                    logger.warning("Failed to notify barber on cancel_visit: %s", e)
+
+        if settings.ADMIN_CHAT_ID:
+            try:
+                await callback.bot.send_message(chat_id=settings.ADMIN_CHAT_ID, text=alert_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning("Failed to notify admin on cancel_visit: %s", e)
+
+        await callback.answer("Запись отменена. Слот освобожден.")
+    except Exception as e:
+        logger.error("Error in handle_cancel_visit_callback: %s", e)
+        await callback.answer("Произошла ошибка при отмене записи.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("vip_accept:"))
+async def handle_vip_accept_callback(callback: CallbackQuery):
+    """Шеф-мастер (Mr. Akmal) или админ подтверждает VIP-запись."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    role, barber = await get_user_role(user_id)
+    super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    admin_id = settings.ADMIN_CHAT_ID
+
+    if role not in ("admin", "barber", "super_admin") and user_id not in (admin_id, super_admin_id):
+        await callback.answer("У вас нет прав для подтверждения этой VIP-записи.", show_alert=True)
+        return
+
+    try:
+        booking_id = int(callback.data.split(":")[1])
+        booking = await get_booking_by_id(booking_id)
+        if not booking:
+            await callback.answer("Запись не найдена в базе.", show_alert=True)
+            return
+
+        await update_booking_status(booking_id, "confirmed")
+
+        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Шеф")
+        try:
+            old_text = callback.message.text or ""
+            await callback.message.edit_text(
+                f"{old_text}\n\n✅ **ВИЗИТ ПРИНЯТ ШЕФОМ!** (Подтвердил: {actor_name})",
+                reply_markup=None,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+        # Уведомляем клиента
+        client_tg_id = booking.get("user_id")
+        if client_tg_id and client_tg_id != 0:
+            b_name = booking.get("barber_name") or "Mr. Akmal"
+            b_time = booking.get("booking_time") or ""
+            service = booking.get("service") or "Стрижка"
+            branch = booking.get("branch_name") or "Brohouse"
+            msg = (
+                "👑 **Шеф-мастер ПОДТВЕРДИЛ вашу запись!**\n\n"
+                f"✂️ **Услуга:** {service}\n"
+                f"💈 **Мастер:** {b_name}\n"
+                f"⏰ **Время:** {b_time}\n"
+                f"📍 **Филиал:** {branch}\n\n"
+                "Акмаль ждет вас в назначенное время, ака! 💈"
+            )
+            try:
+                await callback.bot.send_message(chat_id=client_tg_id, text=msg, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning("Failed to notify client on vip_accept: %s", e)
+
+        await callback.answer("VIP-запись подтверждена! Клиент уведомлен.")
+    except Exception as e:
+        logger.error("Error in handle_vip_accept_callback: %s", e)
+        await callback.answer("Произошла ошибка при подтверждении VIP-записи.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("vip_reject:"))
+async def handle_vip_reject_callback(callback: CallbackQuery):
+    """Шеф-мастер (Mr. Akmal) или админ отклоняет VIP-запись."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    role, barber = await get_user_role(user_id)
+    super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    admin_id = settings.ADMIN_CHAT_ID
+
+    if role not in ("admin", "barber", "super_admin") and user_id not in (admin_id, super_admin_id):
+        await callback.answer("У вас нет прав для отклонения этой VIP-записи.", show_alert=True)
+        return
+
+    try:
+        booking_id = int(callback.data.split(":")[1])
+        booking = await get_booking_by_id(booking_id)
+        if not booking:
+            await callback.answer("Запись не найдена в базе.", show_alert=True)
+            return
+
+        await update_booking_status(booking_id, "cancelled")
+
+        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Шеф")
+        try:
+            old_text = callback.message.text or ""
+            await callback.message.edit_text(
+                f"{old_text}\n\n❌ **ВИЗИТ ОТКЛОНЕН ШЕФОМ** (Кем: {actor_name})",
+                reply_markup=None,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+        # Уведомляем клиента с предложением перезаписи
+        client_tg_id = booking.get("user_id")
+        if client_tg_id and client_tg_id != 0:
+            b_name = booking.get("barber_name") or "Mr. Akmal"
+            b_time = booking.get("booking_time") or ""
+            base_url = (getattr(settings, "WEBAPP_URL", "") or "").rstrip("/")
+            has_https = base_url.startswith("https://")
+            if has_https:
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[[
+                        InlineKeyboardButton(text="✂️ Выбрать другое время / мастера", web_app=WebAppInfo(url=f"{base_url}/book"))
+                    ]]
+                )
+            else:
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[[
+                        InlineKeyboardButton(text="✂️ Выбрать другое время", callback_data="open_booking_dialog")
+                    ]]
+                )
+
+            msg = (
+                f"ℹ️ **К сожалению, Шеф-мастер {b_name} не сможет принять вас в назначенное время ({b_time}).**\n\n"
+                "График шефа очень плотный. Пожалуйста, выберите другое удобное окно или запишитесь к любому из наших топ-стилистов:"
+            )
+            try:
+                await callback.bot.send_message(chat_id=client_tg_id, text=msg, reply_markup=kb, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning("Failed to notify client on vip_reject: %s", e)
+
+        await callback.answer("VIP-запись отклонена. Клиент уведомлен.")
+    except Exception as e:
+        logger.error("Error in handle_vip_reject_callback: %s", e)
+        await callback.answer("Произошла ошибка при отклонении VIP-записи.", show_alert=True)
+
+
+@router.callback_query(F.data == "open_booking_dialog")
+async def handle_open_booking_dialog(callback: CallbackQuery):
+    """Подсказка клиенту для начала бронирования через диалог."""
+    await callback.answer()
+    await callback.message.answer(
+        "✂️ Напишите прямо в чат, когда вам удобно прийти и к какому мастеру!\n\n"
+        "Например:\n"
+        "• «Запиши на завтра в 16:00 на стрижку»\n"
+        "• «Хочу к Дильшоду в субботу в 14:00»",
+        reply_markup=None
+    )
 
 
 @router.callback_query(F.data.startswith("approve_receipt:"))
