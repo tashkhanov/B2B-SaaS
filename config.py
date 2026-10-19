@@ -101,6 +101,15 @@ class Settings(BaseSettings):
     ADMIN_CHAT_ID: Optional[int] = None
     DB_NAME: str = "barbershop.db"
 
+    # PostgreSQL 18
+    DB_TYPE: str = "postgres"
+    PG_HOST: str = "127.0.0.1"
+    PG_PORT: int = 5432
+    PG_NAME: str = "b2b_saas"
+    PG_USER: str = "postgres"
+    PG_PASSWORD: str = ""
+    PG_TEST_NAME: str = "b2b_saas_test"
+
     # 6. Telegram Mini App (TMA) & Сервер
     WEBAPP_HOST: str = "0.0.0.0"
     WEBAPP_PORT: int = 8000

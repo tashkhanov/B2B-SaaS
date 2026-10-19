@@ -1,6 +1,7 @@
 aiogram>=3.17.0
 google-genai>=2.3.0
 aiosqlite>=0.21.0
+asyncpg>=0.30.0
 pydantic-settings>=2.8.0
 python-dotenv>=1.0.1
 tzdata>=2025.1

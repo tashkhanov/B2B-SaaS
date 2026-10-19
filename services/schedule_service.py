@@ -181,6 +181,70 @@ def is_booking_past(raw_booking_time: str, grace_minutes: int = SERVICE_DURATION
     return end_time < now
 
 
+def is_barber_vip(barber: Optional[Dict]) -> bool:
+    """Определяет, является ли барбер VIP-мастером с ручным согласованием."""
+    if not barber:
+        return False
+    if barber.get("is_vip") is not None:
+        return bool(barber.get("is_vip"))
+    role = (barber.get("role_title") or "").lower()
+    name = (barber.get("name") or "").lower()
+    return bool("шеф" in role or "директор" in role or "главный" in role or "владелец" in role or "akmal" in name)
+
+
+def resolve_barber_match(
+    query_or_name: Optional[str],
+    barbers: List[Dict],
+    fallback_text: Optional[str] = None
+) -> Optional[Dict]:
+    """
+    Интеллектуальное сопоставление барбера по имени/запросу на русском, узбекском или английском.
+    Поддерживает: 'Akmal', 'mr akmal', 'Mr. Akmal', 'Акмаль', 'акмал', 'Akmalga', 'Akmalning',
+    'Dilshod', 'Дильшод', 'Abbos', 'Аббос', 'Nodir', 'Нодир'.
+    """
+    if not barbers:
+        return None
+
+    def _normalize(text: str) -> str:
+        t = text.lower()
+        replacements = [
+            ("акмаль", "akmal"), ("акмал", "akmal"),
+            ("дильшод", "dilshod"), ("дилшод", "dilshod"),
+            ("аббос", "abbos"), ("исмаилов", "ismailov"),
+            ("нодир", "nodir"), ("турсунов", "tursunov"),
+            ("иброхим", "ibrohim"), ("ибрагим", "ibrohim"),
+            ("жасур", "jasur"), ("сардор", "sardor"),
+        ]
+        for src, dst in replacements:
+            t = t.replace(src, dst)
+        t = re.sub(r"\b(mr\.?|мистер|уста|мастер|барбер)\b", "", t)
+        t = re.sub(r"(ning|ga|ka|qa|ni|dan|da)\b", "", t)
+        return t.strip()
+
+    search_targets = []
+    if query_or_name and query_or_name.strip():
+        search_targets.append(_normalize(query_or_name))
+    if fallback_text and fallback_text.strip():
+        search_targets.append(_normalize(fallback_text))
+
+    for target in search_targets:
+        if not target:
+            continue
+        target_words = set(w for w in re.split(r"\W+", target) if len(w) >= 3)
+        for b in barbers:
+            b_norm = _normalize(b.get("name", ""))
+            b_words = set(w for w in re.split(r"\W+", b_norm) if len(w) >= 3)
+            if b_words & target_words:
+                return b
+            for bw in b_words:
+                if any(bw in tw or tw in bw for tw in target_words):
+                    return b
+            if b_norm and b_norm in target:
+                return b
+
+    return None
+
+
 def is_barber_working_on_date(barber: Dict, target_date: date) -> bool:
     """
     Проверяет, работает ли барбер в указанную дату:
@@ -515,7 +579,9 @@ def build_schedule_context_for_prompt(
         for b in barbers:
             status_text = "на смене" if b.get("is_working_today", 1) else "выходной сегодня"
             role = b.get("role_title") or "Барбер"
-            lines.append(f"- ID {b['id']}: {b['name']} ({role}) — {status_text}")
+            is_vip = is_barber_vip(b)
+            vip_tag = " [👑 VIP-ШЕФ: Требует личного согласования! Не обещай прямую бронь, сообщай что запрос отправлен на личное согласование Шефу]" if is_vip else " [Стандартная автозапись]"
+            lines.append(f"- ID {b['id']}: {b['name']} ({role}) — {status_text}{vip_tag}")
         lines.append("")
 
     # Секция услуг

@@ -12,9 +12,10 @@ ENV/
 # Environment variables
 .env
 
-# SQLite databases
+# SQLite databases & backups
 *.db
 *.sqlite3
+database_sqlite_backup.py
 
 # Pytest / Coverage
 .pytest_cache/

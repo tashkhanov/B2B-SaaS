@@ -33,6 +33,14 @@ function selectBranch(id, name, address, btnEl) {
   if (tg && tg.HapticFeedback) {
     tg.HapticFeedback.selectionChanged();
   }
+
+  // Обновляем список доступных мастеров для выбранного филиала
+  renderBarbersList();
+
+  // Пересчитываем слоты с учетом нового филиала
+  if (selectedDate) {
+    loadSlots(selectedDate);
+  }
 }
 
 let selectedService = "Стрижка волос";
@@ -179,11 +187,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 let currentCategory = 'hair';
 
 function getServiceCategory(service) {
-  if (service && service.category) {
-    return service.category;
+  if (!service) return 'hair';
+  const rawCat = (service.category || '').toLowerCase().trim();
+  if (rawCat === 'beard' || rawCat === 'spa') {
+    return rawCat;
   }
   const name = (service.name || "").toLowerCase();
-  if (name.includes("маск") || name.includes("воск") || name.includes("wax") || name.includes("массаж") || (name.includes("стайлинг") && !name.includes("стрижка"))) {
+  if (name.includes("маск") || name.includes("воск") || name.includes("wax") || name.includes("массаж") || (name.includes("стайлинг") && !name.includes("стрижка")) || name.includes("spa") || name.includes("спа")) {
     return "spa";
   }
   if (name.includes("бород") && !name.includes("комплекс")) {
@@ -192,7 +202,7 @@ function getServiceCategory(service) {
   if (name.includes("ус") || name.includes("брить") || name.includes("бритв") || name.includes("камуфляж")) {
     return "beard";
   }
-  return "hair";
+  return rawCat || "hair";
 }
 
 function filterServices(cat, buttonEl) {
@@ -299,62 +309,91 @@ function selectServiceItem(service, element) {
 
 // 2. Динамическая загрузка мастеров
 async function loadBarbers() {
-  const container = document.getElementById('barbers-list-container');
   try {
     const res = await fetch('/api/barbers');
     allBarbers = await res.json();
-
-    container.innerHTML = '';
-    allBarbers.forEach(b => {
-      const card = document.createElement('div');
-      card.onclick = () => selectBarber(b.id, b.name, card);
-      card.className = 'barber-card flex-shrink-0 w-[136px] cursor-pointer bg-surface border border-surfaceBorder rounded-2xl p-3 flex flex-col justify-between text-center transition-all duration-150 hover:border-gray-500 active:scale-95';
-
-      const initials = (b.name || 'М').trim().slice(0, 2).toUpperCase();
-      const isShiftOn = (b.is_on_shift !== undefined) ? Boolean(b.is_on_shift) : Boolean(b.is_working_today);
-      const shiftBadge = isShiftOn 
-        ? '<span class="text-[9px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot"></span>На смене</span>'
-        : '<span class="text-[9px] font-medium text-gray-400 bg-surfaceBorder/40 px-2 py-0.5 rounded-full inline-block">Выходной</span>';
-
-      const roleText = b.role_title || b.role || 'Барбер';
-      const isVip = roleText.toLowerCase().includes('шеф') || roleText.toLowerCase().includes('директор');
-      const roleBadge = isVip
-        ? `<span class="text-[9px] text-gold font-bold px-1.5 py-0.5 rounded bg-gold/10 border border-gold/30">Шеф-мастер</span>`
-        : `<span class="text-[10px] text-gray-400 font-medium">Стилист</span>`;
-
-      card.innerHTML = `
-        <div class="flex flex-col items-center">
-          <div class="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/25 text-gold flex items-center justify-center font-bold text-xs tracking-wider shadow-sm">
-            ${escapeHtml(initials)}
-          </div>
-          <div class="font-semibold text-xs text-white mt-2 leading-snug truncate w-full px-1" title="${escapeHtml(b.name)}">
-            ${escapeHtml(b.name)}
-          </div>
-          <div class="mt-1 w-full flex justify-center">
-            ${roleBadge}
-          </div>
-        </div>
-        <div class="mt-2.5">
-          ${shiftBadge}
-        </div>
-      `;
-      container.appendChild(card);
-    });
+    renderBarbersList();
   } catch (e) {
     console.error("Ошибка загрузки мастеров:", e);
   }
 }
 
-function selectBarber(barberId, barberName, element) {
-  selectedBarberId = barberId;
-  selectedBarberName = barberName;
+function renderBarbersList() {
+  const container = document.getElementById('barbers-list-container');
+  if (!container) return;
+  container.innerHTML = '';
 
-  document.querySelectorAll('.barber-card').forEach(c => {
-    c.classList.remove('border-accent/80', 'border-accent/90', 'border-2', 'shadow-sm', 'shadow-accent/15', 'bg-accent/5');
-    c.classList.add('border-surfaceBorder', 'border');
+  // Фильтруем мастеров по выбранному филиалу (мастера конкретного филиала + мастера "Все филиалы")
+  const visibleBarbers = (allBarbers || []).filter(b => !b.branch_id || b.branch_id === selectedBranchId);
+
+  // Если выбранный мастер не работает в текущем филиале, сбрасываем выбор на "Любой свободный мастер"
+  if (selectedBarberId && !visibleBarbers.some(b => b.id === selectedBarberId)) {
+    selectedBarberId = null;
+    selectedBarberName = "Любой свободный мастер";
+  }
+
+  if (visibleBarbers.length === 0) {
+    container.innerHTML = '<div class="py-4 text-xs text-gray-500 text-center w-full">В этом филиале пока нет назначенных мастеров</div>';
+    return;
+  }
+
+  visibleBarbers.forEach(b => {
+    const isSelected = selectedBarberId === b.id;
+    const card = document.createElement('div');
+    card.onclick = () => selectBarber(b.id, b.name, card);
+    card.className = `barber-card flex-shrink-0 w-[136px] cursor-pointer bg-surface rounded-2xl p-3 flex flex-col justify-between text-center transition-all duration-150 hover:border-gray-500 active:scale-95 ${isSelected ? 'border-accent/80 border-2 shadow-sm shadow-accent/15 bg-accent/5' : 'border border-surfaceBorder'}`;
+
+    const initials = (b.name || 'М').trim().slice(0, 2).toUpperCase();
+    const isShiftOn = (b.is_on_shift !== undefined) ? Boolean(b.is_on_shift) : Boolean(b.is_working_today);
+    const shiftBadge = isShiftOn 
+      ? '<span class="text-[9px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot"></span>На смене</span>'
+      : '<span class="text-[9px] font-medium text-gray-400 bg-surfaceBorder/40 px-2 py-0.5 rounded-full inline-block">Выходной</span>';
+
+    const roleText = b.role_title || b.role || 'Барбер';
+    const isVip = Boolean(b.is_vip !== undefined && b.is_vip !== null ? b.is_vip : (roleText.toLowerCase().includes('шеф') || roleText.toLowerCase().includes('директор') || roleText.toLowerCase().includes('главный') || (b.name && b.name.toLowerCase().includes('akmal'))));
+    const roleBadge = isVip
+      ? `<span class="text-[9px] text-amber-300 font-bold px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 inline-flex items-center gap-1">👑 VIP-Шеф</span>`
+      : `<span class="text-[10px] text-gray-400 font-medium">Стилист</span>`;
+
+    card.innerHTML = `
+      <div class="flex flex-col items-center">
+        <div class="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/25 text-gold flex items-center justify-center font-bold text-xs tracking-wider shadow-sm">
+          ${escapeHtml(initials)}
+        </div>
+        <div class="font-semibold text-xs text-white mt-2 leading-snug truncate w-full px-1" title="${escapeHtml(b.name)}">
+          ${escapeHtml(b.name)}
+        </div>
+        <div class="mt-1 w-full flex justify-center">
+          ${roleBadge}
+        </div>
+      </div>
+      <div class="mt-2.5">
+        ${shiftBadge}
+      </div>
+    `;
+    container.appendChild(card);
   });
-  element.classList.remove('border-surfaceBorder', 'border');
-  element.classList.add('border-accent/80', 'border-2', 'shadow-sm', 'shadow-accent/15');
+}
+
+function selectBarber(barberId, barberName, element) {
+  if (selectedBarberId === barberId) {
+    // Повторный клик снимает выбор (возврат к "Любой мастер")
+    selectedBarberId = null;
+    selectedBarberName = "Любой свободный мастер";
+    document.querySelectorAll('.barber-card').forEach(c => {
+      c.classList.remove('border-accent/80', 'border-accent/90', 'border-2', 'shadow-sm', 'shadow-accent/15', 'bg-accent/5');
+      c.classList.add('border-surfaceBorder', 'border');
+    });
+  } else {
+    selectedBarberId = barberId;
+    selectedBarberName = barberName;
+    document.querySelectorAll('.barber-card').forEach(c => {
+      c.classList.remove('border-accent/80', 'border-accent/90', 'border-2', 'shadow-sm', 'shadow-accent/15', 'bg-accent/5');
+      c.classList.add('border-surfaceBorder', 'border');
+    });
+    element.classList.remove('border-surfaceBorder', 'border');
+    element.classList.add('border-accent/80', 'border-2', 'shadow-sm', 'shadow-accent/15', 'bg-accent/5');
+  }
 
   if (selectedDate) {
     loadSlots(selectedDate);
@@ -469,6 +508,9 @@ async function loadSlots(isoDate) {
     let url = `/api/slots?date=${isoDate}&duration=${selectedDuration || 60}`;
     if (selectedBarberId) {
       url += `&barber_id=${selectedBarberId}`;
+    }
+    if (selectedBranchId) {
+      url += `&branch_id=${selectedBranchId}`;
     }
 
     const res = await fetch(url, { signal });

@@ -1,7 +1,7 @@
 import re
 import json
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
@@ -31,6 +31,12 @@ from prompts import (
 from services.schedule_service import (
     build_schedule_context_for_prompt,
     format_tashkent_now_for_prompt,
+)
+from services.booking_service import (
+    GeminiBookingTools,
+    resolve_branch,
+    resolve_service_info,
+    dispatch_vip_approval_card,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,6 +194,7 @@ class GeminiService:
         self.api_key = api_key or settings.GEMINI_API_KEY
         self.model_name = model_name or settings.GEMINI_MODEL or "gemini-2.5-flash"
         self._client: Optional[genai.Client] = None
+        self.booking_tools = GeminiBookingTools()
 
     @property
     def client(self) -> genai.Client:
@@ -199,6 +206,68 @@ class GeminiService:
     @client.setter
     def client(self, value: genai.Client) -> None:
         self._client = value
+
+    def get_tool_declarations(self) -> List[Any]:
+        """Возвращает список Python-функций для инструментов Gemini."""
+        def check_available_slots(
+            target_date: str,
+            branch_name_or_id: Optional[str] = None,
+            barber_name_or_id: Optional[str] = None,
+            service_name_or_id: Optional[str] = None,
+        ) -> dict:
+            """Проверка доступных свободных окон для записи на указанную дату в филиале салона.
+            
+            Args:
+                target_date: Дата в формате YYYY-MM-DD или слова 'сегодня', 'завтра', 'суббота'
+                branch_name_or_id: Название или ID филиала (например 'Миллий бог', 'Чиланзар')
+                barber_name_or_id: Имя мастера (например 'Mr. Akmal', 'Dilshod', 'Abbos', 'Nodir') или None
+                service_name_or_id: Выбранная услуга для учета длительности процедуры
+            """
+            return {}
+
+        def create_booking_reservation(
+            customer_name: str,
+            booking_time: str,
+            branch_name_or_id: Optional[str] = None,
+            barber_name_or_id: Optional[str] = None,
+            service_name_or_id: Optional[str] = None,
+            phone: Optional[str] = None,
+        ) -> dict:
+            """Создание бронирования и запись клиента в базу данных. ВНИМАНИЕ: Вызывать ТОЛЬКО когда клиент согласен на запись и названо время!
+            
+            Args:
+                customer_name: Имя клиента (например 'Сардор', 'Азиз', 'Рустам')
+                booking_time: Дата и время записи (например '2026-10-20 14:00 (Вторник)' или 'завтра 14:00')
+                branch_name_or_id: Название или ID филиала салона ('Миллий бог', 'Чиланзар')
+                barber_name_or_id: Имя мастера ('Mr. Akmal', 'Dilshod', 'Abbos', 'Nodir' или 'Любой')
+                service_name_or_id: Название выбранной услуги из прайса (например 'Стрижка волос', 'Оформление бороды')
+                phone: Номер телефона клиента (например '+998901234567')
+            """
+            return {}
+
+        def cancel_booking_reservation(
+            booking_id: Optional[int] = None,
+            customer_name: Optional[str] = None,
+        ) -> dict:
+            """Отмена существующей брони клиента и освобождение окна в графике.
+            
+            Args:
+                booking_id: ID записи если известен, либо None
+                customer_name: Имя клиента если известно
+            """
+            return {}
+
+        def get_salon_info(
+            topic: Optional[str] = None,
+        ) -> dict:
+            """Получение актуальной информации о салоне: прайс-лист, услуги, филиалы, адреса и мастера.
+            
+            Args:
+                topic: Тема запроса ('branches', 'services', 'barbers', 'promo', 'all')
+            """
+            return {}
+
+        return [check_available_slots, create_booking_reservation, cancel_booking_reservation, get_salon_info]
 
     def format_history_to_contents(
         self, raw_history: List[Dict[str, str]], current_message: Optional[str] = None
@@ -230,9 +299,17 @@ class GeminiService:
 
         return contents
 
-    async def generate_response(self, user_id: int, user_message: str, is_admin: bool = False) -> str:
+    async def generate_response(
+        self,
+        user_id: int,
+        user_message: str,
+        is_admin: bool = False,
+        username: Optional[str] = None,
+        bot: Optional[Any] = None,
+    ) -> str:
         """
-        Генерация ответа на текстовое сообщение с учетом роли (клиент или админ).
+        Генерация ответа на текстовое сообщение с учетом роли (клиент или админ)
+        и детерминированным вызовом инструментов бронирования (Function Calling).
         """
         try:
             raw_history = await get_recent_messages(user_id=user_id, limit=10)
@@ -259,9 +336,14 @@ class GeminiService:
             if is_super_admin_user(user_id):
                 dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{build_creator_identity_prompt()}"
 
+            tools = self.get_tool_declarations()
             config = types.GenerateContentConfig(
                 system_instruction=dynamic_system_prompt,
                 temperature=0.3 if is_admin else 0.4,
+                tools=tools,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
+                ),
             )
 
             response = await self.client.aio.models.generate_content(
@@ -269,6 +351,47 @@ class GeminiService:
                 contents=contents,
                 config=config,
             )
+
+            # Проверяем, вызвала ли модель инструмент бронирования
+            if getattr(response, "function_calls", None):
+                if response.candidates and response.candidates[0].content:
+                    contents.append(response.candidates[0].content)
+                else:
+                    fc_parts = [types.Part(function_call=fc) for fc in response.function_calls]
+                    contents.append(types.Content(role="model", parts=fc_parts))
+
+                for fc in response.function_calls:
+                    fn_name = fc.name
+                    fn_args = dict(fc.args or {})
+                    logger.info(f"Gemini Tool Call: {fn_name} с аргументами: {fn_args}")
+
+                    if fn_name == "create_booking_reservation":
+                        if is_super_admin_user(user_id) and not fn_args.get("customer_name"):
+                            fn_args["customer_name"] = "Иброхим"
+                        fn_args["user_id"] = user_id
+                        fn_args["username"] = username
+                        fn_args["bot"] = bot
+                        tool_result = await self.booking_tools.create_booking_reservation(**fn_args)
+                    elif fn_name == "check_available_slots":
+                        tool_result = await self.booking_tools.check_available_slots(**fn_args)
+                    elif fn_name == "cancel_booking_reservation":
+                        fn_args["user_id"] = user_id
+                        fn_args["bot"] = bot
+                        tool_result = await self.booking_tools.cancel_booking_reservation(**fn_args)
+                    elif fn_name == "get_salon_info":
+                        tool_result = await self.booking_tools.get_salon_info(**fn_args)
+                    else:
+                        tool_result = {"error": f"Unknown tool {fn_name}"}
+
+                    resp_part = types.Part.from_function_response(name=fn_name, response=tool_result)
+                    contents.append(types.Content(role="tool", parts=[resp_part]))
+
+                second_response = await self.client.aio.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=config,
+                )
+                response = second_response
 
             fallback = ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
             raw_reply = (response.text or "").strip()
@@ -284,79 +407,41 @@ class GeminiService:
             return ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
 
     async def generate_response_from_voice(
-        self, user_id: int, voice_bytes: bytes, mime_type: str = "audio/ogg", is_admin: bool = False
+        self,
+        user_id: int,
+        voice_bytes: bytes,
+        mime_type: str = "audio/ogg",
+        is_admin: bool = False,
+        username: Optional[str] = None,
+        bot: Optional[Any] = None,
     ) -> Tuple[str, str]:
         """
-        Обработка голосового сообщения (распознавание + генерация ответа).
+        Обработка голосового сообщения:
+        1. Распознавание аудио через Gemini multimodal.
+        2. Обработка через основной диалоговый движок с поддержкой инструментов.
         """
         try:
-            raw_history = await get_recent_messages(user_id=user_id, limit=10)
-            contents = self.format_history_to_contents(raw_history=raw_history)
-
             audio_part = types.Part.from_bytes(data=voice_bytes, mime_type=mime_type)
             role_desc = "AI-Ассистент управляющего" if is_admin else f"{settings.SALON_SHORT_NAME} Ассистент"
-            instruction_part = types.Part.from_text(
-                text=(
-                    f"Ты — {role_desc} салона {settings.SALON_NAME}. Получено голосовое сообщение. "
-                    "1. В поле user_transcript укажи точный распознанный текст слов на русском или узбекском языке. "
-                    "2. В поле bot_reply дай ответ с учетом контекста диалога и графика занятых окон. "
-                    "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО говорить 'я не слышу голосовые'!"
-                )
+            transcribe_prompt = (
+                f"Ты — {role_desc} салона {settings.SALON_NAME}. "
+                "Распознай слова клиента из аудиозаписи на русском или узбекском языке. "
+                "Верни ТОЛЬКО распознанный текст клиента, без комментариев и оговорок."
             )
-
-            contents.append(
-                types.Content(
-                    role="user",
-                    parts=[audio_part, instruction_part],
-                )
-            )
-
-            active_bookings = await get_active_bookings()
-            barbers = await get_barbers(active_only=True)
-            services = await get_services(active_only=True)
-            branches = await get_branches(active_only=True)
-            salon_settings = await get_all_salon_settings()
-            schedule_context = build_schedule_context_for_prompt(
-                bookings=active_bookings,
-                barbers=barbers,
-                services=services,
-                branches=branches,
-                salon_settings=salon_settings
-            )
-            base_prompt = build_admin_system_prompt() if is_admin else build_client_system_prompt()
-            dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
-            if is_super_admin_user(user_id):
-                dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{build_creator_identity_prompt()}"
-
-            config = types.GenerateContentConfig(
-                system_instruction=dynamic_system_prompt,
-                response_mime_type="application/json",
-                response_schema=VoiceResult,
-                temperature=0.3,
-            )
-
-            response = await self.client.aio.models.generate_content(
+            trans_resp = await self.client.aio.models.generate_content(
                 model=self.model_name,
-                contents=contents,
-                config=config,
+                contents=[audio_part, types.Part.from_text(text=transcribe_prompt)],
             )
+            raw_transcript = (trans_resp.text or "").strip()
+            user_transcript = raw_transcript if raw_transcript else "Голосовое сообщение"
 
-            fallback = ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
-            user_transcript = "Голосовое сообщение"
-            bot_reply = fallback
-
-            if response.text:
-                try:
-                    data = json.loads(response.text)
-                    v_res = VoiceResult(**data)
-                    user_transcript = v_res.user_transcript or "Голосовое сообщение"
-                    bot_reply = clean_voice_disclaimers(v_res.bot_reply) or fallback
-                except Exception:
-                    bot_reply = clean_voice_disclaimers(response.text) or fallback
-
-            await add_message(user_id=user_id, role="user", text=f"[🎙 Голос]: {user_transcript}")
-            await add_message(user_id=user_id, role="model", text=bot_reply)
-
+            bot_reply = await self.generate_response(
+                user_id=user_id,
+                user_message=user_transcript,
+                is_admin=is_admin,
+                username=username,
+                bot=bot,
+            )
             return bot_reply, user_transcript
 
         except Exception as e:
@@ -372,7 +457,7 @@ class GeminiService:
         try:
             now_str = format_tashkent_now_for_prompt()
             creator_hint = ""
-            if is_super_admin_user(user_id) or "меня" in dialog_context.lower() or "иброхим" in dialog_context.lower():
+            if is_super_admin_user(user_id):
                 creator_hint = (
                     "\nОСОБОЕ ПРАВИЛО ДЛЯ СОЗДАТЕЛЯ (ИБРОХИМ):\n"
                     "Если пользователь просит 'запиши меня', 'мне стрижку', 'забронируй мне' — его имя ИБРОХИМ (customer_name='Иброхим'). "
@@ -383,17 +468,28 @@ class GeminiService:
             branch_info_str = ", ".join([f"ID {b['id']}: '{b['name']}' ({b['address']})" for b in branches]) if branches else ""
             branch_hint = f"\nДОСТУПНЫЕ ФИЛИАЛЫ САЛОНА: {branch_info_str}.\nЕсли клиент упоминает локацию/филиал/метро, сопоставь с филиалом и заполни branch_id и branch_name.\n" if branch_info_str else ""
 
+            barbers = await get_barbers(active_only=True)
+            barber_info_str = ", ".join([f"'{b['name']}'" for b in barbers]) if barbers else ""
+            barber_hint = (
+                f"\nМАСТЕРА САЛОНА: {barber_info_str}.\n"
+                "ВНИМАНИЕ: Если упоминается мастер (например, Mr. Akmal, Akmal, Акмаль, Mr. Akmalning huzuriga, Mr. Akmalga, к Акмалю) — "
+                "запиши его строго в barber_name, а НЕ в customer_name! customer_name — это имя клиента, а не мастера!\n"
+            ) if barber_info_str else ""
+
             prompt = (
                 f"Ты — анализатор диалогов клиентов салона {settings.SALON_NAME}.\n"
                 f"ТЕКУЩЕЕ ВРЕМЯ В {settings.SALON_CITY.upper()}: {now_str}.\n"
                 f"{branch_hint}"
+                f"{barber_hint}"
                 f"{creator_hint}\n"
                 f"Диалог:\n{dialog_context}\n\n"
                 "Определи действие клиента:\n"
                 "1. action = 'cancel_my_booking' — если клиент просит отменить бронь ('отмени', 'не приду', 'отмена', 'bekor qil').\n"
-                "2. action = 'check_my_booking' — если клиент спрашивает, когда он записан ('когда я записан?', 'на сколько моя стрижка?').\n"
-                "3. action = 'create_booking' — если клиент хочет записаться. "
-                "СТРОГОЕ ПРАВИЛО: is_booking_confirmed = true ТОЛЬКО ЕСЛИ в диалоге реально названы И имя клиента (для Иброхима имя уже известно), И желаемое время!\n"
+                "2. action = 'check_my_booking' — если клиент спрашивает, когда он записан ('когда я записан?', 'на сколько моя стрижка?', 'eslatib yuboring').\n"
+                "3. action = 'create_booking' — если клиент хочет записаться или запись согласуется. "
+                "Установи is_booking_confirmed = true, если в диалоге названо желаемое время/дата (например 'ertaga soat 14:00', 'завтра в 14:00', 'пятница 16:30'), "
+                "ЛИБО если ассистент уже ответил, что записал клиента / передал запрос Шефу на согласование! "
+                "customer_name: укажи имя клиента, если названо в диалоге (если Создатель платформы — customer_name='Иброхим'). Если клиент не называл имя в тексте, оставь customer_name=null (оно возьмется из профиля Telegram).\n"
                 "КРИТИЧЕСКИ ВАЖНО: booking_time пиши только в каноническом формате 'YYYY-MM-DD HH:MM (ДеньНедели)' с точной датой.\n"
                 "4. action = 'chat' — во всех остальных случаях (вопрос по прайсу, локации и т.д.)."
             )
@@ -427,10 +523,10 @@ class GeminiService:
         try:
             now_str = format_tashkent_now_for_prompt()
             creator_hint = ""
-            if is_super_admin_user(user_id) or "меня" in admin_query.lower() or "мне" in admin_query.lower():
+            if is_super_admin_user(user_id):
                 creator_hint = (
                     "\nОСОБОЕ ПРАВИЛО ДЛЯ СОЗДАТЕЛЯ / ШЕФА:\n"
-                    "Если в запросе сказано 'запиши меня', 'мне стрижку', 'забронируй мне' — "
+                    "Если в запросе сказано 'запиши меня', 'мне стрижку', 'забронируй мне', либо на узбекском ('...ga yozib qo'y', '...ga yozib qo'ying', 'soch oldirishga yoz') — "
                     "клиент это сам Шеф / Иброхим (client_query='Иброхим', action='create_booking').\n"
                 )
 
@@ -438,15 +534,24 @@ class GeminiService:
             branch_info_str = ", ".join([f"ID {b['id']}: '{b['name']}'" for b in branches]) if branches else ""
             branch_hint = f"\nДОСТУПНЫЕ ФИЛИАЛЫ: {branch_info_str}.\n" if branch_info_str else ""
 
+            barbers = await get_barbers(active_only=True)
+            barber_info_str = ", ".join([f"'{b['name']}'" for b in barbers]) if barbers else ""
+            barber_hint = (
+                f"\nСПИСОК МАСТЕРОВ САЛОНА: {barber_info_str}.\n"
+                "ВНИМАНИЕ: Если в запросе упомянут мастер (например, Mr. Akmal, Akmalga, к Акмалю, Akmalning huzuriga) — "
+                "запиши его строго в barber_name, а НЕ в client_query! client_query — это клиент, а НЕ барбер!\n"
+            ) if barber_info_str else ""
+
             prompt = (
                 f"Ты — система управления командами владельца салона {settings.SALON_NAME}.\n"
                 f"ТЕКУЩЕЕ ВРЕМЯ В {settings.SALON_CITY.upper()}: {now_str}.\n"
                 f"{branch_hint}"
+                f"{barber_hint}"
                 f"{creator_hint}\n"
                 f"Запрос администратора: {admin_query}\n\n"
                 "Определи намерение администратора:\n"
                 "- 'query_schedule': запросы расписания ('кто сегодня?', 'что на завтра?', 'покажи пятницу'). Извлеки target_date.\n"
-                "- 'create_booking': ручная запись клиента ('запиши Сардора завтра на 16:00, тел +99890...', или 'запиши меня на 15:00'). Извлеки client_query, booking_time, service, phone, branch_name, branch_id.\n"
+                "- 'create_booking': ручная запись клиента ('запиши Сардора завтра на 16:00, тел +99890...', или 'запиши меня на 15:00', или 'Ertaga 14:00 ga Mr. Akmalga yozib qo'y'). Извлеки client_query, barber_name, booking_time, service, phone, branch_name, branch_id.\n"
                 "- 'confirm_booking': подтверждение записи ('подтверди запись Рустама', 'подтверди 15:00'). Извлеки client_query или booking_time.\n"
                 "- 'cancel_booking': отмена записи ('отмени запись Рустама', 'отмени 14:00'). Извлеки client_query или booking_time.\n"
                 "- 'get_stats': статистика ('сколько записей?', 'статистика').\n"

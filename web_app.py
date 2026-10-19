@@ -7,6 +7,7 @@
 """
 
 import os
+import html
 from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any
 import logging
@@ -32,6 +33,7 @@ from database import (
     update_barber,
     toggle_barber_shift,
     delete_barber,
+    set_barber_vip_status,
     get_bookings_for_barber,
     get_booking_by_id,
     get_user_active_booking,
@@ -63,9 +65,10 @@ from services.schedule_service import (
     format_booking_datetime,
     check_slot_availability,
     get_slots_for_date,
-
     is_barber_working_on_date,
+    is_barber_vip,
 )
+from services.booking_service import dispatch_vip_approval_card
 from services.billing_service import calculate_subscription_status
 from services.tier_service import (
     SubscriptionTier,
@@ -872,8 +875,11 @@ async def handle_get_slots(request: web.Request) -> web.Response:
         duration_raw = request.query.get("duration")
         duration = int(duration_raw) if duration_raw and duration_raw.isdigit() else 60
 
+        branch_id_raw = request.query.get("branch_id")
+        branch_id = int(branch_id_raw) if branch_id_raw and branch_id_raw.isdigit() and int(branch_id_raw) > 0 else None
+
         active_bookings = await get_active_bookings()
-        barbers = await get_barbers(active_only=True)
+        barbers = await get_barbers(active_only=True, branch_id=branch_id)
         salon_settings = await get_all_salon_settings()
 
         start_h = int(salon_settings.get("work_start_hour", 8))
@@ -1026,16 +1032,21 @@ async def handle_delete_service(request: web.Request) -> web.Response:
 # =============================================================================
 
 async def handle_get_barbers(request: web.Request) -> web.Response:
-    """API: Получение списка барберов (с опциональной проверкой даты ?date=YYYY-MM-DD)"""
+    """API: Получение списка барберов (с опциональной проверкой даты ?date=YYYY-MM-DD и филиала ?branch_id=X)"""
     try:
         active_only = request.query.get("all") != "1"
         date_str = request.query.get("date")
+        branch_id_raw = request.query.get("branch_id")
+        branch_id = int(branch_id_raw) if branch_id_raw and branch_id_raw.isdigit() and int(branch_id_raw) > 0 else None
         target_date = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else None
 
-        barbers = await get_barbers(active_only=active_only)
+        barbers = await get_barbers(active_only=active_only, branch_id=branch_id)
         for b in barbers:
             b["role"] = b.get("role_title", "Барбер")
             b["is_on_shift"] = bool(b.get("is_working_today", 1))
+            b["is_vip"] = int(b.get("is_vip") or 0)
+            b["branch_id"] = b.get("branch_id")
+            b["branch_name"] = b.get("branch_name")
             if target_date:
                 b["is_working_on_date"] = is_barber_working_on_date(b, target_date)
             else:
@@ -1060,6 +1071,9 @@ async def handle_create_barber(request: web.Request) -> web.Response:
         telegram_id = int(telegram_id_raw) if telegram_id_raw else None
         work_days = (data.get("work_days") or "0,1,2,3,4,5,6").strip()
         is_working_today = int(data.get("is_working_today", data.get("is_on_shift", 1)))
+        is_vip = int(data.get("is_vip", 0))
+        branch_id_raw = data.get("branch_id")
+        branch_id = int(branch_id_raw) if branch_id_raw and str(branch_id_raw).isdigit() and int(branch_id_raw) > 0 else None
 
         if not name:
             return web.json_response({"error": "Имя барбера обязательно"}, status=400)
@@ -1075,7 +1089,9 @@ async def handle_create_barber(request: web.Request) -> web.Response:
             phone=phone,
             telegram_id=telegram_id,
             work_days=work_days,
-            is_working_today=is_working_today
+            is_working_today=is_working_today,
+            is_vip=is_vip,
+            branch_id=branch_id
         )
         return web.json_response({"ok": True, "id": b_id})
     except Exception as e:
@@ -1098,6 +1114,10 @@ async def handle_update_barber(request: web.Request) -> web.Response:
         work_days = (data.get("work_days") or "0,1,2,3,4,5,6").strip()
         is_working_today = int(data.get("is_working_today", data.get("is_on_shift", 1)))
         is_active = int(data.get("is_active", 1))
+        is_vip = int(data["is_vip"]) if "is_vip" in data else None
+        branch_id_raw = data.get("branch_id")
+        update_branch = "branch_id" in data
+        branch_id = int(branch_id_raw) if branch_id_raw and str(branch_id_raw).isdigit() and int(branch_id_raw) > 0 else None
 
         if not name:
             return web.json_response({"error": "Имя барбера обязательно"}, status=400)
@@ -1110,11 +1130,34 @@ async def handle_update_barber(request: web.Request) -> web.Response:
             telegram_id=telegram_id,
             work_days=work_days,
             is_working_today=is_working_today,
-            is_active=is_active
+            is_active=is_active,
+            is_vip=is_vip,
+            branch_id=branch_id,
+            update_branch=update_branch
         )
         return web.json_response({"ok": updated})
     except Exception as e:
         logger.error(f"Ошибка при обновлении барбера: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_toggle_barber_vip(request: web.Request) -> web.Response:
+    """API: Быстрое переключение VIP-статуса мастера (1=VIP согласование, 0=обычный)."""
+    if not is_admin_or_super(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        b_id = int(request.match_info["id"])
+        data = await request.json() if request.can_read_body else {}
+        target_barber = await get_barber_by_id(b_id)
+        if not target_barber:
+            return web.json_response({"error": "Мастер не найден"}, status=404)
+
+        current_vip = target_barber.get("is_vip") or 0
+        new_vip = int(data.get("is_vip", 1 - current_vip))
+        ok = await set_barber_vip_status(b_id, new_vip)
+        return web.json_response({"ok": ok, "id": b_id, "is_vip": new_vip})
+    except Exception as e:
+        logger.error(f"Ошибка при переключении VIP-статуса мастера: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
 
@@ -1500,10 +1543,21 @@ async def handle_create_booking(request: web.Request) -> web.Response:
         if not raw_booking_time:
             return web.json_response({"error": "Дата и время обязательны для заполнения"}, status=400)
 
+        # Валидация привязки мастера к филиалу
+        if barber_id:
+            chosen_barber = await get_barber_by_id(barber_id)
+            if chosen_barber:
+                b_branch_id = chosen_barber.get("branch_id")
+                if b_branch_id is not None and b_branch_id != branch_id:
+                    target_branch_name = chosen_barber.get("branch_name") or f"#{b_branch_id}"
+                    return web.json_response({
+                        "error": f"Мастер {chosen_barber.get('name')} принимает только в филиале «{target_branch_name}»"
+                    }, status=400)
+
         # Валидация времени и проверка слотов
         target_dt = parse_booking_datetime(raw_booking_time)
         active_bookings = await get_active_bookings()
-        barbers = await get_barbers(active_only=True)
+        barbers = await get_barbers(active_only=True, branch_id=branch_id)
 
         assigned_barber = None
         if target_dt:
@@ -1530,26 +1584,10 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             final_barber_id = barber_id
             final_barber_name = barber_name
 
-        # Проверка защиты VIP-графика (Mr. Akmal / Директор / Шеф)
-        is_vip_master = False
-        if assigned_barber:
-            is_vip_master = bool(
-                assigned_barber.get("is_vip")
-                or "akmal" in (assigned_barber.get("name") or "").lower()
-                or "шеф" in (assigned_barber.get("role_title") or "").lower()
-                or "директор" in (assigned_barber.get("role_title") or "").lower()
-            )
-        elif final_barber_id:
-            b_obj = await get_barber_by_id(final_barber_id)
-            if b_obj:
-                is_vip_master = bool(
-                    b_obj.get("is_vip")
-                    or "akmal" in (b_obj.get("name") or "").lower()
-                    or "шеф" in (b_obj.get("role_title") or "").lower()
-                    or "директор" in (b_obj.get("role_title") or "").lower()
-                )
-                assigned_barber = b_obj
-
+        # Проверка защиты VIP-графика
+        if assigned_barber is None and final_barber_id:
+            assigned_barber = await get_barber_by_id(final_barber_id)
+        is_vip_master = is_barber_vip(assigned_barber) if assigned_barber else False
         has_vip_protection = await is_feature_enabled("has_vip_protection")
         booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "new"
 
@@ -1581,46 +1619,44 @@ async def handle_create_booking(request: web.Request) -> web.Response:
         bot = request.app.get(BOT_KEY)
 
         if booking_status == "pending_vip":
-            # Уведомление Шефу (в личку или админу)
-            vip_target_chat = (assigned_barber.get("telegram_id") if assigned_barber else None) or settings.ADMIN_CHAT_ID
-            if bot and vip_target_chat:
-                vip_card = (
-                    "👑 **ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ (из Web App)!**\n\n"
-                    f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
-                    f"💈 **Мастер:** {final_barber_name}\n"
-                    f"📍 **Филиал:** {branch_name} ({branch_address})\n"
-                    f"✂️ **Услуга:** {service}\n"
-                    f"⏰ **Время:** {normalized_time}\n"
-                    f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
-                    "👑 _На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование._"
-                )
-                vip_kb = InlineKeyboardMarkup(
-                    inline_keyboard=[[
-                        InlineKeyboardButton(text="Принять ✅", callback_data=f"vip_accept:{booking_id}"),
-                        InlineKeyboardButton(text="Отклонить ❌", callback_data=f"vip_reject:{booking_id}"),
-                    ]]
-                )
-                try:
-                    await bot.send_message(chat_id=vip_target_chat, text=vip_card, reply_markup=vip_kb, parse_mode="Markdown")
-                except Exception as e:
-                    logger.warning("Failed to send VIP request to chef: %s", e)
+            await dispatch_vip_approval_card(
+                bot=bot,
+                booking_id=booking_id,
+                barber_obj=assigned_barber,
+                final_barber_name=final_barber_name,
+                full_name=full_name,
+                username=username,
+                user_id=user_id,
+                canonical_service=service,
+                booking_time=normalized_time,
+                phone=phone,
+                target_branch_name=branch_name,
+                branch_address=branch_address,
+            )
 
             # Сообщение клиенту в личку в Telegram
             if bot and user_id and user_id != 0:
+                client_msg_html = (
+                    f"👑 <b>Ваш запрос к Шеф-мастеру {html.escape(str(final_barber_name))} отправлен на личное согласование!</b>\n\n"
+                    f"⏰ <b>Время:</b> {html.escape(str(normalized_time))}\n"
+                    f"✂️ <b>Услуга:</b> {html.escape(str(service))}\n"
+                    f"📍 <b>Филиал:</b> {html.escape(str(branch_name))}\n\n"
+                    "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
+                )
                 try:
-                    await bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"👑 **Ваш запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!**\n\n"
-                            f"⏰ **Время:** {normalized_time}\n"
-                            f"✂️ **Услуга:** {service}\n"
-                            f"📍 **Филиал:** {branch_name}\n\n"
-                            "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
-                        ),
-                        parse_mode="Markdown"
+                    await bot.send_message(chat_id=user_id, text=client_msg_html, parse_mode="HTML")
+                except Exception:
+                    plain_client = (
+                        f"👑 Ваш запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!\n\n"
+                        f"⏰ Время: {normalized_time}\n"
+                        f"✂️ Услуга: {service}\n"
+                        f"📍 Филиал: {branch_name}\n\n"
+                        "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
                     )
-                except Exception as e:
-                    logger.warning("Failed to notify client on VIP booking: %s", e)
+                    try:
+                        await bot.send_message(chat_id=user_id, text=plain_client, parse_mode=None)
+                    except Exception as e:
+                        logger.warning("Failed to notify client on VIP booking: %s", e)
 
             return web.json_response({
                 "ok": True,
@@ -1631,7 +1667,7 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 "branch_id": branch_id,
                 "branch_name": branch_name,
                 "status": "pending_vip",
-                "message": "Запрос отправлен на согласование Шеф-мастеру",
+                "message": f"Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование."
             })
 
         # 1. Мгновенное подтверждение клиенту в личный чат Telegram
@@ -2183,6 +2219,7 @@ def create_web_app(bot: Bot = None) -> web.Application:
     app.router.add_post("/api/barbers", handle_create_barber)
     app.router.add_post("/api/barbers/{id}/update", handle_update_barber)
     app.router.add_post("/api/barbers/{id}/toggle-shift", handle_toggle_barber_shift)
+    app.router.add_post("/api/barbers/{id}/toggle-vip", handle_toggle_barber_vip)
     app.router.add_post("/api/barbers/{id}/delete", handle_delete_barber)
 
     # Кабинет мастера

@@ -1,5 +1,6 @@
 import io
 import re
+import html
 import time
 import logging
 from typing import Optional, Tuple, List, Dict
@@ -25,6 +26,7 @@ from database import (
     clear_history,
     save_booking,
     has_recent_booking,
+    has_recent_booking_any_time,
     get_recent_messages,
     get_active_bookings,
     get_barbers,
@@ -51,8 +53,21 @@ from services.schedule_service import (
     parse_booking_datetime,
     format_booking_datetime,
     check_slot_availability,
+    resolve_barber_match,
+    is_barber_vip,
 )
 from services.tier_service import is_feature_enabled
+from services.booking_service import (
+    resolve_branch,
+    resolve_service_info,
+    dispatch_vip_approval_card,
+)
+from bot.routers import (
+    common_router,
+    barber_router,
+    admin_router,
+    client_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +200,7 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
     if role in ("admin", "super_admin"):
         keyboard = [
             [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
-            [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="🔄 Сбросить диалог")],
+            [KeyboardButton(text="📅 Записаться")],
         ]
         if has_https:
             row = [
@@ -217,12 +232,12 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
                     ),
                     KeyboardButton(text="✂️ Прайс-лист"),
                 ],
-                [KeyboardButton(text="📍 Где мы находимся?"), KeyboardButton(text="🔄 Сбросить диалог")],
+                [KeyboardButton(text="📍 Где мы находимся?")],
             ]
         else:
             keyboard = [
                 [KeyboardButton(text="💈 Моя смена (/barber)"), KeyboardButton(text="✂️ Прайс-лист")],
-                [KeyboardButton(text="📍 Где мы находимся?"), KeyboardButton(text="🔄 Сбросить диалог")],
+                [KeyboardButton(text="📍 Где мы находимся?")],
             ]
 
     else:
@@ -236,12 +251,12 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
                     ),
                     KeyboardButton(text="✂️ Прайс-лист"),
                 ],
-                [KeyboardButton(text="📍 Где мы находимся?"), KeyboardButton(text="🔄 Сбросить диалог")],
+                [KeyboardButton(text="📍 Где мы находимся?")],
             ]
         else:
             keyboard = [
                 [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
-                [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="🔄 Сбросить диалог")],
+                [KeyboardButton(text="📅 Записаться")],
             ]
 
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, is_persistent=True)
@@ -347,12 +362,14 @@ async def handle_start(message: Message):
             "нажмите её, чтобы посмотреть очередь клиентов на сегодня или изменить статус смены!"
         )
     else:
-        user_name = message.from_user.first_name if message.from_user else "братан"
+        user_name = message.from_user.first_name if (message.from_user and message.from_user.first_name) else "гость"
         welcome_text = (
-            f"Салам алейкум, {user_name}! 🤝\n\n"
-            f"Добро пожаловать в {settings.SALON_TYPE} **{settings.SALON_SHORT_NAME}** в г. {settings.SALON_CITY}!\n"
-            f"Я — {settings.SALON_SHORT_NAME} Ассистент. Нажмите кнопку **«✂️ Открыть меню записи»** под сообщением, "
-            "чтобы выбрать услугу, мастера и время, либо просто напишите или отправьте голосовое сообщение прямо сюда в чат!"
+            f"Assalomu alaykum, {user_name}! Xush kelibsiz! / Здравствуйте!\n\n"
+            f"Добро пожаловать в {settings.SALON_TYPE} **{settings.SALON_SHORT_NAME}** ({settings.SALON_CITY})!\n\n"
+            f"🌐 **Muloqot tili / Язык общения:**\n"
+            f"Siz bot bilan **o'zbek**, **rus** yoki istalgan tilda bemalol yozma yoki ovozli xabar orqali muloqot qilishingiz mumkin.\n"
+            f"Вы можете писать или отправлять голосовые сообщения на **узбекском**, **русском** или любом удобном вам языке.\n\n"
+            f"Нажмите кнопку **«✂️ Открыть меню записи»** под сообщением для выбора услуги и времени, либо просто напишите свой запрос прямо сюда в чат!"
         )
 
     await message.answer(
@@ -554,19 +571,22 @@ async def handle_barber(message: Message):
         )
 
 
+@router.message(Command("clear"))
 @router.message(Command("reset"))
 @router.message(F.text == "🔄 Сбросить диалог")
 async def handle_reset(message: Message):
     """
-    Очистка контекста диалога текущего пользователя в базе данных.
+    Очистка контекста диалога текущего пользователя в базе данных (секретная команда /clear).
     """
     user_id = message.from_user.id if message.from_user else 0
     role, barber = await get_user_role(user_id)
     await clear_history(user_id)
     await message.answer(
-        "История диалога очищена, братан! Начнем с чистого листа. О чем поболтаем? 💈",
+        "История диалога очищена! Начнем с чистого листа. Чем могу помочь? 💈",
         reply_markup=get_main_keyboard(role=role, barber=barber),
     )
+
+handle_clear = handle_reset
 
 
 @router.message(Command("price"))
@@ -712,15 +732,24 @@ async def handle_voice_message(message: Message):
         file_bytes_io.close()
 
     # 2. Обработка голоса через Gemini с учетом роли
+    username = message.from_user.username if message.from_user else None
     ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
         user_id=user_id,
         voice_bytes=voice_data,
         mime_type="audio/ogg",
         is_admin=is_staff,
+        username=username,
+        bot=message.bot,
     )
 
     # 3. Отправка ответа пользователю
     await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+
+    # Если Gemini Tool Calling уже создал бронь, пропускаем легаси-экстрактор
+    recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
+    if recent_booking_exists:
+        logger.info("Voice booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+        return
 
     # 4. Проверка и выполнение интента (для клиента или персонала)
     if is_staff:
@@ -734,11 +763,12 @@ async def handle_user_text(message: Message):
     """
     Основной обработчик текстовых сообщений:
     1. Показывает статус 'печатает...' (typing action) в Telegram.
-    2. Отправляет запрос в GeminiService с историей сообщений и учетом роли.
+    2. Отправляет запрос в GeminiService с историей сообщений, учетом роли и Tool Calling.
     3. Отправляет ответ пользователю.
     4. При фиксации намерения выполняет соответствующее действие.
     """
     user_id = message.from_user.id if message.from_user else 0
+    username = message.from_user.username if message.from_user else None
     user_text = message.text.strip()
     role, barber = await get_user_role(user_id)
     is_staff = role in ("admin", "barber", "super_admin")
@@ -746,11 +776,23 @@ async def handle_user_text(message: Message):
     # 1. Индикация "печатает..." во время запроса к AI
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
-    # 2. Получение ответа от Gemini с учетом роли
-    ai_reply = await gemini_service.generate_response(user_id=user_id, user_message=user_text, is_admin=is_staff)
+    # 2. Получение ответа от Gemini с учетом роли и Tool Calling
+    ai_reply = await gemini_service.generate_response(
+        user_id=user_id,
+        user_message=user_text,
+        is_admin=is_staff,
+        username=username,
+        bot=message.bot,
+    )
 
     # 3. Отправка ответа пользователю
     await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+
+    # Если Gemini Tool Calling уже создал бронь, пропускаем легаси-экстрактор
+    recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
+    if recent_booking_exists:
+        logger.info("Text booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+        return
 
     # 4. Проверка и выполнение намерения
     if is_staff:
@@ -902,6 +944,11 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 branch_name=getattr(admin_action, "branch_name", None),
             )
 
+            barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None) if final_barber_id else matched_barber
+            is_vip_master = is_barber_vip(barber_obj) if barber_obj else False
+            has_vip_protection = await is_feature_enabled("has_vip_protection")
+            booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "confirmed"
+
             if is_personal_creator_booking:
                 creator_name = (f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()) if message.from_user else ""
                 if "ibrohim" in creator_name.lower() or "иброхим" in creator_name.lower():
@@ -911,15 +958,13 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 booking_user_id = user_id
                 username = f"@{message.from_user.username}" if (message.from_user and message.from_user.username) else None
                 details = f"Личная запись Создателя/Супер-Админа ({full_name}) | Филиал: {target_branch_name}"
-                status = "confirmed"
             else:
                 full_name = admin_action.client_query
                 booking_user_id = 0
                 username = None
                 details = f"Ручная запись администратором через чат с ИИ | Филиал: {target_branch_name}"
-                status = "confirmed"
 
-            await save_booking(
+            booking_id = await save_booking(
                 user_id=booking_user_id,
                 username=username,
                 full_name=full_name,
@@ -927,13 +972,38 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 phone=admin_action.phone,
                 service=canonical_service,
                 booking_time=normalized_time,
-                status=status,
+                status=booking_status,
                 barber_id=final_barber_id,
                 barber_name=final_barber_name,
                 service_id=matched_service_id,
                 branch_id=target_branch_id,
                 branch_name=target_branch_name,
             )
+
+            if booking_status == "pending_vip":
+                await dispatch_vip_approval_card(
+                    bot=message.bot,
+                    booking_id=booking_id,
+                    barber_obj=barber_obj,
+                    final_barber_name=final_barber_name,
+                    full_name=full_name,
+                    username=username,
+                    user_id=booking_user_id,
+                    canonical_service=canonical_service,
+                    booking_time=normalized_time,
+                    phone=admin_action.phone,
+                    target_branch_name=target_branch_name,
+                    branch_address=branch_address,
+                )
+                await message.answer(
+                    f"👑 **Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!**\n\n"
+                    f"⏰ **Время:** {normalized_time}\n"
+                    f"✂️ **Услуга:** {canonical_service}\n"
+                    f"📍 **Филиал:** {target_branch_name} ({branch_address})\n\n"
+                    "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
+                    parse_mode="Markdown"
+                )
+                return
 
             # Оповещение назначенному барберу в Telegram
             if matched_barber and matched_barber.get("telegram_id"):
@@ -1108,16 +1178,8 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         )
 
         # Определение VIP-мастера и защиты графика (по флагу или руководящей роли)
-        barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None) if final_barber_id else None
-        is_vip_master = False
-        if barber_obj:
-            is_vip_master = bool(
-                barber_obj.get("is_vip")
-                or "шеф" in (barber_obj.get("role_title") or "").lower()
-                or "директор" in (barber_obj.get("role_title") or "").lower()
-                or "главный" in (barber_obj.get("role_title") or "").lower()
-                or "владелец" in (barber_obj.get("role_title") or "").lower()
-            )
+        barber_obj = next((b for b in barbers if b["id"] == final_barber_id), None) if final_barber_id else matched_barber
+        is_vip_master = is_barber_vip(barber_obj) if barber_obj else False
 
         has_vip_protection = await is_feature_enabled("has_vip_protection")
         booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "new"
@@ -1140,46 +1202,47 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         )
 
         if booking_status == "pending_vip":
-            # Уведомление Шеф-мастеру (в личку при наличии telegram_id, иначе в ADMIN_CHAT_ID)
-            vip_target_chat = (barber_obj.get("telegram_id") if barber_obj else None) or settings.ADMIN_CHAT_ID
-            if vip_target_chat:
-                vip_card = (
-                    "👑 **ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ!**\n\n"
-                    f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
-                    f"💈 **Мастер:** {final_barber_name}\n"
-                    f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
-                    f"✂️ **Услуга:** {canonical_service}\n"
-                    f"⏰ **Время:** {booking_time}\n"
-                    f"📞 **Телефон:** {phone or 'Не указан'}\n"
-                    f"🆔 **Telegram ID:** `{user_id}`\n\n"
-                    "👑 _На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование._"
-                )
-                vip_kb = InlineKeyboardMarkup(
-                    inline_keyboard=[[
-                        InlineKeyboardButton(text="Принять ✅", callback_data=f"vip_accept:{booking_id}"),
-                        InlineKeyboardButton(text="Отклонить ❌", callback_data=f"vip_reject:{booking_id}"),
-                    ]]
-                )
-                try:
-                    await message.bot.send_message(
-                        chat_id=vip_target_chat,
-                        text=vip_card,
-                        parse_mode="Markdown",
-                        reply_markup=vip_kb,
-                    )
-                except Exception as e:
-                    logger.warning(f"Не удалось отправить VIP-запрос шефу: {e}")
-
-            # Клиенту сообщаем о передаче на согласование
-            await message.answer(
-                f"👑 **Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!**\n\n"
-                f"⏰ **Время:** {booking_time}\n"
-                f"✂️ **Услуга:** {canonical_service}\n"
-                f"📍 **Филиал:** {target_branch_name}\n\n"
-                "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
-                parse_mode="Markdown",
-                reply_markup=AI_BUSINESS_KEYBOARD,
+            await dispatch_vip_approval_card(
+                bot=message.bot,
+                booking_id=booking_id,
+                barber_obj=barber_obj,
+                final_barber_name=final_barber_name,
+                full_name=full_name,
+                username=username,
+                user_id=user_id,
+                canonical_service=canonical_service,
+                booking_time=booking_time,
+                phone=phone,
+                target_branch_name=target_branch_name,
+                branch_address=branch_address,
             )
+            safe_barber_name = html.escape(str(final_barber_name or "Шеф"))
+            safe_branch_name = html.escape(str(target_branch_name or "Миллий бог"))
+            safe_service = html.escape(str(canonical_service or "Стрижка"))
+            safe_time = html.escape(str(booking_time or ""))
+            client_msg_html = (
+                f"👑 <b>Запрос к Шеф-мастеру {safe_barber_name} отправлен на личное согласование!</b>\n\n"
+                f"⏰ <b>Время:</b> {safe_time}\n"
+                f"✂️ <b>Услуга:</b> {safe_service}\n"
+                f"📍 <b>Филиал:</b> {safe_branch_name}\n\n"
+                "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏"
+            )
+            try:
+                await message.answer(
+                    client_msg_html,
+                    parse_mode="HTML",
+                    reply_markup=AI_BUSINESS_KEYBOARD,
+                )
+            except Exception:
+                await message.answer(
+                    f"👑 Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!\n\n"
+                    f"⏰ Время: {booking_time}\n"
+                    f"✂️ Услуга: {canonical_service}\n"
+                    f"📍 Филиал: {target_branch_name}\n\n"
+                    "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
+                    parse_mode=None,
+                    reply_markup=AI_BUSINESS_KEYBOARD,
+                )
             return
 
         # Отправляем уведомление администратору в личку
@@ -1687,5 +1750,33 @@ async def handle_reject_receipt(callback: CallbackQuery):
 
 # Для обратной совместимости
 process_booking_intent = process_client_intent
+
+# Регистрация маршрутов в модульных роутерах
+common_router.message.register(handle_start, CommandStart())
+common_router.message.register(handle_about, Command("about"))
+common_router.message.register(handle_reset, Command("clear"))
+common_router.message.register(handle_reset, Command("reset"))
+common_router.message.register(handle_reset, F.text == "🔄 Сбросить диалог")
+common_router.message.register(handle_price, Command("price"))
+common_router.message.register(handle_price, F.text == "✂️ Прайс-лист")
+common_router.message.register(handle_location, F.text == "📍 Где мы находимся?")
+
+barber_router.message.register(handle_barber, Command("barber"))
+barber_router.callback_query.register(handle_vip_accept_callback, F.data.startswith("vip_accept:"))
+barber_router.callback_query.register(handle_vip_reject_callback, F.data.startswith("vip_reject:"))
+
+admin_router.message.register(handle_admin, Command("admin"))
+admin_router.message.register(handle_admin, F.text == "📊 Панель записей (/admin)")
+admin_router.message.register(handle_super, Command("super"))
+admin_router.callback_query.register(handle_booking_status_callback, F.data.startswith("bstatus:"))
+admin_router.callback_query.register(handle_approve_receipt, F.data.startswith("approve_receipt:"))
+admin_router.callback_query.register(handle_reject_receipt, F.data.startswith("reject_receipt:"))
+
+client_router.message.register(handle_voice_message, F.voice)
+client_router.message.register(handle_user_text, F.text)
+client_router.callback_query.register(handle_confirm_visit_callback, F.data.startswith("confirm_visit:"))
+client_router.callback_query.register(handle_cancel_visit_callback, F.data.startswith("cancel_visit:"))
+client_router.callback_query.register(handle_open_booking_dialog, F.data == "open_booking_dialog")
+
 
 

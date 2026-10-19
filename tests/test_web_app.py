@@ -588,5 +588,101 @@ async def test_web_app_settings_categories_and_slugs(monkeypatch):
             os.remove(test_db)
 
 
+@pytest.mark.asyncio
+async def test_barber_branch_endpoints(monkeypatch):
+    b_db = "test_barber_branch.db"
+    monkeypatch.setattr(settings, "DB_NAME", b_db)
+    monkeypatch.setattr(settings, "ADMIN_CHAT_ID", 999888)
+
+    if os.path.exists(b_db):
+        os.remove(b_db)
+    await init_db(b_db)
+
+    app = create_web_app()
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        admin_init = generate_telegram_init_data({"id": 999888}, settings.BOT_TOKEN or "test_bot_token")
+        auth_headers = {"X-Telegram-Init-Data": admin_init}
+
+        # 1. Create master pinned to branch 1
+        create_resp1 = await client.post("/api/barbers", headers=auth_headers, json={
+            "name": "Филиальный Мастер 1",
+            "role": "Стилист",
+            "branch_id": 1
+        })
+        assert create_resp1.status == 200
+        b1_id = (await create_resp1.json())["id"]
+
+        # 2. Create master pinned to branch 2
+        create_resp2 = await client.post("/api/barbers", headers=auth_headers, json={
+            "name": "Филиальный Мастер 2",
+            "role": "Стилист",
+            "branch_id": 2
+        })
+        assert create_resp2.status == 200
+        b2_id = (await create_resp2.json())["id"]
+
+        # 3. Create master working in ALL branches (branch_id=None / "")
+        create_resp_all = await client.post("/api/barbers", headers=auth_headers, json={
+            "name": "Мастер Всех Филиалов",
+            "role": "Шеф",
+            "branch_id": ""
+        })
+        assert create_resp_all.status == 200
+        b_all_id = (await create_resp_all.json())["id"]
+
+        # 4. GET /api/barbers?branch_id=1
+        resp_b1 = await client.get("/api/barbers?branch_id=1")
+        assert resp_b1.status == 200
+        b1_list = await resp_b1.json()
+        assert any(b["id"] == b1_id for b in b1_list)
+        assert any(b["id"] == b_all_id for b in b1_list)
+        assert not any(b["id"] == b2_id for b in b1_list)
+
+        # 5. Booking validation: Try booking master of branch 1 for branch 2 -> must return 400
+        from services.schedule_service import get_now_tashkent
+        from datetime import timedelta
+        slot_date = (get_now_tashkent().date() + timedelta(days=2)).isoformat()
+
+        bad_booking_resp = await client.post("/api/bookings", json={
+            "full_name": "Тестовый Клиент",
+            "phone": "+998901234567",
+            "service": "Стрижка волос",
+            "booking_time": f"{slot_date} 14:00",
+            "branch_id": 2,
+            "barber_id": b1_id
+        })
+        assert bad_booking_resp.status == 400
+        bad_json = await bad_booking_resp.json()
+        assert "принимает только в филиале" in bad_json["error"]
+
+        # 6. Booking master of branch 1 for branch 1 -> must succeed 200
+        good_booking_resp = await client.post("/api/bookings", json={
+            "full_name": "Тестовый Клиент 2",
+            "phone": "+998901234567",
+            "service": "Стрижка волос",
+            "booking_time": f"{slot_date} 14:00",
+            "branch_id": 1,
+            "barber_id": b1_id
+        })
+        assert good_booking_resp.status == 200
+        assert (await good_booking_resp.json())["ok"] is True
+
+        # 7. Test /api/slots with branch_id
+        slots_b1 = await client.get(f"/api/slots?date={slot_date}&branch_id=1")
+        assert slots_b1.status == 200
+        slots_b1_data = await slots_b1.json()
+        assert "slots" in slots_b1_data
+
+    finally:
+        await client.close()
+        if os.path.exists(b_db):
+            os.remove(b_db)
+
+
+
 
 

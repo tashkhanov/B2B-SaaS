@@ -14,7 +14,8 @@ async def test_handle_start():
     await handle_start(message)
     message.answer.assert_called_once()
     args, kwargs = message.answer.call_args
-    assert "Салам алейкум, Алишер!" in args[0]
+    assert "Assalomu alaykum, Алишер! Xush kelibsiz! / Здравствуйте!" in args[0]
+    assert "Muloqot tili / Язык общения" in args[0]
     assert "Brohouse" in args[0]
     markup = kwargs.get("reply_markup")
     assert isinstance(markup, InlineKeyboardMarkup)
@@ -69,6 +70,27 @@ async def test_handle_reset():
         message.answer.assert_called_once()
         args, _ = message.answer.call_args
         assert "История диалога очищена" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_clear_secret_command():
+    from bot.handlers import handle_clear, get_main_keyboard
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=905730373, is_bot=False, first_name="TestUser")
+    message.answer = AsyncMock()
+
+    with patch("bot.handlers.clear_history", new_callable=AsyncMock) as mock_clear:
+        await handle_clear(message)
+        mock_clear.assert_called_once_with(905730373)
+        message.answer.assert_called_once()
+
+
+def test_keyboards_no_reset_button():
+    from bot.handlers import get_main_keyboard
+    for role in ["client", "barber", "admin", "super_admin"]:
+        kb = get_main_keyboard(role=role)
+        all_btn_texts = [btn.text for row in kb.keyboard for btn in row]
+        assert "🔄 Сбросить диалог" not in all_btn_texts
 
 @pytest.mark.asyncio
 async def test_process_booking_intent_flow():

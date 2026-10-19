@@ -31,6 +31,8 @@ let allBookings = [];
 let currentFilter = 'all';
 let allServices = [];
 let allBarbers = [];
+let adminBranches = [];
+let barberBranchFilter = 'all';
 
 // --- TAB SWITCHING ---
 function switchTab(tab) {
@@ -693,6 +695,17 @@ async function loadTierConfig() {
   }
 }
 
+async function loadBranchesForAdmin() {
+  if (adminBranches && adminBranches.length > 0) return adminBranches;
+  try {
+    const res = await fetch('/api/branches');
+    adminBranches = await res.json();
+  } catch (e) {
+    console.warn("Could not load branches for admin:", e);
+  }
+  return adminBranches || [];
+}
+
 async function fetchBarbers() {
   const loader = document.getElementById('barbers-loading');
   const list = document.getElementById('barbers-list');
@@ -700,11 +713,13 @@ async function fetchBarbers() {
   if (list) list.classList.add('hidden');
 
   try {
-    const [barbersRes, cfg] = await Promise.all([
+    const [barbersRes, branchesData, cfg] = await Promise.all([
       fetch('/api/barbers'),
+      loadBranchesForAdmin(),
       loadTierConfig()
     ]);
     allBarbers = await barbersRes.json();
+    renderBarberBranchFilters();
     renderBarbers();
     updateCapacityUI(allBarbers.length, cfg);
   } catch (e) {
@@ -713,6 +728,42 @@ async function fetchBarbers() {
     if (loader) loader.classList.add('hidden');
     if (list) list.classList.remove('hidden');
   }
+}
+
+function renderBarberBranchFilters() {
+  const container = document.getElementById('barber-branch-filters');
+  if (!container) return;
+  if (!adminBranches || adminBranches.length <= 1) {
+    container.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  container.innerHTML = '';
+
+  const allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.className = `flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition border ${barberBranchFilter === 'all' ? 'bg-accent text-white border-accent shadow-sm' : 'bg-surface text-gray-400 border-surfaceBorder hover:text-white'}`;
+  allBtn.textContent = '🌐 Все филиалы';
+  allBtn.onclick = () => {
+    barberBranchFilter = 'all';
+    renderBarberBranchFilters();
+    renderBarbers();
+  };
+  container.appendChild(allBtn);
+
+  adminBranches.filter(b => b.is_active).forEach(b => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    const isSel = String(barberBranchFilter) === String(b.id);
+    btn.className = `flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition border ${isSel ? 'bg-accent text-white border-accent shadow-sm' : 'bg-surface text-gray-400 border-surfaceBorder hover:text-white'}`;
+    btn.textContent = `📍 ${b.name}`;
+    btn.onclick = () => {
+      barberBranchFilter = String(b.id);
+      renderBarberBranchFilters();
+      renderBarbers();
+    };
+    container.appendChild(btn);
+  });
 }
 
 function updateCapacityUI(count, cfg) {
@@ -755,16 +806,36 @@ function renderBarbers() {
     return;
   }
 
-  allBarbers.forEach(b => {
+  let filtered = allBarbers;
+  if (barberBranchFilter !== 'all') {
+    const targetBranchId = parseInt(barberBranchFilter);
+    filtered = allBarbers.filter(b => !b.branch_id || b.branch_id === targetBranchId);
+  }
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="py-6 text-center text-gray-400 text-xs">В этом филиале пока нет назначенных мастеров.</div>';
+    return;
+  }
+
+  filtered.forEach(b => {
     const card = document.createElement('div');
     card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-sm';
 
-    const isVip = Boolean(b.is_vip || (b.role_title && (b.role_title.toLowerCase().includes('шеф') || b.role_title.toLowerCase().includes('директор') || b.role_title.toLowerCase().includes('главный'))));
-    const vipBadge = isVip ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">👑 VIP График</span>' : '';
+    const isVip = Boolean(b.is_vip !== undefined && b.is_vip !== null ? b.is_vip : (b.role_title && (b.role_title.toLowerCase().includes('шеф') || b.role_title.toLowerCase().includes('директор') || b.role_title.toLowerCase().includes('главный'))));
+    const vipBadge = `
+      <button type="button" onclick="toggleBarberVip(${b.id}, ${isVip ? 0 : 1})" title="${isVip ? 'VIP-согласование включено (нажмите, чтобы отключить)' : 'VIP-согласование выключено (нажмите, чтобы включить)'}" class="px-2 py-0.5 rounded-full text-[10px] font-bold transition active:scale-95 flex items-center gap-1 cursor-pointer ${isVip ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30' : 'bg-gray-700/30 text-gray-400 border border-surfaceBorder hover:text-gray-200'}">
+        <span>👑 VIP</span>
+        <span class="text-[9px] ${isVip ? 'text-amber-400' : 'text-gray-500'}">${isVip ? 'ВКЛ' : 'ВЫКЛ'}</span>
+      </button>
+    `;
     const isOnShift = Boolean(b.is_working_today !== undefined ? b.is_working_today : b.is_on_shift);
     const shiftBadge = isOnShift 
       ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">На смене</span>'
       : '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-500/20 text-gray-400 border border-gray-500/30">Выходной</span>';
+
+    const branchBadge = b.branch_name
+      ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30">📍 ${escapeHtml(b.branch_name)}</span>`
+      : `<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/5 text-gray-300 border border-white/10">🌐 Все филиалы</span>`;
 
     const tgInfo = b.telegram_id ? `<span class="text-gray-400">TG: ${b.telegram_id}</span>` : '<span class="text-gray-500">TG не привязан</span>';
 
@@ -776,6 +847,7 @@ function renderBarbers() {
           <span class="text-[11px] text-gray-400 font-medium">(${escapeHtml(b.role_title || b.role || 'Барбер')})</span>
           ${vipBadge}
           ${shiftBadge}
+          ${branchBadge}
         </div>
         <div class="flex items-center gap-2 text-[11px] text-gray-400">
           <span>${b.phone ? escapeHtml(b.phone) : 'Телефон не указан'}</span>
@@ -797,6 +869,25 @@ function renderBarbers() {
     `;
     list.appendChild(card);
   });
+}
+
+async function toggleBarberVip(barberId, targetStatus) {
+  try {
+    const res = await fetch(`/api/barbers/${barberId}/toggle-vip`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ is_vip: targetStatus })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+      fetchBarbers();
+    } else {
+      alert(data.error || 'Ошибка при изменении VIP-статуса');
+    }
+  } catch (e) {
+    alert('Ошибка связи с сервером');
+  }
 }
 
 async function toggleShift(barberId) {
@@ -832,8 +923,22 @@ function openBarberModal(barberId = null) {
   const modal = document.getElementById('barber-modal');
   const title = document.getElementById('barber-modal-title');
   const delBtn = document.getElementById('brb-delete-btn');
+  const vipCheck = document.getElementById('brb-is-vip');
+  const branchSelect = document.getElementById('brb-branch');
 
   document.getElementById('brb-id').value = barberId || '';
+
+  if (branchSelect) {
+    branchSelect.innerHTML = '<option value="">🌐 Все филиалы (любой филиал)</option>';
+    if (adminBranches && adminBranches.length > 0) {
+      adminBranches.filter(b => b.is_active).forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = `📍 ${b.name}`;
+        branchSelect.appendChild(opt);
+      });
+    }
+  }
 
   const dayBtns = document.querySelectorAll('#brb-days-grid .day-btn');
   dayBtns.forEach(btn => {
@@ -849,6 +954,12 @@ function openBarberModal(barberId = null) {
       document.getElementById('brb-role').value = b.role || '';
       document.getElementById('brb-phone').value = b.phone || '';
       document.getElementById('brb-tg-id').value = b.telegram_id || '';
+      if (branchSelect) {
+        branchSelect.value = b.branch_id ? String(b.branch_id) : '';
+      }
+      if (vipCheck) {
+        vipCheck.checked = Boolean(b.is_vip !== undefined && b.is_vip !== null ? b.is_vip : (b.role_title && (b.role_title.toLowerCase().includes('шеф') || b.role_title.toLowerCase().includes('директор'))));
+      }
       delBtn.classList.remove('hidden');
 
       const workDays = (b.work_days || '0,1,2,3,4,5,6').split(',').map(d => d.trim());
@@ -864,6 +975,12 @@ function openBarberModal(barberId = null) {
     document.getElementById('brb-role').value = 'Топ-барбер';
     document.getElementById('brb-phone').value = '';
     document.getElementById('brb-tg-id').value = '';
+    if (branchSelect) {
+      branchSelect.value = '';
+    }
+    if (vipCheck) {
+      vipCheck.checked = false;
+    }
     delBtn.classList.add('hidden');
 
     // Все дни по умолчанию активны
@@ -883,6 +1000,10 @@ async function saveBarber() {
   const role = document.getElementById('brb-role').value.trim();
   const phone = document.getElementById('brb-phone').value.trim();
   const tgId = document.getElementById('brb-tg-id').value.trim();
+  const vipCheck = document.getElementById('brb-is-vip');
+  const isVip = vipCheck && vipCheck.checked ? 1 : 0;
+  const branchSelect = document.getElementById('brb-branch');
+  const branchId = branchSelect && branchSelect.value ? parseInt(branchSelect.value) : null;
 
   if (!name) {
     alert('Пожалуйста, введите имя барбера');
@@ -905,7 +1026,9 @@ async function saveBarber() {
     phone: phone || null,
     telegram_id: tgId ? parseInt(tgId) : null,
     work_days: workDaysStr || '0,1,2,3,4,5,6',
-    is_on_shift: 1
+    is_on_shift: 1,
+    is_vip: isVip,
+    branch_id: branchId
   };
 
   const url = bId ? `/api/barbers/${bId}/update` : '/api/barbers';

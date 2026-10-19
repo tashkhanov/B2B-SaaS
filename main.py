@@ -62,7 +62,6 @@ async def setup_bot_commands(bot: Bot) -> None:
         BotCommand(command="price", description="✂️ Прайс-лист услуг"),
         BotCommand(command="barber", description="💈 Кабинет мастера (TMA)"),
         BotCommand(command="about", description="⚡ О разработчике (Khan)"),
-        BotCommand(command="reset", description="🔄 Сбросить диалог"),
     ]
     await bot.set_my_commands(client_commands)
 
@@ -74,7 +73,6 @@ async def setup_bot_commands(bot: Bot) -> None:
             BotCommand(command="barber", description="💈 Кабинет мастера (TMA)"),
             BotCommand(command="price", description="✂️ Прайс-лист услуг"),
             BotCommand(command="about", description="⚡ О разработчике (Khan)"),
-            BotCommand(command="reset", description="🔄 Сбросить диалог"),
         ]
         try:
             await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=settings.ADMIN_CHAT_ID))

@@ -203,3 +203,238 @@ async def test_vip_protection_disabled_on_start_tier():
     await set_tenant_tier("brohouse", "START", db_path=TEST_DB)
     enabled = await is_feature_enabled("has_vip_protection", db_path=TEST_DB)
     assert enabled is False
+
+
+@pytest.mark.asyncio
+async def test_barber_vip_toggle_and_crud_api():
+    from web_app import create_web_app
+    from aiohttp.test_utils import TestClient, TestServer
+    from config import settings
+
+    mock_bot = AsyncMock()
+    app = create_web_app(bot=mock_bot)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        # Create barber with is_vip=1
+        auth_headers = {"X-Admin-Password": str(settings.ADMIN_CHAT_ID)}
+        resp_create = await client.post("/api/barbers", headers=auth_headers, json={
+            "name": "Нодир VIP",
+            "role": "Шеф",
+            "phone": "+998901234567",
+            "telegram_id": 777666,
+            "work_days": "0,1,2,3,4,5,6",
+            "is_vip": 1
+        })
+        assert resp_create.status == 200
+        data_create = await resp_create.json()
+        assert data_create["ok"] is True
+        b_id = data_create["id"]
+
+        # Check get_barbers returns is_vip == 1
+        resp_list = await client.get("/api/barbers")
+        assert resp_list.status == 200
+        barbers = await resp_list.json()
+        created = next((b for b in barbers if b["id"] == b_id), None)
+        assert created is not None
+        assert created["is_vip"] == 1
+
+        # Toggle VIP off via /api/barbers/{id}/toggle-vip
+        resp_toggle = await client.post(f"/api/barbers/{b_id}/toggle-vip", headers=auth_headers, json={
+            "is_vip": 0
+        })
+        assert resp_toggle.status == 200
+        data_toggle = await resp_toggle.json()
+        assert data_toggle["ok"] is True
+        assert data_toggle["is_vip"] == 0
+
+        # Verify toggle in DB
+        b_check = await get_barber_by_id(b_id, db_path=TEST_DB)
+        assert b_check["is_vip"] == 0
+
+        # Update barber setting is_vip=1 again
+        resp_update = await client.post(f"/api/barbers/{b_id}/update", headers=auth_headers, json={
+            "name": "Нодир VIP (Updated)",
+            "role": "Шеф-мастер",
+            "phone": "+998901234567",
+            "telegram_id": 777666,
+            "work_days": "0,1,2,3,4,5,6",
+            "is_vip": 1
+        })
+        assert resp_update.status == 200
+        b_check_2 = await get_barber_by_id(b_id, db_path=TEST_DB)
+        assert b_check_2["is_vip"] == 1
+        assert b_check_2["name"] == "Нодир VIP (Updated)"
+
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_vip_notification_delivered_to_both_master_and_admin(monkeypatch):
+    from web_app import create_web_app
+    from aiohttp.test_utils import TestClient, TestServer
+    from config import settings
+
+    monkeypatch.setattr(settings, "ADMIN_CHAT_ID", 999888)
+
+    akmal_id = await create_barber(
+        name="Mr. Akmal",
+        role_title="Шеф-мастер",
+        telegram_id=555444,
+        is_vip=1,
+        db_path=TEST_DB
+    )
+
+    mock_bot = AsyncMock()
+    app = create_web_app(bot=mock_bot)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        resp = await client.post("/api/bookings", json={
+            "full_name": "Тест Клиент",
+            "username": "@test_user_underscore",
+            "phone": "+998901234567",
+            "service": "Стрижка от Шефа",
+            "booking_time": "2026-10-25 15:00",
+            "barber_id": akmal_id,
+            "user_id": 111222
+        })
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["status"] == "pending_vip"
+
+        # Check mock_bot received calls for both Akmal (555444) and Admin (999888)
+        calls = mock_bot.send_message.call_args_list
+        target_ids = [c.kwargs.get("chat_id") for c in calls]
+        assert 555444 in target_ids
+        assert 999888 in target_ids
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_vip_booking_via_process_client_intent_uzbek(monkeypatch):
+    from bot.handlers import process_client_intent
+    from services.gemini_service import ClientAction
+    from config import settings
+
+    monkeypatch.setattr(settings, "ADMIN_CHAT_ID", 999888)
+    monkeypatch.setattr(settings, "SUPER_ADMIN_CHAT_ID", 1243374131)
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=888999, is_bot=False, first_name="Ibrohim", username="ibrohim_test")
+    message.answer = AsyncMock()
+    message.bot = AsyncMock()
+
+    barbers_data = [
+        {"id": 4, "name": "Mr. Akmal", "role_title": "Шеф-мастер", "phone": "+998970125555", "telegram_id": 555444, "is_vip": 1, "is_working_today": 1, "is_active": 1, "work_days": "0,1,2,3,4,5,6"}
+    ]
+
+    with patch("bot.handlers.get_recent_messages", new_callable=AsyncMock) as mock_recent, \
+         patch("bot.handlers.gemini_service.extract_client_action", new_callable=AsyncMock) as mock_action, \
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_bookings, \
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock) as mock_barbers, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
+         patch("bot.handlers.get_user_active_booking", new_callable=AsyncMock) as mock_user_b:
+
+        mock_recent.return_value = []
+        mock_user_b.return_value = None
+        mock_barbers.return_value = barbers_data
+        mock_bookings.return_value = []
+        mock_save.return_value = 101
+
+        mock_action.return_value = ClientAction(
+            action="create_booking",
+            is_booking_confirmed=True,
+            customer_name="Ibrohim",
+            barber_name="Mr. Akmal",
+            booking_time="2026-10-25 14:00 (Yakshanba)",
+            service="Стрижка"
+        )
+
+        query = "Ertaga soat 14:00 ga Mr. Akmalning huzuriga soch oldirishga yozib qo'ying"
+        ai_reply = "👑 Bosh usta Mr. Akmal huzuriga soat 14:00 ga yozilish so'rovingiz shaxsan Akmal akaga tasdiqlash uchun yuborildi!"
+
+        await process_client_intent(message=message, client_query=query, ai_reply=ai_reply)
+
+        # 1. Booking saved in DB with pending_vip
+        mock_save.assert_called_once()
+        save_kwargs = mock_save.call_args.kwargs
+        assert save_kwargs["status"] == "pending_vip"
+        assert save_kwargs["barber_id"] == 4
+        assert save_kwargs["barber_name"] == "Mr. Akmal"
+
+        # 2. VIP approval notifications dispatched to Akmal (555444) and Admin (999888)
+        calls = message.bot.send_message.call_args_list
+        target_ids = [c.kwargs.get("chat_id") for c in calls]
+        assert 555444 in target_ids
+        assert 999888 in target_ids
+
+        # 3. Message answered informing client of pending Chef approval
+        message.answer.assert_called_once()
+        assert "личное согласование" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_vip_booking_via_process_admin_intent_uzbek(monkeypatch):
+    from bot.handlers import process_admin_intent
+    from services.gemini_service import AdminAction
+    from config import settings
+
+    monkeypatch.setattr(settings, "ADMIN_CHAT_ID", 999888)
+    monkeypatch.setattr(settings, "SUPER_ADMIN_CHAT_ID", 1243374131)
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=1243374131, is_bot=False, first_name="Иброхим", username="asatkhanov")
+    message.answer = AsyncMock()
+    message.bot = AsyncMock()
+
+    barbers_data = [
+        {"id": 4, "name": "Mr. Akmal", "role_title": "Шеф-мастер", "phone": "+998970125555", "telegram_id": 555444, "is_vip": 1, "is_working_today": 1, "is_active": 1, "work_days": "0,1,2,3,4,5,6"}
+    ]
+
+    with patch("bot.handlers.gemini_service.extract_admin_action", new_callable=AsyncMock) as mock_action, \
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_bookings, \
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock) as mock_barbers, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save:
+
+        mock_barbers.return_value = barbers_data
+        mock_bookings.return_value = []
+        mock_save.return_value = 102
+
+        mock_action.return_value = AdminAction(
+            action="create_booking",
+            client_query="Иброхим",
+            barber_name="Mr. Akmal",
+            booking_time="2026-10-25 14:00",
+            service="Стрижка"
+        )
+
+        query = "Ertaga soat 14:00 ga Mr. Akmalning huzuriga soch oldirishga yozib qo'y"
+        ai_reply = "👑 От души, Иброхим ака! Запрос на 14:00 к Шеф-мастеру Mr. Akmal отправлен на личное согласование!"
+
+        await process_admin_intent(message=message, admin_query=query, ai_reply=ai_reply)
+
+        # 1. Booking saved in DB with pending_vip
+        mock_save.assert_called_once()
+        save_kwargs = mock_save.call_args.kwargs
+        assert save_kwargs["status"] == "pending_vip"
+        assert save_kwargs["barber_id"] == 4
+        assert save_kwargs["barber_name"] == "Mr. Akmal"
+        assert save_kwargs["full_name"] == "Иброхим"
+
+        # 2. VIP approval notifications dispatched to Akmal (555444), Admin (999888), SuperAdmin (1243374131)
+        calls = message.bot.send_message.call_args_list
+        target_ids = [c.kwargs.get("chat_id") for c in calls]
+        assert 555444 in target_ids
+        assert 999888 in target_ids
+
+        # 3. Message answered informing of pending Chef approval
+        message.answer.assert_called_once()
+        assert "личное согласование" in message.answer.call_args[0][0]
+

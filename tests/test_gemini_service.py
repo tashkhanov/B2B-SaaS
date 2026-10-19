@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from services.gemini_service import GeminiService, ExtractedBooking
 
 def test_format_history_to_contents():
@@ -88,6 +88,31 @@ async def test_creator_prompt_injection():
         assert "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО СПРАШИВАТЬ ЕГО ИМЯ" in system_instruction
 
 
+@pytest.mark.asyncio
+async def test_regular_user_prompt_does_not_contain_creator_identity():
+    service = GeminiService()
+    mock_client = MagicMock()
+    mock_models = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.text = "Здравствуйте! Как к вам обращаться?"
+    mock_response.function_calls = []
+    mock_models.generate_content = AsyncMock(return_value=mock_response)
+    mock_client.aio.models = mock_models
+    service.client = mock_client
+
+    with patch("services.gemini_service.get_recent_messages", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_active_bookings", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_barbers", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_services", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.add_message", new_callable=AsyncMock):
+
+        await service.generate_response(user_id=905730373, user_message="Запиши меня к Акмалю")
+        call_kwargs = mock_models.generate_content.call_args[1]
+        system_instruction = call_kwargs["config"].system_instruction
+        assert "ОСОБЫЙ СТАТУС ПОЛЬЗОВАТЕЛЯ — СОЗДАТЕЛЬ И СУПЕР-АДМИН (ИБРОХИМ)" not in system_instruction
+        assert "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО СПРАШИВАТЬ ЕГО ИМЯ" not in system_instruction
+
+
 def test_dynamic_white_label_prompts():
     from prompts import (
         build_client_system_prompt,
@@ -108,5 +133,79 @@ def test_dynamic_white_label_prompts():
 
     creator_p = build_creator_identity_prompt()
     assert settings.SALON_SHORT_NAME in creator_p
+
+    # Проверка отсутствия навязчивых шаблонных фраз и слов-паразитов
+    for bad_phrase in ["от души", "ээ ака", "братан", "туда-сюда", "гап йўқ"]:
+        assert bad_phrase not in client_p.lower()
+
+    # Проверка правил языковой чистоты
+    assert "СТРОГО ЗЕРКАЛЬ ЯЗЫК КЛИЕНТА" in client_p
+    assert "ЖЕСТКИЙ ЗАПРЕТ НА СМЕШИВАНИЕ ЯЗЫКОВ" in client_p
+
+
+@pytest.mark.asyncio
+async def test_generate_response_executes_tool_call():
+    from google.genai import types
+    from unittest.mock import patch
+
+    service = GeminiService(api_key="test_key")
+    mock_client = MagicMock()
+    mock_models = MagicMock()
+
+    # Turn 1: Model calls create_booking_reservation tool
+    fc = types.FunctionCall(
+        name="create_booking_reservation",
+        args={
+            "customer_name": "Иброхим",
+            "booking_time": "2026-10-20 14:00 (Вторник)",
+            "barber_name_or_id": "Mr. Akmal",
+            "branch_name_or_id": "Миллий бог",
+            "service_name_or_id": "Стрижка волос",
+        }
+    )
+    first_resp = MagicMock()
+    first_resp.function_calls = [fc]
+    first_resp.candidates = [MagicMock(content=types.Content(role="model", parts=[types.Part(function_call=fc)]))]
+    first_resp.text = ""
+
+    # Turn 2: After receiving tool response, model outputs final confirmation
+    second_resp = MagicMock()
+    second_resp.function_calls = None
+    second_resp.text = "👑 От души, Иброхим ака! Запрос на 14:00 к Шеф-мастеру Mr. Akmal отправлен на личное согласование!"
+
+    mock_models.generate_content = AsyncMock(side_effect=[first_resp, second_resp])
+    mock_client.aio.models = mock_models
+    service.client = mock_client
+
+    mock_tool_result = {
+        "success": True,
+        "status": "pending_vip",
+        "booking_id": 999,
+        "barber_name": "Mr. Akmal",
+        "branch_name": "Миллий бог",
+        "requires_manual_approval": True,
+        "message": "Запрос отправлен на согласование",
+    }
+
+    with patch.object(service.booking_tools, "create_booking_reservation", new_callable=AsyncMock, return_value=mock_tool_result) as mock_book_tool, \
+         patch("services.gemini_service.get_recent_messages", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_active_bookings", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_barbers", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_services", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_branches", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.add_message", new_callable=AsyncMock):
+
+        reply = await service.generate_response(
+            user_id=1243374131,
+            user_message="Ertaga 14:00 ga Mr. Akmalga yozib qo'y",
+        )
+
+        assert "Mr. Akmal" in reply
+        assert "согласование" in reply
+        mock_book_tool.assert_called_once()
+        call_kwargs = mock_book_tool.call_args[1]
+        assert call_kwargs["barber_name_or_id"] == "Mr. Akmal"
+        assert call_kwargs["customer_name"] == "Иброхим"
+
 
 

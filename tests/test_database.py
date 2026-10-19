@@ -116,18 +116,25 @@ async def test_has_recent_booking():
 async def test_services_crud():
     from database import get_services, get_service_by_id, create_service, update_service, delete_service
 
-    # Проверка начального seed (12 дефолтных услуг Brohouse)
+    # Проверка начального seed (12 дефолтных услуг Brohouse и их распределения по категориям)
     services = await get_services(db_path=TEST_DB)
     assert len(services) == 12
     assert any(s["name"] == "Стрижка волос" for s in services)
+    hair_services = [s for s in services if s.get("category") == "hair"]
+    beard_services = [s for s in services if s.get("category") == "beard"]
+    spa_services = [s for s in services if s.get("category") == "spa"]
+    assert len(hair_services) == 5
+    assert len(beard_services) == 3
+    assert len(spa_services) == 4
 
-    # Создание новой услуги
+    # Создание новой услуги с категорией
     new_id = await create_service(
         name="Камуфляж седины",
         price=70000,
         duration_min=30,
         description="Тонирование бороды и волос",
         badge="NEW",
+        category="beard",
         db_path=TEST_DB
     )
     assert new_id > 0
@@ -137,6 +144,7 @@ async def test_services_crud():
     assert s["price"] == 70000
     assert s["duration_min"] == 30
     assert s["badge"] == "NEW"
+    assert s["category"] == "beard"
 
     # Обновление услуги
     updated = await update_service(
@@ -222,6 +230,50 @@ async def test_barbers_crud_and_bookings():
     assert len(master_bookings) == 1
     assert master_bookings[0]["barber_name"] == "Тимур"
     assert master_bookings[0]["full_name"] == "Клиент Мастера"
+
+    # Тестирование привязки к филиалу (branch_id)
+    # 1. Мастер с конкретным филиалом (Филиал #1: Миллий бог)
+    b_branch1_id = await create_barber(
+        name="Шерзод",
+        role_title="Барбер",
+        branch_id=1,
+        db_path=TEST_DB
+    )
+    b_b1 = await get_barber_by_id(b_branch1_id, db_path=TEST_DB)
+    assert b_b1["branch_id"] == 1
+    assert b_b1["branch_name"] == "Миллий бог"
+
+    # 2. Мастер с конкретным филиалом #2 (Чиланзар)
+    b_branch2_id = await create_barber(
+        name="Сарвар",
+        role_title="Барбер",
+        branch_id=2,
+        db_path=TEST_DB
+    )
+    b_b2 = await get_barber_by_id(b_branch2_id, db_path=TEST_DB)
+    assert b_b2["branch_id"] == 2
+    assert b_b2["branch_name"] == "Чиланзар (2-й кв.)"
+
+    # 3. Фильтрация по филиалу 1: включает Шерзода (branch_id=1) и мастеров с Все филиалы (branch_id=None), но исключает Сарвара (branch_id=2)
+    branch1_barbers = await get_barbers(branch_id=1, db_path=TEST_DB)
+    assert any(b["id"] == b_branch1_id for b in branch1_barbers)
+    assert not any(b["id"] == b_branch2_id for b in branch1_barbers)
+
+    # 4. Обновление филиала на "Все филиалы" (branch_id=None)
+    await update_barber(
+        barber_id=b_branch1_id,
+        name="Шерзод Все Филиалы",
+        branch_id=None,
+        db_path=TEST_DB
+    )
+    b_all = await get_barber_by_id(b_branch1_id, db_path=TEST_DB)
+    assert b_all["branch_id"] is None
+    assert b_all["branch_name"] is None
+    # Теперь он виден и в филиале 1, и в филиале 2
+    b1_list = await get_barbers(branch_id=1, db_path=TEST_DB)
+    b2_list = await get_barbers(branch_id=2, db_path=TEST_DB)
+    assert any(b["id"] == b_branch1_id for b in b1_list)
+    assert any(b["id"] == b_branch1_id for b in b2_list)
 
 
 @pytest.mark.asyncio
