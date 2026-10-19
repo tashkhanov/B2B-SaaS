@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import asyncio
 import logging
 from typing import List, Dict, Optional, Tuple, Any
@@ -199,6 +200,7 @@ class GeminiService:
         self._client: Optional[genai.Client] = None
         self.booking_tools = GeminiBookingTools()
         self.last_user_tools: Dict[int, List[str]] = {}
+        self.exhausted_models: Dict[str, float] = {}
 
     def had_tool_calls(self, user_id: int) -> bool:
         """Проверяет, были ли вызваны инструменты в последнем запросе пользователя."""
@@ -315,24 +317,44 @@ class GeminiService:
         max_retries: int = 3,
     ) -> Any:
         """
-        Надежный вызов generate_content с автоматическим повтором при ошибках
-        503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED и переключением на резервную модель.
+        Надежный вызов generate_content с автоматическим повтором при временных сбоях (503 UNAVAILABLE),
+        детектированием исчерпания суточной квоты (429 RESOURCE_EXHAUSTED) и МГНОВЕННЫМ переключением
+        на рабочую резервную модель без лишних задержек.
         """
         target_model = model_name or self.model_name
         fallback_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
-        models_to_try = [target_model] + [m for m in fallback_models if m != target_model]
+        all_candidates = [target_model] + [m for m in fallback_models if m != target_model]
+
+        # Исключаем модели, у которых исчерпана суточная квота
+        now = time.time()
+        models_to_try = [m for m in all_candidates if self.exhausted_models.get(m, 0) < now]
+        if not models_to_try:
+            # Если все помечены исчерпанными, сбрасываем кэш и пробуем снова
+            self.exhausted_models.clear()
+            models_to_try = all_candidates
 
         last_error = None
         for current_model in models_to_try:
             for attempt in range(max_retries):
                 try:
-                    return await self.client.aio.models.generate_content(
+                    res = await self.client.aio.models.generate_content(
                         model=current_model,
                         contents=contents,
                         config=config,
                     )
+                    # Если резервная модель успешно сработала, делаем её основной для дальнейших запросов
+                    if current_model != self.model_name and self.exhausted_models.get(self.model_name, 0) > now:
+                        logger.info(f"Переключаем основную модель сервиса с {self.model_name} на рабочую {current_model}")
+                        self.model_name = current_model
+                    return res
                 except Exception as e:
                     err_msg = str(e)
+                    is_hard_quota = (
+                        "quotaValue" in err_msg
+                        or "Quota exceeded" in err_msg
+                        or "free_tier_requests" in err_msg
+                        or "RESOURCE_EXHAUSTED" in err_msg
+                    )
                     is_transient = (
                         "503" in err_msg
                         or "429" in err_msg
@@ -342,6 +364,17 @@ class GeminiService:
                         or "overloaded" in err_msg
                     )
                     last_error = e
+
+                    if is_hard_quota:
+                        # Суточная квота Free Tier исчерпана. Ждать 1-2 секунды бесполезно.
+                        # Сразу заносим модель в бан на 30 минут и МГНОВЕННО переключаемся на следующую модель!
+                        logger.warning(
+                            f"Модель {current_model} исчерпала квоту (Quota Exceeded). "
+                            "Мгновенно переключаемся на резервную модель без ожидания!"
+                        )
+                        self.exhausted_models[current_model] = time.time() + 1800
+                        break
+
                     if is_transient and attempt < max_retries - 1:
                         backoff = 1.0 * (1.5 ** attempt)
                         logger.warning(
