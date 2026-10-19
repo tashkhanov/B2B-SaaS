@@ -274,21 +274,30 @@ function renderBookings() {
     }
 
     card.innerHTML = `
-      <div class="flex items-start justify-between mb-2">
-        <div>
-          <div class="font-semibold text-white text-sm flex items-center gap-1.5">
-            ${escapeHtml(booking.full_name || 'Гость')}
-            ${cleanUsername ? `<span class="text-xs font-normal text-accent">@${escapeHtml(cleanUsername)}</span>` : ''}
-          </div>
-          <div class="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
-            <svg class="w-3.5 h-3.5 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>
-            </svg>
-            <span>${escapeHtml(booking.service || 'Стрижка / Комплекс')}</span>
-          </div>
-        </div>
-        <div>
+      <!-- Верхняя статусная плашка (отдельная чистая строка) -->
+      <div class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-surfaceBorder/40">
+        <div class="shrink-0">
           ${statusBadge}
+        </div>
+        ${phone ? `
+          <a href="tel:${escapeHtml(phone)}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-surfaceBorder/60 text-accent hover:text-white transition">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            <span>Позвонить</span>
+          </a>
+        ` : ''}
+      </div>
+
+      <!-- Имя клиента и услуга -->
+      <div class="mb-2">
+        <div class="font-bold text-white text-base flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span>${escapeHtml(booking.full_name || 'Гость')}</span>
+          ${cleanUsername ? `<a href="${tgLink}" target="_blank" class="text-xs font-normal text-accent hover:underline">@${escapeHtml(cleanUsername)}</a>` : ''}
+        </div>
+        <div class="text-xs text-gray-300 mt-1 flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>
+          </svg>
+          <span class="font-medium">${escapeHtml(booking.service || 'Стрижка / Комплекс')}</span>
         </div>
       </div>
 

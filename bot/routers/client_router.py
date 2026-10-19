@@ -380,16 +380,18 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
             return
 
         if settings.ADMIN_CHAT_ID:
+            clean_un = (username or "").replace("@", "").strip()
+            tg_un_line = f"📱 **TG Username:** @{clean_un}\n" if clean_un else (f"📱 **TG Username:** отсутствует (ID: `{user_id}`)\n" if user_id else "📱 **TG Username:** отсутствует\n")
             master_str = f"💈 **Мастер:** {final_barber_name}\n" if final_barber_name else ""
             admin_card = (
                 f"💈 **НОВАЯ ЗАПИСЬ В {settings.SALON_SHORT_NAME.upper()}!**\n\n"
-                f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
+                f"👤 **Клиент:** {full_name}\n"
+                f"{tg_un_line}"
                 f"{master_str}"
                 f"📍 **Филиал:** {target_branch_name} ({branch_address})\n"
                 f"✂️ **Услуга:** {canonical_service}\n"
                 f"⏰ **Время:** {booking_time}\n"
-                f"📞 **Телефон:** {phone or 'Не указан'}\n"
-                f"🆔 **Telegram ID:** `{user_id}`\n\n"
+                f"📞 **Телефон:** {phone or 'Не указан'}\n\n"
                 "📱 _Запись доступна в панели управления (TMA)!_"
             )
             action_kb = InlineKeyboardMarkup(

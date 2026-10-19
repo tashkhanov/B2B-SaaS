@@ -493,6 +493,7 @@ async def test_creator_personal_booking():
     )
 
     with patch("bot.handlers.gemini_service.extract_admin_action", new_callable=AsyncMock) as mock_extract, \
+         patch("bot.handlers.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
          patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save, \
          patch("bot.handlers.get_active_bookings", new_callable=AsyncMock) as mock_active, \
          patch("bot.handlers.get_barbers", new_callable=AsyncMock) as mock_barbers:
@@ -653,6 +654,7 @@ async def test_process_admin_intent_booking_conflict():
     )
 
     with patch("bot.handlers.GeminiService.extract_admin_action", new_callable=AsyncMock, return_value=mock_action), \
+         patch("bot.handlers.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
          patch("bot.handlers.get_barbers", new_callable=AsyncMock, return_value=[{"id": 4, "name": "Mr. Akmal", "is_vip": 1}]), \
          patch("bot.handlers.resolve_branch", new_callable=AsyncMock, return_value=(1, "Миллий бог", "ул. Чиланзар")), \
          patch("bot.handlers.resolve_service_info", new_callable=AsyncMock, return_value=({"id": 1, "name": "Стрижка волос"}, 45)), \
@@ -799,6 +801,51 @@ async def test_handle_price_no_drinks_styling():
         assert "напитки" not in text.lower()
         assert "стайлинг" not in text.lower()
         assert "мытье головы" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_process_admin_intent_creator_duplicate_booking_rejected():
+    """Тест: личная запись Создателя отклоняется, если у него уже есть активная запись"""
+    from bot.handlers import process_admin_intent
+    from services.gemini_service import AdminAction
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=1243374131, is_bot=False, first_name="Ibrohim", username="tashkhanov")
+    message.answer = AsyncMock()
+
+    mock_action = AdminAction(
+        action="create_booking",
+        is_booking_confirmed=True,
+        booking_time="2026-10-21 17:00 (Среда)",
+        client_query="Иброхим",
+        barber_name="Mr. Dilshod",
+        service="Сстрижка / Комплекс",
+    )
+
+    active_b = {
+        "id": 101,
+        "booking_time": "2026-10-23 17:00 (Пятница)",
+        "service": "Стрижка",
+        "barber_name": "Mr. Dilshod",
+        "status": "confirmed",
+        "user_id": 1243374131,
+    }
+
+    with patch("bot.handlers.gemini_service.extract_admin_action", new_callable=AsyncMock, return_value=mock_action), \
+         patch("bot.handlers.get_user_active_booking", new_callable=AsyncMock, return_value=active_b), \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save:
+
+        handled = await process_admin_intent(
+            message=message,
+            admin_query="Запиши на завтра на 17:00",
+            ai_reply="Хорошо",
+        )
+
+        assert handled is True
+        mock_save.assert_not_called()
+        message.answer.assert_called_once()
+        text = message.answer.call_args[0][0]
+        assert "уже есть активная запись" in text
 
 
 

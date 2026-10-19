@@ -185,7 +185,9 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             is_personal_creator_booking = True
 
     # Если admin_action не распознал create_booking, но Иброхим просит записать его (и это НЕ отмена!)
-    if not is_cancel_intent and is_personal_creator_booking and (not admin_action or admin_action.action != "create_booking"):
+    # ВНИМАНИЕ: Если ассистент уже переспрашивает или уточняет дату/время/мастера, НЕ создаем бронь принудительно!
+    is_clarifying = "?" in ai_reply or any(w in ai_reply.lower() for w in ["уточните", "какой именно день", "на какое время", "какому мастеру", "несколько вариантов"])
+    if not is_cancel_intent and is_personal_creator_booking and not is_clarifying and (not admin_action or admin_action.action != "create_booking"):
         client_act = await gemini_service.extract_client_action(f"Клиент: {clean_query}\nАссистент: {ai_reply}", user_id=user_id)
         if client_act and (client_act.action == "create_booking" or client_act.booking_time):
             from services.gemini_service import AdminAction
@@ -339,6 +341,22 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 booking_user_id = user_id
                 username = f"@{message.from_user.username}" if (message.from_user and message.from_user.username) else None
                 details = f"Личная запись Создателя/Супер-Админа ({full_name}) | Филиал: {target_branch_name}"
+
+                # Строгая проверка лимита: 1 активная бронь на Создателя / Супер-Админа
+                active_b = await get_user_active_booking(booking_user_id)
+                if active_b and active_b.get("id"):
+                    b_time = active_b.get("booking_time", "ранее")
+                    b_barber = active_b.get("barber_name", "мастер")
+                    b_srv = active_b.get("service", "Стрижка")
+                    await message.answer(
+                        f"⚠️ **Иброхим ака, у вас уже есть активная запись на {b_time}!**\n\n"
+                        f"✂️ Услуга: {b_srv}\n"
+                        f"💈 Мастер: {b_barber}\n\n"
+                        "По правилам салона Brohouse, разрешена только одна активная бронь. "
+                        "Чтобы записаться на другое время, пожалуйста, сначала перенесите или отмените текущую запись (напишите *«Отмени мою запись»*). 💈",
+                        parse_mode="Markdown"
+                    )
+                    return
             else:
                 full_name = admin_action.client_query or "Гость"
                 booking_user_id = 0
@@ -440,7 +458,7 @@ async def handle_booking_status_callback(callback: CallbackQuery):
     """
     user_id = callback.from_user.id if callback.from_user else 0
     role, barber = await get_user_role(user_id)
-    if role not in ("admin", "barber"):
+    if role not in ("admin", "barber", "super_admin") and not is_super_admin(user_id):
         await callback.answer("У вас нет прав для управления этой записью.", show_alert=True)
         return
 

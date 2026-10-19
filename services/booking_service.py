@@ -183,30 +183,41 @@ async def dispatch_vip_approval_card(
     safe_phone = html.escape(str(phone or "Не указан"))
     safe_user_id = html.escape(str(user_id or ""))
 
+    clean_un = (username or "").replace("@", "").strip()
+    if clean_un:
+        tg_username_line = f"📱 <b>TG Username:</b> @{html.escape(clean_un)}\n"
+        plain_tg_line = f"📱 TG Username: @{clean_un}\n"
+    elif user_id:
+        tg_username_line = f"📱 <b>TG Username:</b> отсутствует (ID: <code>{safe_user_id}</code>)\n"
+        plain_tg_line = f"📱 TG Username: отсутствует (ID: {user_id})\n"
+    else:
+        tg_username_line = "📱 <b>TG Username:</b> отсутствует\n"
+        plain_tg_line = "📱 TG Username: отсутствует\n"
+
     branch_line = f"📍 <b>Филиал:</b> {safe_branch_name}" + (f" ({safe_branch_address})\n" if safe_branch_address else "\n")
     vip_card_html = (
         "👑 <b>ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ!</b>\n\n"
-        f"👤 <b>Клиент:</b> {safe_full_name} ({safe_username})\n"
+        f"👤 <b>Клиент:</b> {safe_full_name}\n"
+        f"{tg_username_line}"
         f"💈 <b>Мастер:</b> {safe_barber_name}\n"
         f"{branch_line}"
         f"✂️ <b>Услуга:</b> {safe_service}\n"
         f"⏰ <b>Время:</b> {safe_time}\n"
-        f"📞 <b>Телефон:</b> {safe_phone}\n"
-        f"🆔 <b>Telegram ID:</b> <code>{safe_user_id}</code>\n\n"
-        "👑 <i>На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование.</i>"
+        f"📞 <b>Телефон:</b> {safe_phone}\n\n"
+        "👑 <i>На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование кнопками ниже:</i>"
     )
 
     plain_branch = f"📍 Филиал: {target_branch_name}" + (f" ({branch_address})\n" if branch_address else "\n")
     plain_card = (
         "👑 ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ!\n\n"
-        f"👤 Клиент: {full_name} ({username or 'нет username'})\n"
+        f"👤 Клиент: {full_name}\n"
+        f"{plain_tg_line}"
         f"💈 Мастер: {final_barber_name}\n"
         f"{plain_branch}"
         f"✂️ Услуга: {canonical_service}\n"
         f"⏰ Время: {booking_time}\n"
-        f"📞 Телефон: {phone or 'Не указан'}\n"
-        f"🆔 Telegram ID: {user_id}\n\n"
-        "👑 На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование."
+        f"📞 Телефон: {phone or 'Не указан'}\n\n"
+        "👑 На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование кнопками ниже."
     )
 
     for chat_id in target_chats:
@@ -454,13 +465,22 @@ class GeminiBookingTools:
                 )
             else:
                 # Оповещение администратора и барбера
+                clean_un = (username or "").replace("@", "").strip()
+                if clean_un:
+                    tg_un_line = f"📱 <b>TG Username:</b> @{clean_un}\n"
+                elif user_id:
+                    tg_un_line = f"📱 <b>TG Username:</b> отсутствует (ID: {user_id})\n"
+                else:
+                    tg_un_line = "📱 <b>TG Username:</b> отсутствует\n"
+
                 if bot and settings.ADMIN_CHAT_ID:
                     try:
                         await bot.send_message(
                             chat_id=settings.ADMIN_CHAT_ID,
                             text=(
                                 f"💈 <b>НОВАЯ ЗАПИСЬ ЧЕРЕЗ ИИ!</b>\n\n"
-                                f"👤 <b>Клиент:</b> {customer_name} ({username or 'нет username'})\n"
+                                f"👤 <b>Клиент:</b> {customer_name}\n"
+                                f"{tg_un_line}"
                                 f"💈 <b>Мастер:</b> {final_barber_name}\n"
                                 f"📍 <b>Филиал:</b> {target_branch_name}\n"
                                 f"✂️ <b>Услуга:</b> {canonical_service}\n"
@@ -479,6 +499,7 @@ class GeminiBookingTools:
                             text=(
                                 f"💈 <b>К вам записался клиент через ИИ!</b>\n\n"
                                 f"👤 <b>Гость:</b> {customer_name}\n"
+                                f"{tg_un_line}"
                                 f"📍 <b>Филиал:</b> {target_branch_name}\n"
                                 f"✂️ <b>Услуга:</b> {canonical_service}\n"
                                 f"⏰ <b>Время:</b> {normalized_time}\n"

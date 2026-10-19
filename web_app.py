@@ -1690,11 +1690,15 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 logger.warning(f"Не удалось отправить подтверждение клиенту {user_id}: {e}")
 
         # 2. Уведомление администратору салона
+        clean_un = (username or "").replace("@", "").strip()
+        tg_un_md = f"📱 **TG Username:** @{clean_un}\n" if clean_un else (f"📱 **TG Username:** отсутствует (ID: `{user_id}`)\n" if user_id else "📱 **TG Username:** отсутствует\n")
+
         if bot and settings.ADMIN_CHAT_ID:
             master_str = f"💈 **Мастер:** {final_barber_name}\n" if final_barber_name else ""
             admin_msg = (
                 "💈 **НОВАЯ ОНЛАЙН-ЗАПИСЬ (из Web App)!**\n\n"
-                f"👤 **Клиент:** {full_name} ({username or 'нет username'})\n"
+                f"👤 **Клиент:** {full_name}\n"
+                f"{tg_un_md}"
                 f"{master_str}"
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {normalized_time}\n"
@@ -1717,6 +1721,7 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             master_alert = (
                 "💈 **У ВАС НОВАЯ ЗАПИСЬ НА СМЕНУ!**\n\n"
                 f"👤 **Клиент:** {full_name}\n"
+                f"{tg_un_md}"
                 f"✂️ **Услуга:** {service}\n"
                 f"⏰ **Время:** {normalized_time}\n"
                 f"📍 **Филиал:** {branch_name} ({branch_address})\n"
