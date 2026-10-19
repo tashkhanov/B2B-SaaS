@@ -20,6 +20,7 @@ from database import (
     get_barbers,
     get_active_bookings,
     save_booking,
+    BookingConflictError,
     get_user_active_booking,
     cancel_user_booking,
     update_booking_status,
@@ -459,6 +460,13 @@ class GeminiBookingTools:
                 "message": msg
             }
 
+        except BookingConflictError as bce:
+            logger.warning(f"Booking collision in create_booking_reservation: {bce}")
+            return {
+                "success": False,
+                "error": "slot_occupied",
+                "message": f"К сожалению, время {booking_time} у мастера {final_barber_name} уже занято другим клиентом. Пожалуйста, предложите клиенту выбрать другое свободное время или мастера."
+            }
         except Exception as e:
             logger.error(f"Ошибка в create_booking_reservation: {e}", exc_info=True)
             return {"success": False, "error": "server_error", "message": f"Ошибка создания брони: {str(e)}"}

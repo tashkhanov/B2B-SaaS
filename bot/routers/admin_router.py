@@ -23,6 +23,7 @@ from aiogram.filters import Command
 from config import settings
 from database import (
     save_booking,
+    BookingConflictError,
     get_active_bookings,
     get_barbers,
     get_branch_by_id,
@@ -311,21 +312,31 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 username = None
                 details = f"Ручная запись администратором через чат с ИИ | Филиал: {target_branch_name}"
 
-            booking_id = await save_booking(
-                user_id=booking_user_id,
-                username=username,
-                full_name=full_name,
-                details=details,
-                phone=admin_action.phone,
-                service=canonical_service,
-                booking_time=normalized_time,
-                status=booking_status,
-                barber_id=final_barber_id,
-                barber_name=final_barber_name,
-                service_id=matched_service_id,
-                branch_id=target_branch_id,
-                branch_name=target_branch_name,
-            )
+            try:
+                booking_id = await save_booking(
+                    user_id=booking_user_id,
+                    username=username,
+                    full_name=full_name,
+                    details=details,
+                    phone=admin_action.phone,
+                    service=canonical_service,
+                    booking_time=normalized_time,
+                    status=booking_status,
+                    barber_id=final_barber_id,
+                    barber_name=final_barber_name,
+                    service_id=matched_service_id,
+                    branch_id=target_branch_id,
+                    branch_name=target_branch_name,
+                )
+            except BookingConflictError as bce:
+                logger.warning(f"Booking collision in admin_router: {bce}")
+                await message.answer(
+                    f"⚠️ **Шеф, этот слот уже занят!**\n\n"
+                    f"Мастер **{final_barber_name}** на время `{normalized_time}` уже забронирован другим клиентом.\n"
+                    "Пожалуйста, выберите другое свободное время или мастера. 💈",
+                    parse_mode="Markdown"
+                )
+                return
 
             if booking_status == "pending_vip":
                 await dispatch_vip_approval_card(

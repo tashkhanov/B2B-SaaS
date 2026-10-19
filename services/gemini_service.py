@@ -384,7 +384,7 @@ class GeminiService:
                         tool_result = {"error": f"Unknown tool {fn_name}"}
 
                     resp_part = types.Part.from_function_response(name=fn_name, response=tool_result)
-                    contents.append(types.Content(role="tool", parts=[resp_part]))
+                    contents.append(types.Content(role="user", parts=[resp_part]))
 
                 second_response = await self.client.aio.models.generate_content(
                     model=self.model_name,

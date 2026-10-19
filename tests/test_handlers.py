@@ -633,6 +633,68 @@ async def test_white_label_handlers_output():
         assert settings.CURRENCY_SYMBOL in text
 
 
+@pytest.mark.asyncio
+async def test_process_admin_intent_booking_conflict():
+    from bot.handlers import process_admin_intent
+    from database import BookingConflictError
+    from services.gemini_service import AdminAction
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=1243374131, is_bot=False, first_name="Ibrohim", username="asatkhanov")
+    message.answer = AsyncMock()
+
+    mock_action = AdminAction(
+        action="create_booking",
+        is_booking_confirmed=True,
+        booking_time="2026-10-20 14:00 (Вторник)",
+        barber_name="Mr. Akmal",
+        service="Стрижка волос",
+        branch_name="Миллий бог",
+    )
+
+    with patch("bot.handlers.GeminiService.extract_admin_action", new_callable=AsyncMock, return_value=mock_action), \
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock, return_value=[{"id": 4, "name": "Mr. Akmal", "is_vip": 1}]), \
+         patch("bot.handlers.resolve_branch", new_callable=AsyncMock, return_value=(1, "Миллий бог", "ул. Чиланзар")), \
+         patch("bot.handlers.resolve_service_info", new_callable=AsyncMock, return_value=({"id": 1, "name": "Стрижка волос"}, 45)), \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock, side_effect=BookingConflictError("Слот занят")):
+        await process_admin_intent(message, admin_query="Запиши меня на 14:00 к Акмалю", ai_reply="Хорошо")
+        message.answer.assert_called_once()
+        args, _ = message.answer.call_args
+        assert "⚠️ **Шеф, этот слот уже занят!**" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_process_client_intent_booking_conflict():
+    from bot.handlers import process_client_intent
+    from database import BookingConflictError
+    from services.gemini_service import ClientAction
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=99999, is_bot=False, first_name="Сардор", username="sardor")
+    message.answer = AsyncMock()
+
+    mock_action = ClientAction(
+        action="create_booking",
+        is_booking_confirmed=True,
+        booking_time="2026-10-20 14:00 (Вторник)",
+        barber_name="Dilshod",
+        service="Стрижка волос",
+    )
+
+    with patch("bot.handlers.GeminiService.extract_client_action", new_callable=AsyncMock, return_value=mock_action), \
+         patch("bot.handlers.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
+         patch("bot.handlers.get_active_bookings", new_callable=AsyncMock, return_value=[]), \
+         patch("bot.handlers.get_barbers", new_callable=AsyncMock, return_value=[{"id": 2, "name": "Dilshod", "is_vip": 0}]), \
+         patch("bot.handlers.resolve_branch", new_callable=AsyncMock, return_value=(1, "Миллий бог", "ул. Чиланзар")), \
+         patch("bot.handlers.resolve_service_info", new_callable=AsyncMock, return_value=({"id": 1, "name": "Стрижка волос"}, 45)), \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock, side_effect=BookingConflictError("Слот занят")):
+        await process_client_intent(message, client_query="Запиши на 14:00 к Дильшоду", ai_reply="Ок")
+        message.answer.assert_called_once()
+        args, _ = message.answer.call_args
+        assert "⚠️ **Ака, на это время" in args[0]
+
+
+
 
 
 

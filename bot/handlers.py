@@ -25,6 +25,7 @@ from config import settings
 from database import (
     clear_history,
     save_booking,
+    BookingConflictError,
     has_recent_booking,
     has_recent_booking_any_time,
     get_recent_messages,
@@ -742,20 +743,23 @@ async def handle_voice_message(message: Message):
         bot=message.bot,
     )
 
-    # 3. Отправка ответа пользователю
-    await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
-
-    # Если Gemini Tool Calling уже создал бронь, пропускаем легаси-экстрактор
+    # 3. Если Gemini Tool Calling уже создал бронь, отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
     if recent_booking_exists:
         logger.info("Voice booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
     # 4. Проверка и выполнение интента (для клиента или персонала)
+    handled_by_intent = False
     if is_staff:
-        await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+        handled_by_intent = await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
     else:
-        await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+        handled_by_intent = await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+
+    # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
+    if not handled_by_intent:
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 @router.message(F.text)
@@ -764,8 +768,7 @@ async def handle_user_text(message: Message):
     Основной обработчик текстовых сообщений:
     1. Показывает статус 'печатает...' (typing action) в Telegram.
     2. Отправляет запрос в GeminiService с историей сообщений, учетом роли и Tool Calling.
-    3. Отправляет ответ пользователю.
-    4. При фиксации намерения выполняет соответствующее действие.
+    3. Отправляет ответ пользователю (или выполняет действие через экстрактор).
     """
     user_id = message.from_user.id if message.from_user else 0
     username = message.from_user.username if message.from_user else None
@@ -785,28 +788,32 @@ async def handle_user_text(message: Message):
         bot=message.bot,
     )
 
-    # 3. Отправка ответа пользователю
-    await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
-
-    # Если Gemini Tool Calling уже создал бронь, пропускаем легаси-экстрактор
+    # 3. Если Gemini Tool Calling уже создал бронь, отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
     if recent_booking_exists:
         logger.info("Text booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
     # 4. Проверка и выполнение намерения
+    handled_by_intent = False
     if is_staff:
-        await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
+        handled_by_intent = await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
     else:
-        await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
+        handled_by_intent = await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
+
+    # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
+    if not handled_by_intent:
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
-async def process_admin_intent(message: Message, admin_query: str, ai_reply: str) -> None:
+async def process_admin_intent(message: Message, admin_query: str, ai_reply: str) -> bool:
     """
     Обработка команд администратора через естественный язык или голос:
     1. Подтверждение записи клиента ('подтверди запись Рустама')
     2. Отмена записи клиента ('отмени запись Рустама')
     3. Создание записи: личная бронь Создателя (Иброхим) или ручная запись клиента
+    Возвращает True, если намерение было успешно обработано и ответ отправлен в чат.
     """
     user_id = message.from_user.id if message.from_user else 0
     is_super = is_super_admin(user_id)
@@ -814,7 +821,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
     combined = f"{admin_query} {ai_reply}".lower()
     admin_triggers = ["подтверд", "отмен", "запиш", "бронь", "tasdiq", "bekor", "yoz", "стрижк", "время", "окно"]
     if not any(t in combined for t in admin_triggers):
-        return
+        return False
 
     admin_action = await gemini_service.extract_admin_action(admin_query, user_id=user_id)
 
@@ -848,7 +855,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             )
 
     if not admin_action or admin_action.action in ("chat", "query_schedule", "get_stats"):
-        return
+        return False
 
     # 1. Администратор подтверждает запись клиента
     if admin_action.action == "confirm_booking" and admin_action.client_query:
@@ -878,7 +885,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 except Exception as e:
                     logger.warning(f"Не удалось отправить уведомление клиенту о подтверждении: {e}")
             await message.answer(f"✅ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** успешно подтверждена!")
-            return
+            return True
 
     # 2. Администратор отменяет запись клиента
     if admin_action.action == "cancel_booking" and admin_action.client_query:
@@ -899,12 +906,12 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 except Exception as e:
                     logger.warning(f"Не удалось отправить уведомление клиенту об отмене: {e}")
             await message.answer(f"❌ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** отменена. Окно свободно!")
-            return
+            return True
 
     # 3. Создание записи: личная бронь Создателя или ручная запись клиента
     if admin_action.action == "create_booking" and admin_action.booking_time:
         if not admin_action.client_query and not is_personal_creator_booking:
-            return
+            return False
 
         target_dt = parse_booking_datetime(admin_action.booking_time)
         if target_dt:
@@ -931,7 +938,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
             if not res.is_available:
                 salutation = "Иброхим ака" if is_personal_creator_booking else "Шеф"
                 await message.answer(f"⚠️ {salutation}, на это время записать нельзя: {res.error_message}")
-                return
+                return True
 
             normalized_time = format_booking_datetime(target_dt)
             final_barber_id = res.assigned_barber_id or (matched_barber["id"] if matched_barber else None)
@@ -964,21 +971,31 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 username = None
                 details = f"Ручная запись администратором через чат с ИИ | Филиал: {target_branch_name}"
 
-            booking_id = await save_booking(
-                user_id=booking_user_id,
-                username=username,
-                full_name=full_name,
-                details=details,
-                phone=admin_action.phone,
-                service=canonical_service,
-                booking_time=normalized_time,
-                status=booking_status,
-                barber_id=final_barber_id,
-                barber_name=final_barber_name,
-                service_id=matched_service_id,
-                branch_id=target_branch_id,
-                branch_name=target_branch_name,
-            )
+            try:
+                booking_id = await save_booking(
+                    user_id=booking_user_id,
+                    username=username,
+                    full_name=full_name,
+                    details=details,
+                    phone=admin_action.phone,
+                    service=canonical_service,
+                    booking_time=normalized_time,
+                    status=booking_status,
+                    barber_id=final_barber_id,
+                    barber_name=final_barber_name,
+                    service_id=matched_service_id,
+                    branch_id=target_branch_id,
+                    branch_name=target_branch_name,
+                )
+            except BookingConflictError as bce:
+                logger.warning(f"Booking collision in process_admin_intent: {bce}")
+                await message.answer(
+                    f"⚠️ **Шеф, этот слот уже занят!**\n\n"
+                    f"Мастер **{final_barber_name}** на время `{normalized_time}` уже забронирован другим клиентом.\n"
+                    "Пожалуйста, выберите другое свободное время или мастера. 💈",
+                    parse_mode="Markdown"
+                )
+                return True
 
             if booking_status == "pending_vip":
                 await dispatch_vip_approval_card(
@@ -1003,7 +1020,7 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
                     parse_mode="Markdown"
                 )
-                return
+                return True
 
             # Оповещение назначенному барберу в Telegram
             if matched_barber and matched_barber.get("telegram_id"):
@@ -1039,6 +1056,9 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 await message.answer(
                     f"💈 Запись клиента **{full_name}**{master_str} на **{normalized_time}** ({admin_action.service or 'Стрижка'}) в филиал **{target_branch_name}** успешно зафиксирована в графике!"
                 )
+            return True
+
+    return False
 
 
 async def process_client_intent(message: Message, client_query: str, ai_reply: str) -> None:
@@ -1185,21 +1205,31 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "new"
 
         # Сохранение в базу
-        booking_id = await save_booking(
-            user_id=user_id,
-            username=username,
-            full_name=full_name,
-            details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]} | Филиал: {target_branch_name}",
-            phone=phone,
-            service=canonical_service,
-            booking_time=booking_time,
-            status=booking_status,
-            barber_id=final_barber_id,
-            barber_name=final_barber_name,
-            service_id=matched_service_id,
-            branch_id=target_branch_id,
-            branch_name=target_branch_name,
-        )
+        try:
+            booking_id = await save_booking(
+                user_id=user_id,
+                username=username,
+                full_name=full_name,
+                details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]} | Филиал: {target_branch_name}",
+                phone=phone,
+                service=canonical_service,
+                booking_time=booking_time,
+                status=booking_status,
+                barber_id=final_barber_id,
+                barber_name=final_barber_name,
+                service_id=matched_service_id,
+                branch_id=target_branch_id,
+                branch_name=target_branch_name,
+            )
+        except BookingConflictError as bce:
+            logger.warning(f"Booking collision in process_client_intent: {bce}")
+            await message.answer(
+                f"⚠️ **Ака, на это время ({booking_time}) уже успели записаться!**\n\n"
+                f"Мастер **{final_barber_name}** в этот момент уже занят.\n"
+                "Пожалуйста, выбери другое удобное окошко или другого мастера! 💈",
+                parse_mode="Markdown"
+            )
+            return
 
         if booking_status == "pending_vip":
             await dispatch_vip_approval_card(

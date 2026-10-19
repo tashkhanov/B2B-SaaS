@@ -26,6 +26,7 @@ from aiogram.enums import ChatAction
 from config import settings
 from database import (
     save_booking,
+    BookingConflictError,
     has_recent_booking,
     has_recent_booking_any_time,
     get_recent_messages,
@@ -118,18 +119,23 @@ async def handle_voice_message(message: Message):
         bot=message.bot,
     )
 
-    await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
-
-    # Если Gemini Tool Calling уже создал бронь, пропускаем легаси-экстрактор
+    # 3. Если Gemini Tool Calling уже создал бронь, отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
     if recent_booking_exists:
         logger.info("Voice booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
+    # 4. Проверка и выполнение интента (для клиента или персонала)
+    handled_by_intent = False
     if is_staff:
-        await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+        handled_by_intent = await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
     else:
-        await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+        handled_by_intent = await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+
+    # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
+    if not handled_by_intent:
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 @router.message(F.text)
@@ -138,8 +144,7 @@ async def handle_user_text(message: Message):
     Основной обработчик текстовых сообщений:
     1. Показывает статус 'печатает...' (typing action).
     2. Отправляет запрос в GeminiService с историей сообщений, контекстом роли и Function Calling.
-    3. Отправляет ответ пользователю.
-    4. При фиксации намерения выполняет соответствующее действие (если не выполнено тулом).
+    3. Отправляет ответ пользователю (или выполняет действие через экстрактор).
     """
     user_id = message.from_user.id if message.from_user else 0
     username = message.from_user.username if message.from_user else None
@@ -157,18 +162,23 @@ async def handle_user_text(message: Message):
         bot=message.bot,
     )
 
-    await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
-
-    # Если Gemini Tool Calling уже создал бронь, пропускаем легаси-экстрактор
+    # 3. Если Gemini Tool Calling уже создал бронь, отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
     if recent_booking_exists:
         logger.info("Text booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
+    # 4. Проверка и выполнение намерения
+    handled_by_intent = False
     if is_staff:
-        await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
+        handled_by_intent = await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
     else:
-        await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
+        handled_by_intent = await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
+
+    # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
+    if not handled_by_intent:
+        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 async def process_client_intent(message: Message, client_query: str, ai_reply: str) -> None:
@@ -302,21 +312,31 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         has_vip_protection = await is_feature_enabled("has_vip_protection")
         booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "new"
 
-        booking_id = await save_booking(
-            user_id=user_id,
-            username=username,
-            full_name=full_name,
-            details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]} | Филиал: {target_branch_name}",
-            phone=phone,
-            service=canonical_service,
-            booking_time=booking_time,
-            status=booking_status,
-            barber_id=final_barber_id,
-            barber_name=final_barber_name,
-            service_id=matched_service_id,
-            branch_id=target_branch_id,
-            branch_name=target_branch_name,
-        )
+        try:
+            booking_id = await save_booking(
+                user_id=user_id,
+                username=username,
+                full_name=full_name,
+                details=f"Запрос: {client_query} | Ответ: {ai_reply[:200]} | Филиал: {target_branch_name}",
+                phone=phone,
+                service=canonical_service,
+                booking_time=booking_time,
+                status=booking_status,
+                barber_id=final_barber_id,
+                barber_name=final_barber_name,
+                service_id=matched_service_id,
+                branch_id=target_branch_id,
+                branch_name=target_branch_name,
+            )
+        except BookingConflictError as bce:
+            logger.warning(f"Booking collision in client_router: {bce}")
+            await message.answer(
+                f"⚠️ **Ака, на это время ({booking_time}) уже успели записаться!**\n\n"
+                f"Мастер **{final_barber_name}** в этот момент уже занят.\n"
+                "Пожалуйста, выбери другое удобное окошко или другого мастера! 💈",
+                parse_mode="Markdown"
+            )
+            return
 
         if booking_status == "pending_vip":
             await dispatch_vip_approval_card(
