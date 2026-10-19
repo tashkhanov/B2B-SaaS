@@ -1,5 +1,6 @@
 import re
 import json
+import asyncio
 import logging
 from typing import List, Dict, Optional, Tuple, Any
 from pydantic import BaseModel, Field
@@ -306,6 +307,59 @@ class GeminiService:
 
         return contents
 
+    async def _generate_content_with_retry(
+        self,
+        contents: Any,
+        config: Any,
+        model_name: Optional[str] = None,
+        max_retries: int = 3,
+    ) -> Any:
+        """
+        Надежный вызов generate_content с автоматическим повтором при ошибках
+        503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED и переключением на резервную модель.
+        """
+        target_model = model_name or self.model_name
+        fallback_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
+        models_to_try = [target_model] + [m for m in fallback_models if m != target_model]
+
+        last_error = None
+        for current_model in models_to_try:
+            for attempt in range(max_retries):
+                try:
+                    return await self.client.aio.models.generate_content(
+                        model=current_model,
+                        contents=contents,
+                        config=config,
+                    )
+                except Exception as e:
+                    err_msg = str(e)
+                    is_transient = (
+                        "503" in err_msg
+                        or "429" in err_msg
+                        or "UNAVAILABLE" in err_msg
+                        or "high demand" in err_msg
+                        or "ResourceExhausted" in err_msg
+                        or "overloaded" in err_msg
+                    )
+                    last_error = e
+                    if is_transient and attempt < max_retries - 1:
+                        backoff = 1.0 * (1.5 ** attempt)
+                        logger.warning(
+                            f"Gemini {current_model} вернул временную ошибку ({e}). Повтор {attempt + 1}/{max_retries} через {backoff:.1f}с..."
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    elif is_transient:
+                        logger.warning(
+                            f"Модель {current_model} перегружена после {max_retries} попыток. Переключаемся на резервную модель..."
+                        )
+                        break
+                    else:
+                        raise e
+
+        if last_error:
+            raise last_error
+
     async def generate_response(
         self,
         user_id: int,
@@ -353,8 +407,7 @@ class GeminiService:
                 ),
             )
 
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name,
+            response = await self._generate_content_with_retry(
                 contents=contents,
                 config=config,
             )
@@ -436,8 +489,7 @@ class GeminiService:
 
                 contents.append(types.Content(role="user", parts=function_response_parts))
 
-                next_response = await self.client.aio.models.generate_content(
-                    model=self.model_name,
+                next_response = await self._generate_content_with_retry(
                     contents=contents,
                     config=config,
                 )
@@ -490,8 +542,7 @@ class GeminiService:
                 "Распознай слова клиента из аудиозаписи на русском или узбекском языке. "
                 "Верни ТОЛЬКО распознанный текст клиента, без комментариев и оговорок."
             )
-            trans_resp = await self.client.aio.models.generate_content(
-                model=self.model_name,
+            trans_resp = await self._generate_content_with_retry(
                 contents=[audio_part, types.Part.from_text(text=transcribe_prompt)],
                 config=types.GenerateContentConfig(
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
@@ -566,8 +617,7 @@ class GeminiService:
                 temperature=0.1,
             )
 
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name,
+            response = await self._generate_content_with_retry(
                 contents=prompt,
                 config=config,
             )
@@ -631,8 +681,7 @@ class GeminiService:
                 temperature=0.1,
             )
 
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name,
+            response = await self._generate_content_with_retry(
                 contents=prompt,
                 config=config,
             )
