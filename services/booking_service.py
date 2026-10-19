@@ -52,6 +52,56 @@ def is_super_admin_user(user_id: Optional[int]) -> bool:
     return bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
 
 
+INVALID_CUSTOMER_NAMES = {
+    # Русские вопросительные и относительные слова
+    "каким", "какой", "какая", "какое", "какие", "какого", "какому", "каком", "какими",
+    "кто", "кого", "кому", "кем", "ком", "что", "чего", "чему", "чем", "чём",
+    "где", "куда", "откуда", "когда", "почему", "зачем", "как", "каков", "сколько",
+    # Местоимения
+    "меня", "мне", "мной", "мною", "себя", "себе", "собой", "собою", "я", "он", "она", "оно", "они",
+    "мой", "моя", "мое", "моё", "мои", "наш", "наша", "наше", "наши", "сам", "сама", "сами",
+    "его", "её", "ее", "их", "нас", "вам", "вами", "тобой", "тебе", "тебя", "ты", "вы",
+    # Узбекские вопросительные и местоимения
+    "qanday", "qanaqa", "kim", "kimga", "kimni", "kimda", "nima", "nimaga", "qayerda", "qayerga",
+    "qachon", "nega", "meni", "menga", "menda", "o'zim", "ozim", "o'zi", "ozi", "biz", "siz",
+    # Заполнители, роли, слова общего назначения
+    "гость", "малы", "клиент", "шеф", "братан", "друг", "человек", "пользователь", "клиента",
+    "guest", "user", "client", "customer", "admin", "админ", "барбер", "мастер", "парикмахер",
+    "неизвестно", "никто", "тест", "test", "none", "null", "undefined", "нет", "отмена",
+    "запись", "бронь", "время", "окно", "день", "сегодня", "завтра"
+}
+
+
+def is_invalid_customer_name(name: Optional[str], barbers: Optional[List[Dict[str, Any]]] = None) -> bool:
+    """
+    Строгая валидация имени клиента. Отсекает вопросительные слова ('Каким'),
+    местоимения ('меня'), шаблонные слова ('малы', 'клиент') и совпадения с мастерами.
+    """
+    if not name:
+        return True
+    clean = name.strip().lower()
+    if len(clean) < 2:
+        return True
+    if clean in INVALID_CUSTOMER_NAMES:
+        return True
+    clean_stripped = re.sub(r"^[^\w]+|[^\w]+$", "", clean)
+    if clean_stripped in INVALID_CUSTOMER_NAMES:
+        return True
+    if not re.search(r"[a-zA-Zа-яА-ЯёЁўқғҳЎҚҒҲ]", clean):
+        return True
+    if barbers:
+        for b in barbers:
+            b_name = (b.get("name") or "").strip().lower()
+            if not b_name:
+                continue
+            if clean == b_name:
+                return True
+            b_parts = [p.strip(".") for p in b_name.split() if len(p.strip(".")) >= 3]
+            if clean in b_parts or clean in [f"мастер {p}" for p in b_parts] or clean in [f"mr {p}" for p in b_parts]:
+                return True
+    return False
+
+
 async def resolve_branch(
     query_text: str = "",
     branch_id: Optional[int] = None,
@@ -363,22 +413,64 @@ class GeminiBookingTools:
             active_bookings = await get_active_bookings()
             barbers = await get_barbers(active_only=True)
 
-            # Очистка имени от галлюцинаций
+            # Очистка имени от галлюцинаций и ошибочных местоимений / вопросительных слов
             clean_name = (customer_name or "").strip()
-            if not clean_name or clean_name.lower() in ("гость", "малы", "клиент", "шеф", "братан"):
-                if is_super_admin_user(user_id):
+            clean_un = (username or "").strip().lstrip("@")
+            is_creator = (
+                is_super_admin_user(user_id)
+                or user_id == 1243374131
+                or clean_un.lower() == "tashkhanov"
+            )
+
+            if is_invalid_customer_name(clean_name, barbers):
+                if is_creator:
                     clean_name = "Иброхим"
-                elif username:
-                    clean_name = username.replace("@", "")
+                elif clean_un:
+                    clean_name = clean_un
                 else:
                     clean_name = "Клиент"
-            elif is_super_admin_user(user_id) and clean_name.lower() in ("меня", "мне", "себя"):
+            elif is_creator and clean_name.lower() in ("меня", "мне", "себя", "иброхим", "каким"):
                 clean_name = "Иброхим"
 
-            # Очистка телефона от галлюцинаций (фиктивные шаблоны из старых примеров)
+            # Очистка телефона от галлюцинаций и подстановки служебных номеров заведения
             clean_phone = phone
-            if clean_phone and "1234567" in str(clean_phone):
-                clean_phone = None
+            if clean_phone:
+                raw_phone_str = str(clean_phone).strip()
+                phone_digits = re.sub(r"\D", "", raw_phone_str)
+
+                # Собираем номера заведения, филиалов и барберов
+                business_phone_digits = set()
+                if getattr(settings, "SALON_PHONE", None):
+                    business_phone_digits.add(re.sub(r"\D", "", str(settings.SALON_PHONE)))
+                if getattr(settings, "PROMO_PHONE", None):
+                    business_phone_digits.add(re.sub(r"\D", "", str(settings.PROMO_PHONE)))
+                for b in barbers:
+                    if b.get("phone"):
+                        business_phone_digits.add(re.sub(r"\D", "", str(b["phone"])))
+                branches_all = await get_branches(active_only=False)
+                for br in branches_all:
+                    if br.get("phone"):
+                        business_phone_digits.add(re.sub(r"\D", "", str(br["phone"])))
+                db_salon_phone = await get_salon_setting("salon_phone", None)
+                if db_salon_phone:
+                    business_phone_digits.add(re.sub(r"\D", "", str(db_salon_phone)))
+
+                business_phone_digits = {d for d in business_phone_digits if len(d) >= 7}
+
+                is_business_phone = (
+                    phone_digits in business_phone_digits
+                    or any(b_num in phone_digits for b_num in business_phone_digits)
+                    or any(phone_digits in b_num for b_num in business_phone_digits if len(phone_digits) >= 9)
+                )
+
+                is_dummy_phone = (
+                    len(phone_digits) < 7
+                    or "1234567" in phone_digits
+                    or (len(phone_digits) >= 7 and len(set(phone_digits[-7:])) <= 1)
+                )
+
+                if is_business_phone or is_dummy_phone:
+                    clean_phone = None
 
             # Сопоставление барбера
             matched_barber = resolve_barber_match(
@@ -550,11 +642,16 @@ class GeminiBookingTools:
             cancelled = None
             if user_id:
                 cancelled = await cancel_user_booking(user_id)
-            elif booking_id:
+            if not cancelled and booking_id:
                 await update_booking_status(booking_id, "cancelled")
                 cancelled = {"id": booking_id, "status": "cancelled"}
-            elif customer_name:
+            if not cancelled and customer_name:
                 b = await find_booking_by_client_name(customer_name)
+                if b:
+                    await update_booking_status(b["id"], "cancelled")
+                    cancelled = b
+            if not cancelled and (is_super_admin_user(user_id) or user_id == 1243374131):
+                b = await find_booking_by_client_name("Иброхим")
                 if b:
                     await update_booking_status(b["id"], "cancelled")
                     cancelled = b

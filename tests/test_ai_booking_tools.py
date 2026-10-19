@@ -309,4 +309,79 @@ async def test_tool_create_booking_reservation_rejects_duplicate_active_booking(
         mock_save.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_invalid_customer_name_helper_and_creator_fallback():
+    """Тест: строгая отсечка галлюцинаций имени ('Каким', мастера, местоимения) и fallback"""
+    from services.booking_service import is_invalid_customer_name
+
+    barbers = [{"id": 4, "name": "Mr. Akmal"}, {"id": 2, "name": "Dilshod"}]
+    assert is_invalid_customer_name("Каким", barbers) is True
+    assert is_invalid_customer_name("меня", barbers) is True
+    assert is_invalid_customer_name("себя", barbers) is True
+    assert is_invalid_customer_name("Mr. Akmal", barbers) is True
+    assert is_invalid_customer_name("Akmal", barbers) is True
+    assert is_invalid_customer_name("малы", barbers) is True
+    assert is_invalid_customer_name("Сардор", barbers) is False
+    assert is_invalid_customer_name("Иброхим", barbers) is False
+
+    tools = GeminiBookingTools()
+
+    # 1. Запрос от Создателя с именем "Каким" -> должно детерминированно стать "Иброхим"
+    with patch("services.booking_service.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
+         patch("services.booking_service.save_booking", new_callable=AsyncMock, return_value=123) as mock_save, \
+         patch("services.booking_service.is_feature_enabled", new_callable=AsyncMock, return_value=True), \
+         patch("services.booking_service.dispatch_vip_approval_card", new_callable=AsyncMock):
+
+        res = await tools.create_booking_reservation(
+            customer_name="Каким",
+            booking_time="2026-10-22 17:00",
+            barber_name_or_id="Mr. Akmal",
+            user_id=1243374131,
+            username="@tashkhanov",
+        )
+        assert res["success"] is True
+        saved_name = mock_save.call_args[1].get("full_name")
+        assert saved_name == "Иброхим"
+
+    # 2. Запрос от обычного клиента с именем "Каким" и ником @bobur -> должно стать "bobur"
+    with patch("services.booking_service.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
+         patch("services.booking_service.save_booking", new_callable=AsyncMock, return_value=124) as mock_save, \
+         patch("services.booking_service.is_feature_enabled", new_callable=AsyncMock, return_value=True), \
+         patch("services.booking_service.dispatch_vip_approval_card", new_callable=AsyncMock):
+
+        res2 = await tools.create_booking_reservation(
+            customer_name="Каким",
+            booking_time="2026-10-22 17:00",
+            barber_name_or_id="Mr. Akmal",
+            user_id=987654321,
+            username="@bobur",
+        )
+        assert res2["success"] is True
+        saved_name2 = mock_save.call_args[1].get("full_name")
+        assert saved_name2 == "bobur"
+
+
+@pytest.mark.asyncio
+async def test_salon_phone_number_rejection():
+    """Тест: телефон заведения (+998 97 012-55-55) или фиктивные шаблоны отсекаются в None"""
+    tools = GeminiBookingTools()
+
+    with patch("services.booking_service.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
+         patch("services.booking_service.save_booking", new_callable=AsyncMock, return_value=125) as mock_save, \
+         patch("services.booking_service.is_feature_enabled", new_callable=AsyncMock, return_value=True), \
+         patch("services.booking_service.dispatch_vip_approval_card", new_callable=AsyncMock):
+
+        res = await tools.create_booking_reservation(
+            customer_name="Сардор",
+            booking_time="2026-10-22 17:00",
+            barber_name_or_id="Mr. Akmal",
+            phone="+998 97 012-55-55",
+            user_id=12345,
+        )
+        assert res["success"] is True
+        saved_phone = mock_save.call_args[1].get("phone")
+        assert saved_phone is None
+
+
+
 

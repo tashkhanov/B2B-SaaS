@@ -208,4 +208,73 @@ async def test_generate_response_executes_tool_call():
         assert call_kwargs["customer_name"] == "Иброхим"
 
 
+@pytest.mark.asyncio
+async def test_multi_turn_compound_cancel_and_create():
+    """Тест: составной запрос 'отмени и запиши' выполняет оба инструмента в цикле"""
+    service = GeminiService()
+    mock_client = MagicMock()
+    mock_models = AsyncMock()
+
+    # Turn 1: Model calls cancel_booking_reservation
+    fc_cancel = MagicMock()
+    fc_cancel.name = "cancel_booking_reservation"
+    fc_cancel.args = {}
+    resp_turn1 = MagicMock()
+    resp_turn1.function_calls = [fc_cancel]
+    resp_turn1.candidates = []
+
+    # Turn 2: Model calls create_booking_reservation with glitched name 'Каким'
+    fc_create = MagicMock()
+    fc_create.name = "create_booking_reservation"
+    fc_create.args = {
+        "customer_name": "Каким",
+        "booking_time": "2026-10-20 18:00 (Вторник)",
+        "barber_name_or_id": "Mr. Akmal",
+    }
+    resp_turn2 = MagicMock()
+    resp_turn2.function_calls = [fc_create]
+    resp_turn2.candidates = []
+
+    # Turn 3: Model returns final text summary
+    resp_turn3 = MagicMock()
+    resp_turn3.function_calls = []
+    resp_turn3.text = "Старая бронь отменена, а новая запись к Mr. Akmal на 18:00 передана Шефу на согласование!"
+
+    mock_models.generate_content = AsyncMock(side_effect=[resp_turn1, resp_turn2, resp_turn3])
+    mock_client.aio.models = mock_models
+    service.client = mock_client
+
+    mock_cancel_res = {"success": True, "message": "Запись успешно отменена"}
+    mock_create_res = {
+        "success": True,
+        "status": "pending_vip",
+        "booking_id": 1001,
+        "barber_name": "Mr. Akmal",
+        "message": "Запрос отправлен на согласование",
+    }
+
+    with patch.object(service.booking_tools, "cancel_booking_reservation", new_callable=AsyncMock, return_value=mock_cancel_res) as mock_cancel, \
+         patch.object(service.booking_tools, "create_booking_reservation", new_callable=AsyncMock, return_value=mock_create_res) as mock_create, \
+         patch("services.gemini_service.get_recent_messages", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_active_bookings", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_barbers", new_callable=AsyncMock, return_value=[{"id": 4, "name": "Mr. Akmal"}]), \
+         patch("services.gemini_service.get_services", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.get_branches", new_callable=AsyncMock, return_value=[]), \
+         patch("services.gemini_service.add_message", new_callable=AsyncMock):
+
+        reply = await service.generate_response(
+            user_id=1243374131,
+            user_message="Отмени текущую запись и запиши меня к Акмалю на 18:00",
+        )
+
+        assert mock_cancel.called
+        assert mock_create.called
+        create_kwargs = mock_create.call_args[1]
+        # "Каким" was sanitized to "Иброхим"
+        assert create_kwargs["customer_name"] == "Иброхим"
+        assert service.had_tool_calls(1243374131) is True
+        assert "Старая бронь отменена" in reply
+
+
+
 

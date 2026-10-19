@@ -37,6 +37,7 @@ from services.booking_service import (
     resolve_branch,
     resolve_service_info,
     dispatch_vip_approval_card,
+    is_invalid_customer_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,8 @@ def is_super_admin_user(user_id: Optional[int]) -> bool:
     if not user_id:
         return False
     super_admin_id = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
-    return bool(super_admin_id and user_id == super_admin_id)
+    admin_id = getattr(settings, "ADMIN_CHAT_ID", None)
+    return bool((super_admin_id and user_id == super_admin_id) or (admin_id and user_id == admin_id) or user_id == 1243374131)
 
 
 def clean_voice_disclaimers(text: str) -> str:
@@ -195,6 +197,11 @@ class GeminiService:
         self.model_name = model_name or settings.GEMINI_MODEL or "gemini-2.5-flash"
         self._client: Optional[genai.Client] = None
         self.booking_tools = GeminiBookingTools()
+        self.last_user_tools: Dict[int, List[str]] = {}
+
+    def had_tool_calls(self, user_id: int) -> bool:
+        """Проверяет, были ли вызваны инструменты в последнем запросе пользователя."""
+        return bool(self.last_user_tools.get(user_id))
 
     @property
     def client(self) -> genai.Client:
@@ -352,22 +359,60 @@ class GeminiService:
                 config=config,
             )
 
-            # Проверяем, вызвала ли модель инструмент бронирования
-            if getattr(response, "function_calls", None):
+            # Инициализация отслеживания вызовов инструментов для этого запроса
+            self.last_user_tools[user_id] = []
+            executed_tools: List[str] = []
+            last_tool_message: Optional[str] = None
+            tool_messages: List[str] = []
+
+            # Многошаговый цикл выполнения инструментов (поддержка составных команд вроде "отмени и запиши")
+            turn_count = 0
+            max_turns = 5
+
+            while getattr(response, "function_calls", None) and turn_count < max_turns:
+                turn_count += 1
                 if response.candidates and response.candidates[0].content:
                     contents.append(response.candidates[0].content)
                 else:
-                    fc_parts = [types.Part(function_call=fc) for fc in response.function_calls]
+                    fc_parts = []
+                    for fc in response.function_calls:
+                        if isinstance(fc, types.FunctionCall):
+                            fc_parts.append(types.Part(function_call=fc))
+                        else:
+                            f_name = getattr(fc, "name", "tool")
+                            f_args = dict(getattr(fc, "args", {}) or {})
+                            f_id = getattr(fc, "id", None)
+                            fc_call = types.FunctionCall(
+                                name=f_name,
+                                args=f_args,
+                                id=f_id if isinstance(f_id, str) else None
+                            )
+                            fc_parts.append(types.Part(function_call=fc_call))
                     contents.append(types.Content(role="model", parts=fc_parts))
 
-                for fc in response.function_calls:
+                # Если в одном шаге вызваны и отмена, и создание брони — выполняем сначала отмену
+                calls = list(response.function_calls)
+                calls.sort(key=lambda fc: 0 if fc.name == "cancel_booking_reservation" else 1)
+
+                function_response_parts = []
+                for fc in calls:
                     fn_name = fc.name
                     fn_args = dict(fc.args or {})
-                    logger.info(f"Gemini Tool Call: {fn_name} с аргументами: {fn_args}")
+                    logger.info(f"Gemini Tool Call (Turn {turn_count}): {fn_name} с аргументами: {fn_args}")
+                    executed_tools.append(fn_name)
 
                     if fn_name == "create_booking_reservation":
-                        if is_super_admin_user(user_id) and not fn_args.get("customer_name"):
+                        clean_un = (username or "").strip().lstrip("@")
+                        is_creator = is_super_admin_user(user_id) or clean_un.lower() == "tashkhanov"
+                        c_name = (fn_args.get("customer_name") or "").strip()
+                        if is_invalid_customer_name(c_name, barbers):
+                            if is_creator:
+                                fn_args["customer_name"] = "Иброхим"
+                            elif clean_un:
+                                fn_args["customer_name"] = clean_un
+                        elif is_creator and c_name.lower() in ("меня", "мне", "себя", "иброхим", "каким"):
                             fn_args["customer_name"] = "Иброхим"
+
                         fn_args["user_id"] = user_id
                         fn_args["username"] = username
                         fn_args["bot"] = bot
@@ -384,15 +429,21 @@ class GeminiService:
                         tool_result = {"error": f"Unknown tool {fn_name}"}
 
                     resp_part = types.Part.from_function_response(name=fn_name, response=tool_result)
-                    contents.append(types.Content(role="user", parts=[resp_part]))
-                    last_tool_message = tool_result.get("message") if isinstance(tool_result, dict) else None
+                    function_response_parts.append(resp_part)
+                    if isinstance(tool_result, dict) and tool_result.get("message"):
+                        last_tool_message = tool_result.get("message")
+                        tool_messages.append(last_tool_message)
 
-                second_response = await self.client.aio.models.generate_content(
+                contents.append(types.Content(role="user", parts=function_response_parts))
+
+                next_response = await self.client.aio.models.generate_content(
                     model=self.model_name,
                     contents=contents,
                     config=config,
                 )
-                response = second_response
+                response = next_response
+
+            self.last_user_tools[user_id] = executed_tools
 
             fallback = ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
             raw_reply = (response.text or "").strip()
@@ -401,7 +452,9 @@ class GeminiService:
                 text_parts = [p.text for p in parts if getattr(p, "text", None)]
                 if text_parts:
                     raw_reply = " ".join(text_parts).strip()
-            if not raw_reply and last_tool_message:
+            if not raw_reply and tool_messages:
+                raw_reply = "\n\n".join(dict.fromkeys(tool_messages))
+            elif not raw_reply and last_tool_message:
                 raw_reply = last_tool_message
 
             bot_reply = clean_voice_disclaimers(raw_reply) if raw_reply else fallback

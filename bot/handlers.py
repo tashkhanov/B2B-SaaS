@@ -743,10 +743,11 @@ async def handle_voice_message(message: Message):
         bot=message.bot,
     )
 
-    # 3. Если Gemini Tool Calling уже создал бронь, отправляем ответ и завершаем
+    # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
-    if recent_booking_exists:
-        logger.info("Voice booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+    tools_called = gemini_service.had_tool_calls(user_id)
+    if recent_booking_exists or tools_called:
+        logger.info("Voice request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
         await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
@@ -788,10 +789,11 @@ async def handle_user_text(message: Message):
         bot=message.bot,
     )
 
-    # 3. Если Gemini Tool Calling уже создал бронь, отправляем ответ и завершаем
+    # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
-    if recent_booking_exists:
-        logger.info("Text booking handled via Gemini Tool Calling for user %s; skipping legacy intent extraction.", user_id)
+    tools_called = gemini_service.had_tool_calls(user_id)
+    if recent_booking_exists or tools_called:
+        logger.info("Text request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
         await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
