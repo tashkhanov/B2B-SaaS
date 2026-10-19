@@ -339,7 +339,7 @@ async def handle_price(message: Message):
             price_val = f"{s['price']:,}".replace(",", " ")
             desc_str = f"\n   _{s['description']}_" if s.get("description") else ""
             lines.append(f"• **{s['name']}**{badge_str} — {price_val} {settings.CURRENCY_SYMBOL}{dur_str}{desc_str}")
-        lines.append("\n_В стрижку включены мытье головы, премиум-стайлинг и напитки._ ☕\n")
+        lines.append("\n_В стрижку включено мытье головы._ 💈\n")
     else:
         lines.append("Информация об услугах обновляется администрацией.\n")
 

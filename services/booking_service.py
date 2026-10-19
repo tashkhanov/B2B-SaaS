@@ -42,6 +42,16 @@ from services.tier_service import is_feature_enabled
 logger = logging.getLogger(__name__)
 
 
+def is_super_admin_user(user_id: Optional[int]) -> bool:
+    """Проверка, является ли пользователь Создателем или Супер-Админом салона"""
+    if not user_id:
+        return False
+    target_super = getattr(settings, "SUPER_ADMIN_CHAT_ID", None)
+    if target_super and user_id == target_super:
+        return True
+    return bool(settings.ADMIN_CHAT_ID and user_id == settings.ADMIN_CHAT_ID)
+
+
 async def resolve_branch(
     query_text: str = "",
     branch_id: Optional[int] = None,
@@ -314,6 +324,23 @@ class GeminiBookingTools:
             bot: Экземпляр бота для отправки уведомлений
         """
         try:
+            # 1. Проверка лимита: строго 1 активная запись на клиента
+            if user_id:
+                active_user_b = await get_user_active_booking(user_id)
+                if active_user_b and active_user_b.get("id"):
+                    b_time = active_user_b.get("booking_time", "ранее")
+                    b_srv = active_user_b.get("service", "Стрижка")
+                    b_barber = active_user_b.get("barber_name", "мастер")
+                    return {
+                        "success": False,
+                        "error": "active_booking_exists",
+                        "message": (
+                            f"У вас уже есть активная запись на {b_time} ({b_srv}, мастер: {b_barber}). "
+                            "По правилам салона Brohouse, у одного клиента может быть только одна активная запись. "
+                            "Чтобы записаться на другое время, пожалуйста, сначала перенесите или отмените текущую запись."
+                        )
+                    }
+
             target_dt = parse_booking_datetime(booking_time)
             if not target_dt:
                 return {
@@ -325,11 +352,28 @@ class GeminiBookingTools:
             active_bookings = await get_active_bookings()
             barbers = await get_barbers(active_only=True)
 
+            # Очистка имени от галлюцинаций
+            clean_name = (customer_name or "").strip()
+            if not clean_name or clean_name.lower() in ("гость", "малы", "клиент", "шеф", "братан"):
+                if is_super_admin_user(user_id):
+                    clean_name = "Иброхим"
+                elif username:
+                    clean_name = username.replace("@", "")
+                else:
+                    clean_name = "Клиент"
+            elif is_super_admin_user(user_id) and clean_name.lower() in ("меня", "мне", "себя"):
+                clean_name = "Иброхим"
+
+            # Очистка телефона от галлюцинаций (фиктивные шаблоны из старых примеров)
+            clean_phone = phone
+            if clean_phone and "1234567" in str(clean_phone):
+                clean_phone = None
+
             # Сопоставление барбера
             matched_barber = resolve_barber_match(
                 query_or_name=barber_name_or_id,
                 barbers=barbers,
-                fallback_text=f"{customer_name} {booking_time}"
+                fallback_text=f"{clean_name} {booking_time}"
             )
 
             # Сопоставление филиала
@@ -371,13 +415,13 @@ class GeminiBookingTools:
             # Статус записи: pending_vip для Akmal/VIP, иначе confirmed (или new)
             booking_status = "pending_vip" if (is_vip_master and has_vip_protection) else "confirmed"
 
-            # Сохранение в базу данных SQLite
+            # Сохранение в базу данных
             booking_id = await save_booking(
                 user_id=user_id or 0,
                 username=username,
-                full_name=customer_name or "Гость",
+                full_name=clean_name,
                 details=f"Запись через ИИ-Ассистента | Филиал: {target_branch_name} | Мастер: {final_barber_name}",
-                phone=phone,
+                phone=clean_phone,
                 service=canonical_service,
                 booking_time=normalized_time,
                 status=booking_status,

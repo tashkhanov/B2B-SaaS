@@ -241,7 +241,7 @@ class GeminiService:
                 branch_name_or_id: Название или ID филиала салона ('Миллий бог', 'Чиланзар')
                 barber_name_or_id: Имя мастера ('Mr. Akmal', 'Dilshod', 'Abbos', 'Nodir' или 'Любой')
                 service_name_or_id: Название выбранной услуги из прайса (например 'Стрижка волос', 'Оформление бороды')
-                phone: Номер телефона клиента (например '+998901234567')
+                phone: Номер телефона клиента если он его четко назвал, иначе None (запрещено выдумывать номер телефона)
             """
             return {}
 
@@ -385,6 +385,7 @@ class GeminiService:
 
                     resp_part = types.Part.from_function_response(name=fn_name, response=tool_result)
                     contents.append(types.Content(role="user", parts=[resp_part]))
+                    last_tool_message = tool_result.get("message") if isinstance(tool_result, dict) else None
 
                 second_response = await self.client.aio.models.generate_content(
                     model=self.model_name,
@@ -395,6 +396,14 @@ class GeminiService:
 
             fallback = ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
             raw_reply = (response.text or "").strip()
+            if not raw_reply and getattr(response, "candidates", None) and response.candidates and response.candidates[0].content:
+                parts = response.candidates[0].content.parts or []
+                text_parts = [p.text for p in parts if getattr(p, "text", None)]
+                if text_parts:
+                    raw_reply = " ".join(text_parts).strip()
+            if not raw_reply and last_tool_message:
+                raw_reply = last_tool_message
+
             bot_reply = clean_voice_disclaimers(raw_reply) if raw_reply else fallback
 
             await add_message(user_id=user_id, role="user", text=user_message)
@@ -431,6 +440,9 @@ class GeminiService:
             trans_resp = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=[audio_part, types.Part.from_text(text=transcribe_prompt)],
+                config=types.GenerateContentConfig(
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+                ),
             )
             raw_transcript = (trans_resp.text or "").strip()
             user_transcript = raw_transcript if raw_transcript else "Голосовое сообщение"
@@ -542,18 +554,19 @@ class GeminiService:
                 "запиши его строго в barber_name, а НЕ в client_query! client_query — это клиент, а НЕ барбер!\n"
             ) if barber_info_str else ""
 
+            admin_query_norm = admin_query.replace("от мини", "отмени").replace("От мини", "отмени").replace("от-мини", "отмени")
             prompt = (
                 f"Ты — система управления командами владельца салона {settings.SALON_NAME}.\n"
                 f"ТЕКУЩЕЕ ВРЕМЯ В {settings.SALON_CITY.upper()}: {now_str}.\n"
                 f"{branch_hint}"
                 f"{barber_hint}"
                 f"{creator_hint}\n"
-                f"Запрос администратора: {admin_query}\n\n"
+                f"Запрос администратора: {admin_query_norm}\n\n"
                 "Определи намерение администратора:\n"
                 "- 'query_schedule': запросы расписания ('кто сегодня?', 'что на завтра?', 'покажи пятницу'). Извлеки target_date.\n"
                 "- 'create_booking': ручная запись клиента ('запиши Сардора завтра на 16:00, тел +99890...', или 'запиши меня на 15:00', или 'Ertaga 14:00 ga Mr. Akmalga yozib qo'y'). Извлеки client_query, barber_name, booking_time, service, phone, branch_name, branch_id.\n"
                 "- 'confirm_booking': подтверждение записи ('подтверди запись Рустама', 'подтверди 15:00'). Извлеки client_query или booking_time.\n"
-                "- 'cancel_booking': отмена записи ('отмени запись Рустама', 'отмени 14:00'). Извлеки client_query или booking_time.\n"
+                "- 'cancel_booking': отмена записи ('отмени запись Рустама', 'отмени запись на меня', 'отмени 14:00', 'bekor qil'). ВНИМАНИЕ: Если в запросе есть слова отмены ('отмени', 'отмените', 'bekor', 'от мини'), действие СТРОГО 'cancel_booking', даже если сказано 'на меня' или 'мне'. Запрещено указывать 'create_booking'!\n"
                 "- 'get_stats': статистика ('сколько записей?', 'статистика').\n"
                 "- 'chat': обычный вопрос."
             )

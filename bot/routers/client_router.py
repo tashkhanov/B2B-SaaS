@@ -96,7 +96,7 @@ async def handle_voice_message(message: Message):
         await message.answer("Не удалось распознать голосовое сообщение, повторите, пожалуйста!")
         return
 
-    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.RECORD_VOICE)
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     file_bytes_io = io.BytesIO()
     try:
@@ -257,17 +257,14 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
         active_user_b = await get_user_active_booking(user_id)
         if active_user_b:
             b_time = active_user_b.get("booking_time", "")
-            if is_super_admin(user_id) or (matched_barber and active_user_b.get("barber_id") != matched_barber.get("id")):
-                await cancel_user_booking(user_id)
-            elif b_time == raw_booking_time or await has_recent_booking(user_id=user_id, booking_time=b_time):
+            if b_time == raw_booking_time or await has_recent_booking(user_id=user_id, booking_time=b_time):
                 return
-            else:
-                await message.answer(
-                    f"ℹ️ **Ака, у вас уже есть активная запись на {b_time} ({active_user_b.get('service')})!**\n\n"
-                    "Если хотите перенести её на другое время, просто напишите мне: *«Перенеси на другое время»* или *«Отмени старую запись»*, и я всё сделаю! 💈",
-                    parse_mode="Markdown"
-                )
-                return
+            await message.answer(
+                f"ℹ️ **Ака, у вас уже есть активная запись на {b_time} ({active_user_b.get('service')}, мастер: {active_user_b.get('barber_name')})!**\n\n"
+                "По правилам салона, разрешена только одна активная запись. Если хотите перенести её на другое время, просто напишите мне: *«Перенеси на другое время»* или *«Отмени старую запись»*, и я всё сделаю! 💈",
+                parse_mode="Markdown"
+            )
+            return
 
         matched_service, srv_duration = await resolve_service_info(client_action.service)
         canonical_service = matched_service["name"] if matched_service else (client_action.service or "Стрижка / Комплекс")

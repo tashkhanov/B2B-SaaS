@@ -683,6 +683,78 @@ async def test_barber_branch_endpoints(monkeypatch):
             os.remove(b_db)
 
 
+@pytest.mark.asyncio
+async def test_admin_schedule_and_analytics_endpoints(monkeypatch):
+    """Тест: эндпоинты шахматки мастеров (/api/admin/schedule) и аналитики выручки (/api/admin/analytics)"""
+    test_db = "test_sched_analytics.db"
+    monkeypatch.setattr(settings, "DB_NAME", test_db)
+    monkeypatch.setattr(settings, "SUPER_ADMIN_PASSWORD", "supersecret123")
+    monkeypatch.setattr(settings, "ADMIN_CHAT_ID", 12345678)
+    if os.path.exists(test_db):
+        os.remove(test_db)
+    await init_db(test_db)
+
+    from services.schedule_service import get_now_tashkent
+    today_str = get_now_tashkent().strftime("%Y-%m-%d")
+
+    # Создаем тестовую бронь
+    await save_booking(
+        user_id=101,
+        username="@client1",
+        full_name="Шавкат",
+        details="Стрижка",
+        service="Стрижка волос",
+        booking_time=f"{today_str} 14:00 (Пн)",
+        barber_id=1,
+        barber_name="Mr. Akmal",
+        status="confirmed",
+        db_path=test_db,
+    )
+
+    app = create_web_app()
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        # 1. Проверка неавторизованного доступа -> 401
+        resp_unauth = await client.get("/api/admin/schedule")
+        assert resp_unauth.status == 401
+
+        resp_unauth_an = await client.get("/api/admin/analytics")
+        assert resp_unauth_an.status == 401
+
+        # 2. Авторизованный запрос шахматки мастеров -> 200
+        headers = {"X-Super-Admin-Token": "supersecret123"}
+        resp_sched = await client.get(f"/api/admin/schedule?date={today_str}", headers=headers)
+        assert resp_sched.status == 200
+        sched_data = await resp_sched.json()
+        assert sched_data["ok"] is True
+        assert sched_data["date"] == today_str
+        assert "slots" in sched_data
+        assert "14:00" in sched_data["slots"]
+        assert "barbers" in sched_data
+        assert "matrix" in sched_data
+
+        # 3. Авторизованный запрос аналитики -> 200
+        resp_an = await client.get("/api/admin/analytics", headers=headers)
+        assert resp_an.status == 200
+        an_data = await resp_an.json()
+        assert an_data["ok"] is True
+        assert "today_revenue" in an_data
+        assert "week_revenue" in an_data
+        assert "average_check" in an_data
+        assert "status_counts" in an_data
+        assert "top_barbers" in an_data
+        assert "top_services" in an_data
+        assert an_data["status_counts"]["confirmed"] >= 1
+    finally:
+        await client.close()
+        if os.path.exists(test_db):
+            os.remove(test_db)
+
+
+
 
 
 

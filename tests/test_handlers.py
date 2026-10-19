@@ -694,6 +694,114 @@ async def test_process_client_intent_booking_conflict():
         assert "⚠️ **Ака, на это время" in args[0]
 
 
+@pytest.mark.asyncio
+async def test_process_admin_intent_cancellation_no_duplicate_booking():
+    """Тест: запрос 'От мини запись на меня...' отменяет запись и НЕ создает новую бронь"""
+    from bot.handlers import process_admin_intent
+    from services.gemini_service import AdminAction
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=1243374131, is_bot=False, first_name="Ibrohim", username="asatkhanov")
+    message.answer = AsyncMock()
+
+    active_b = {
+        "id": 33,
+        "full_name": "Иброхим",
+        "booking_time": "2026-10-20 18:00",
+        "status": "confirmed",
+        "service": "Стрижка",
+        "user_id": 1243374131,
+    }
+
+    mock_action = AdminAction(
+        action="cancel_booking",
+        client_query="меня",
+    )
+
+    with patch("bot.handlers.gemini_service.extract_admin_action", new_callable=AsyncMock, return_value=mock_action), \
+         patch("bot.handlers.get_user_active_booking", new_callable=AsyncMock, return_value=active_b), \
+         patch("bot.handlers.update_booking_status", new_callable=AsyncMock, return_value=True) as mock_status, \
+         patch("bot.handlers.save_booking", new_callable=AsyncMock) as mock_save:
+
+        handled = await process_admin_intent(
+            message=message,
+            admin_query="От мини запись на меня завтра 18:00",
+            ai_reply="Отменяю бронь",
+        )
+
+        assert handled is True
+        mock_status.assert_called_once_with(33, "cancelled")
+        mock_save.assert_not_called()
+        message.answer.assert_called_once()
+        assert "отменена" in message.answer.call_args[0][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_process_admin_intent_confirm_pending_vip():
+    """Тест: администратор подтверждает VIP-запись клиента со статусом pending_vip"""
+    from bot.handlers import process_admin_intent
+    from services.gemini_service import AdminAction
+
+    message = MagicMock(spec=Message)
+    message.from_user = User(id=1243374131, is_bot=False, first_name="Ibrohim", username="asatkhanov")
+    message.answer = AsyncMock()
+    message.bot = AsyncMock()
+
+    vip_booking = {
+        "id": 88,
+        "full_name": "Сардор",
+        "booking_time": "2026-10-21 15:00",
+        "status": "pending_vip",
+        "service": "Премиум комплекс",
+        "user_id": 999888,
+        "branch_id": 1,
+    }
+
+    mock_action = AdminAction(
+        action="confirm_booking",
+        client_query="Сардор",
+    )
+
+    with patch("bot.handlers.gemini_service.extract_admin_action", new_callable=AsyncMock, return_value=mock_action), \
+         patch("bot.handlers.find_booking_by_client_name", new_callable=AsyncMock, return_value=vip_booking), \
+         patch("bot.handlers.update_booking_status", new_callable=AsyncMock, return_value=True) as mock_status, \
+         patch("bot.handlers.get_branch_by_id", new_callable=AsyncMock, return_value={"name": "Главный", "address": "ул. Сеул"}), \
+         patch("bot.handlers.get_salon_setting", new_callable=AsyncMock, return_value="+998901112233"):
+
+        handled = await process_admin_intent(
+            message=message,
+            admin_query="Подтверди запись Сардора",
+            ai_reply="Подтверждаю",
+        )
+
+        assert handled is True
+        mock_status.assert_called_once_with(88, "confirmed")
+        message.answer.assert_called_once()
+        assert "успешно подтверждена" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_handle_price_no_drinks_styling():
+    """Тест: в прайс-листе нет выдуманных напитков и стайлинга"""
+    from bot.handlers import handle_price
+
+    price_msg = MagicMock(spec=Message)
+    price_msg.from_user = MagicMock()
+    price_msg.from_user.id = 111222
+    price_msg.answer = AsyncMock()
+
+    with patch("bot.handlers.get_user_role", new_callable=AsyncMock, return_value=("client", None)), \
+         patch("bot.handlers.get_services", new_callable=AsyncMock, return_value=[{"name": "Стрижка волос", "price": 120000, "duration_min": 45, "badge": "", "description": ""}]), \
+         patch("bot.handlers.get_salon_setting", new_callable=AsyncMock, side_effect=lambda k, d: d):
+
+        await handle_price(price_msg)
+        text = price_msg.answer.call_args[0][0]
+        assert "напитки" not in text.lower()
+        assert "стайлинг" not in text.lower()
+        assert "мытье головы" in text.lower()
+
+
+
 
 
 

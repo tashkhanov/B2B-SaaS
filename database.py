@@ -1008,16 +1008,38 @@ async def mark_client_winback_sent(booking_id: int, db_path: Optional[str] = Non
 
 
 async def find_booking_by_client_name(query: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Поиск активной брони клиента по имени или @username."""
+    """Поиск активной брони клиента по имени, @username, номеру телефона, времени или ID."""
     await auto_complete_past_bookings(db_path)
     clean_query = query.strip().replace("@", "").lower()
+    
+    # Сначала проверяем точный ID, если передано число
+    if clean_query.isdigit():
+        by_id = await fetch_one(
+            """
+            SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
+                   barber_id, barber_name, service_id, branch_id, branch_name, created_at
+            FROM bookings 
+            WHERE status IN ('new', 'confirmed', 'pending_vip') AND id = $1
+            LIMIT 1;
+            """,
+            int(clean_query), db_path=db_path
+        )
+        if by_id:
+            return by_id
+
     return await fetch_one(
         """
         SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
                barber_id, barber_name, service_id, branch_id, branch_name, created_at
         FROM bookings 
-        WHERE status IN ('new', 'confirmed')
-          AND (LOWER(full_name) LIKE $1 OR LOWER(username) LIKE $1)
+        WHERE status IN ('new', 'confirmed', 'pending_vip')
+          AND (
+            LOWER(full_name) LIKE $1 
+            OR LOWER(username) LIKE $1 
+            OR phone LIKE $1 
+            OR booking_time LIKE $1
+            OR LOWER(barber_name) LIKE $1
+          )
         ORDER BY id DESC LIMIT 1;
         """,
         f"%{clean_query}%", db_path=db_path

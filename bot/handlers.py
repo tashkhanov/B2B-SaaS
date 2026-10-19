@@ -612,7 +612,7 @@ async def handle_price(message: Message):
             price_val = f"{s['price']:,}".replace(",", " ")
             desc_str = f"\n   _{s['description']}_" if s.get("description") else ""
             lines.append(f"• **{s['name']}**{badge_str} — {price_val} {settings.CURRENCY_SYMBOL}{dur_str}{desc_str}")
-        lines.append("\n_В стрижку включены мытье головы, премиум-стайлинг и напитки._ ☕\n")
+        lines.append("\n_В стрижку включено мытье головы._ 💈\n")
     else:
         lines.append("Информация об услугах обновляется администрацией.\n")
 
@@ -716,7 +716,7 @@ async def handle_voice_message(message: Message):
         return
     _voice_rate_limit[user_id] = now_ts
 
-    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.RECORD_VOICE)
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     # 1. Скачивание аудиофайла голосового сообщения
     file_bytes_io = io.BytesIO()
@@ -818,18 +818,25 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
     user_id = message.from_user.id if message.from_user else 0
     is_super = is_super_admin(user_id)
 
-    combined = f"{admin_query} {ai_reply}".lower()
+    # Нормализация типичных опечаток ASR при распознавании речи
+    clean_query = admin_query.replace("от мини", "отмени").replace("От мини", "отмени").replace("от-мини", "отмени")
+
+    combined = f"{clean_query} {ai_reply}".lower()
     admin_triggers = ["подтверд", "отмен", "запиш", "бронь", "tasdiq", "bekor", "yoz", "стрижк", "время", "окно"]
     if not any(t in combined for t in admin_triggers):
         return False
 
-    admin_action = await gemini_service.extract_admin_action(admin_query, user_id=user_id)
+    cancel_triggers = ["отмен", "bekor", "удалить", "удалите", "снять запись"]
+    is_cancel_intent = any(ct in clean_query.lower() for ct in cancel_triggers)
+
+    admin_action = await gemini_service.extract_admin_action(clean_query, user_id=user_id)
 
     # Проверка: является ли запрос личной записью Создателя / Супер-Админа (Иброхим)
+    # КРИТИЧЕСКИ ВАЖНО: Если запрос на отмену, то это НЕ создание брони!
     is_personal_creator_booking = False
-    if is_super:
+    if is_super and not is_cancel_intent:
         personal_markers = ["меня", "мне", "себя", "запиши на", "хочу записаться", "meni yoz", "menga yoz"]
-        query_has_self = any(m in admin_query.lower() for m in personal_markers)
+        query_has_self = any(m in clean_query.lower() for m in personal_markers)
         client_is_self = (
             admin_action
             and (
@@ -840,9 +847,9 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
         if query_has_self or client_is_self:
             is_personal_creator_booking = True
 
-    # Если admin_action не распознал create_booking, но Иброхим просит записать его
-    if is_personal_creator_booking and (not admin_action or admin_action.action != "create_booking"):
-        client_act = await gemini_service.extract_client_action(f"Клиент: {admin_query}\nАссистент: {ai_reply}", user_id=user_id)
+    # Если admin_action не распознал create_booking, но Иброхим просит записать его (и это НЕ отмена!)
+    if not is_cancel_intent and is_personal_creator_booking and (not admin_action or admin_action.action != "create_booking"):
+        client_act = await gemini_service.extract_client_action(f"Клиент: {clean_query}\nАссистент: {ai_reply}", user_id=user_id)
         if client_act and (client_act.action == "create_booking" or client_act.booking_time):
             from services.gemini_service import AdminAction
             admin_action = AdminAction(
@@ -854,13 +861,21 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 barber_name=client_act.barber_name,
             )
 
+    # Если это запрос на отмену, но admin_action не cancel_booking:
+    if is_cancel_intent and (not admin_action or admin_action.action != "cancel_booking"):
+        from services.gemini_service import AdminAction
+        admin_action = AdminAction(
+            action="cancel_booking",
+            client_query="меня" if ("меня" in clean_query.lower() or "мне" in clean_query.lower() or "себя" in clean_query.lower()) else "",
+        )
+
     if not admin_action or admin_action.action in ("chat", "query_schedule", "get_stats"):
         return False
 
     # 1. Администратор подтверждает запись клиента
     if admin_action.action == "confirm_booking" and admin_action.client_query:
         booking = await find_booking_by_client_name(admin_action.client_query)
-        if booking and booking["status"] == "new":
+        if booking and booking["status"] in ("new", "pending_vip"):
             await update_booking_status(booking["id"], "confirmed")
             # Уведомляем клиента в личку Telegram
             if booking.get("user_id"):
@@ -886,14 +901,25 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     logger.warning(f"Не удалось отправить уведомление клиенту о подтверждении: {e}")
             await message.answer(f"✅ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** успешно подтверждена!")
             return True
+        elif booking and booking["status"] == "confirmed":
+            await message.answer(f"ℹ️ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** уже подтверждена.")
+            return True
 
-    # 2. Администратор отменяет запись клиента
-    if admin_action.action == "cancel_booking" and admin_action.client_query:
-        booking = await find_booking_by_client_name(admin_action.client_query)
+    # 2. Администратор отменяет запись клиента (или свою)
+    if admin_action.action == "cancel_booking":
+        booking = None
+        q = (admin_action.client_query or "").strip().lower()
+        if q and q not in ("меня", "мне", "себя", "мою"):
+            booking = await find_booking_by_client_name(q)
+        else:
+            booking = await get_user_active_booking(user_id)
+            if not booking and q:
+                booking = await find_booking_by_client_name(q)
+
         if booking and booking["status"] != "cancelled":
             await update_booking_status(booking["id"], "cancelled")
             # Уведомляем клиента в личку Telegram
-            if booking.get("user_id"):
+            if booking.get("user_id") and booking["user_id"] != user_id:
                 try:
                     await message.bot.send_message(
                         chat_id=booking["user_id"],
@@ -906,6 +932,12 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                 except Exception as e:
                     logger.warning(f"Не удалось отправить уведомление клиенту об отмене: {e}")
             await message.answer(f"❌ Запись клиента **{booking['full_name']}** на **{booking['booking_time']}** отменена. Окно свободно!")
+            return True
+        elif booking and booking["status"] == "cancelled":
+            await message.answer(f"ℹ️ Запись на **{booking['booking_time']}** уже была отменена ранее.")
+            return True
+        elif is_cancel_intent:
+            await message.answer("⚠️ Не удалось найти активную запись для отмены. Пожалуйста, уточните имя клиента, номер телефона или время записи.")
             return True
 
     # 3. Создание записи: личная бронь Создателя или ручная запись клиента

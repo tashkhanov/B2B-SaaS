@@ -2171,6 +2171,234 @@ async def handle_upload_receipt(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "server_error", "message": "Ошибка обработки файла"}, status=500)
 
 
+# =============================================================================
+# API ГРАФИКА (ШАХМАТКА) И АНАЛИТИКИ
+# =============================================================================
+
+async def handle_get_admin_schedule(request: web.Request) -> web.Response:
+    """API: Сводная шахматка занятости мастеров на выбранную дату (для управляющего)"""
+    if not is_admin_or_super(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    try:
+        date_str = request.query.get("date")
+        if not date_str:
+            date_str = get_now_tashkent().strftime("%Y-%m-%d")
+
+        try:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return web.json_response({"error": "Неверный формат даты, ожидается YYYY-MM-DD"}, status=400)
+
+        branch_id_raw = request.query.get("branch_id")
+        branch_id = int(branch_id_raw) if branch_id_raw and branch_id_raw.isdigit() else None
+
+        barbers = await get_barbers(active_only=True, branch_id=branch_id)
+        services = await get_services(active_only=True)
+        services_map = {s["id"]: s for s in services}
+        all_bookings = await get_all_bookings()
+
+        day_bookings = []
+        for b in all_bookings:
+            if b.get("status") == "cancelled":
+                continue
+            bt = (b.get("booking_time") or "").strip()
+            if bt.startswith(date_str):
+                day_bookings.append(b)
+
+        # 30-минутные слоты с 09:00 до 21:30
+        slots = []
+        cur_h = 9
+        cur_m = 0
+        while cur_h < 22:
+            slots.append(f"{cur_h:02d}:{cur_m:02d}")
+            cur_m += 30
+            if cur_m >= 60:
+                cur_m = 0
+                cur_h += 1
+
+        barbers_data = []
+        for b in barbers:
+            is_working = is_barber_working_on_date(b, target_date)
+            barbers_data.append({
+                "id": b["id"],
+                "name": b["name"],
+                "is_vip": is_barber_vip(b),
+                "is_working": is_working,
+                "photo_url": b.get("photo_url") or "",
+            })
+
+        # Матрица: barber_id -> { slot_str -> booking_info or None }
+        matrix = {}
+        for b in barbers:
+            b_id = b["id"]
+            matrix[b_id] = {}
+            b_bookings = [bk for bk in day_bookings if bk.get("barber_id") == b_id]
+
+            for s_time in slots:
+                slot_dt = datetime.strptime(f"{date_str} {s_time}", "%Y-%m-%d %H:%M")
+                slot_end = slot_dt + timedelta(minutes=30)
+
+                matched_b = None
+                for bk in b_bookings:
+                    b_raw = (bk.get("booking_time") or "").strip()
+                    parts = b_raw.split()
+                    if len(parts) >= 2:
+                        try:
+                            bk_start = datetime.strptime(f"{parts[0]} {parts[1]}", "%Y-%m-%d %H:%M")
+                            dur = 45
+                            s_id = bk.get("service_id")
+                            if s_id and s_id in services_map:
+                                dur = services_map[s_id].get("duration_min") or 45
+                            bk_end = bk_start + timedelta(minutes=dur)
+
+                            if max(slot_dt, bk_start) < min(slot_end, bk_end):
+                                matched_b = bk
+                                break
+                        except Exception:
+                            if s_time in b_raw:
+                                matched_b = bk
+                                break
+                    elif s_time in b_raw:
+                        matched_b = bk
+                        break
+
+                if matched_b:
+                    matrix[b_id][s_time] = {
+                        "id": matched_b["id"],
+                        "client_name": matched_b.get("full_name") or "Клиент",
+                        "phone": matched_b.get("phone") or "",
+                        "service": matched_b.get("service") or "",
+                        "status": matched_b.get("status") or "new",
+                        "booking_time": matched_b.get("booking_time") or "",
+                        "details": matched_b.get("details") or "",
+                    }
+                else:
+                    matrix[b_id][s_time] = None
+
+        return web.json_response({
+            "ok": True,
+            "date": date_str,
+            "slots": slots,
+            "barbers": barbers_data,
+            "matrix": matrix
+        })
+    except Exception as e:
+        logger.error(f"Ошибка при получении шахматки мастеров: {e}", exc_info=True)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_get_admin_analytics(request: web.Request) -> web.Response:
+    """API: Аналитика выручки, загрузки мастеров и метрик салона (для админки и владельца)"""
+    if not is_admin_or_super(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    try:
+        now_dt = get_now_tashkent()
+        today_str = now_dt.strftime("%Y-%m-%d")
+
+        start_of_week = now_dt.date() - timedelta(days=now_dt.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
+
+        all_bookings = await get_all_bookings()
+        services = await get_services()
+        service_prices = {}
+        for s in services:
+            s_name = (s.get("name") or "").strip().lower()
+            s_price = int(s.get("price") or 0)
+            if s_name:
+                service_prices[s_name] = s_price
+            if s.get("id"):
+                service_prices[f"id_{s['id']}"] = s_price
+
+        def get_booking_price(bk) -> int:
+            if bk.get("service_id") and f"id_{bk['service_id']}" in service_prices:
+                return service_prices[f"id_{bk['service_id']}"]
+            srv_name = (bk.get("service") or "").strip().lower()
+            if srv_name in service_prices:
+                return service_prices[srv_name]
+            for sn, pr in service_prices.items():
+                if not sn.startswith("id_") and (sn in srv_name or srv_name in sn):
+                    return pr
+            return 150000
+
+        today_bookings = []
+        week_bookings = []
+        valid_bookings = [b for b in all_bookings if b.get("status") != "cancelled"]
+
+        status_counts = {"new": 0, "pending_vip": 0, "confirmed": 0, "completed": 0, "cancelled": 0}
+        for b in all_bookings:
+            st = b.get("status") or "new"
+            status_counts[st] = status_counts.get(st, 0) + 1
+
+            bt = (b.get("booking_time") or "").strip()
+            parts = bt.split()
+            if parts:
+                b_date_str = parts[0]
+                try:
+                    b_date = datetime.strptime(b_date_str, "%Y-%m-%d").date()
+                    if b_date == now_dt.date() and st != "cancelled":
+                        today_bookings.append(b)
+                    if start_of_week <= b_date <= end_of_week and st != "cancelled":
+                        week_bookings.append(b)
+                except Exception:
+                    if today_str in bt and st != "cancelled":
+                        today_bookings.append(b)
+
+        today_revenue = sum(get_booking_price(b) for b in today_bookings)
+        week_revenue = sum(get_booking_price(b) for b in week_bookings)
+
+        avg_check = int(week_revenue / len(week_bookings)) if week_bookings else (
+            int(today_revenue / len(today_bookings)) if today_bookings else 150000
+        )
+
+        barber_stats_map = {}
+        for b in valid_bookings:
+            b_name = b.get("barber_name") or "Любой мастер"
+            if b_name not in barber_stats_map:
+                barber_stats_map[b_name] = {"name": b_name, "count": 0, "revenue": 0}
+            barber_stats_map[b_name]["count"] += 1
+            barber_stats_map[b_name]["revenue"] += get_booking_price(b)
+
+        top_barbers = sorted(barber_stats_map.values(), key=lambda x: x["count"], reverse=True)
+
+        service_stats_map = {}
+        for b in valid_bookings:
+            s_name = b.get("service") or "Стрижка"
+            if s_name not in service_stats_map:
+                service_stats_map[s_name] = {"name": s_name, "count": 0, "revenue": 0}
+            service_stats_map[s_name]["count"] += 1
+            service_stats_map[s_name]["revenue"] += get_booking_price(b)
+
+        top_services = sorted(service_stats_map.values(), key=lambda x: x["count"], reverse=True)[:5]
+
+        unique_clients = set()
+        for b in all_bookings:
+            cid = b.get("user_id") or b.get("phone") or b.get("full_name")
+            if cid:
+                unique_clients.add(cid)
+
+        return web.json_response({
+            "ok": True,
+            "today_revenue": today_revenue,
+            "today_revenue_formatted": f"{today_revenue:,} сум".replace(",", " "),
+            "week_revenue": week_revenue,
+            "week_revenue_formatted": f"{week_revenue:,} сум".replace(",", " "),
+            "today_bookings_count": len(today_bookings),
+            "week_bookings_count": len(week_bookings),
+            "total_bookings_count": len(all_bookings),
+            "average_check": avg_check,
+            "average_check_formatted": f"{avg_check:,} сум".replace(",", " "),
+            "total_clients": len(unique_clients),
+            "status_counts": status_counts,
+            "top_barbers": top_barbers,
+            "top_services": top_services
+        })
+    except Exception as e:
+        logger.error(f"Ошибка при расчете аналитики: {e}", exc_info=True)
+        return web.json_response({"error": str(e)}, status=500)
+
+
 
 # =============================================================================
 # ПРИЛОЖЕНИЕ AIOHTTP И РОУТЕР
@@ -2243,6 +2471,10 @@ def create_web_app(bot: Bot = None) -> web.Application:
     app.router.add_post("/api/bookings/{id}/status", handle_update_status)
     app.router.add_get("/api/my-booking", handle_get_my_booking)
     app.router.add_post("/api/my-booking/cancel", handle_cancel_my_booking)
+
+    # Шахматка и аналитика
+    app.router.add_get("/api/admin/schedule", handle_get_admin_schedule)
+    app.router.add_get("/api/admin/analytics", handle_get_admin_analytics)
 
 
     return app

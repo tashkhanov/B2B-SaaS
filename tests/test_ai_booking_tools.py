@@ -26,6 +26,7 @@ async def test_tool_create_booking_reservation_akmal_vip():
          patch("services.booking_service.get_branches", new_callable=AsyncMock, return_value=mock_branches), \
          patch("services.booking_service.get_services", new_callable=AsyncMock, return_value=mock_services), \
          patch("services.booking_service.get_active_bookings", new_callable=AsyncMock, return_value=[]), \
+         patch("services.booking_service.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
          patch("services.booking_service.save_booking", new_callable=AsyncMock, return_value=777) as mock_save, \
          patch("services.booking_service.is_feature_enabled", new_callable=AsyncMock, return_value=True), \
          patch("services.booking_service.dispatch_vip_approval_card", new_callable=AsyncMock) as mock_vip_dispatch:
@@ -213,6 +214,7 @@ async def test_ai_uzbek_dialog_flow_akmal_vip():
          patch("services.booking_service.get_branches", new_callable=AsyncMock, return_value=mock_branches), \
          patch("services.booking_service.get_services", new_callable=AsyncMock, return_value=mock_services), \
          patch("services.booking_service.get_active_bookings", new_callable=AsyncMock, return_value=[]), \
+         patch("services.booking_service.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
          patch("services.booking_service.save_booking", new_callable=AsyncMock, return_value=999) as mock_save, \
          patch("services.booking_service.is_feature_enabled", new_callable=AsyncMock, return_value=True), \
          patch("services.booking_service.dispatch_vip_approval_card", new_callable=AsyncMock) as mock_dispatch:
@@ -278,5 +280,33 @@ async def test_ai_uzbek_dialog_flow_regular_barber():
         assert res["barber_name"] == "Dilshod"
         assert res["requires_manual_approval"] is False
         mock_save.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_tool_create_booking_reservation_rejects_duplicate_active_booking():
+    """Тест: строгий лимит 1 активной брони на клиента - отклонение повторной брони"""
+    tools = GeminiBookingTools()
+    existing_active = {
+        "id": 42,
+        "booking_time": "2026-10-21 16:00",
+        "service": "Стрижка волос",
+        "barber_name": "Mr. Dilshod"
+    }
+
+    with patch("services.booking_service.get_user_active_booking", new_callable=AsyncMock, return_value=existing_active), \
+         patch("services.booking_service.save_booking", new_callable=AsyncMock) as mock_save:
+
+        res = await tools.create_booking_reservation(
+            customer_name="Иброхим",
+            booking_time="2026-10-22 17:00",
+            barber_name_or_id="Mr. Akmal",
+            user_id=1243374131,
+        )
+
+        assert res["success"] is False
+        assert res["error"] == "active_booking_exists"
+        assert "уже есть активная запись" in res["message"].lower()
+        mock_save.assert_not_called()
+
 
 

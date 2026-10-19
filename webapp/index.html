@@ -108,6 +108,21 @@
         </svg>
         <span>Записи</span>
       </button>
+      <button onclick="switchTab('schedule')" id="nav-schedule" class="flex-shrink-0 flex-1 py-1.5 px-1.5 sm:px-2 rounded-lg text-center transition flex items-center justify-center gap-1 text-gray-400 hover:text-white whitespace-nowrap text-[11px] sm:text-xs">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="18" x="3" y="3" rx="2"/>
+          <path d="M3 9h18M9 21V9"/>
+        </svg>
+        <span>График</span>
+      </button>
+      <button onclick="switchTab('analytics')" id="nav-analytics" class="flex-shrink-0 flex-1 py-1.5 px-1.5 sm:px-2 rounded-lg text-center transition flex items-center justify-center gap-1 text-gray-400 hover:text-white whitespace-nowrap text-[11px] sm:text-xs">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"/>
+          <line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+        <span>Аналитика</span>
+      </button>
       <button onclick="switchTab('services')" id="nav-services" class="flex-shrink-0 flex-1 py-1.5 px-1.5 sm:px-2 rounded-lg text-center transition flex items-center justify-center gap-1 text-gray-400 hover:text-white whitespace-nowrap text-[11px] sm:text-xs">
         <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="6" cy="6" r="3"/>
@@ -125,7 +140,7 @@
           <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
           <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
         </svg>
-        <span>Барберы</span>
+        <span>Мастера</span>
       </button>
       <button onclick="switchTab('settings')" id="nav-settings" class="flex-shrink-0 flex-1 py-1.5 px-1.5 sm:px-2 rounded-lg text-center transition flex items-center justify-center gap-1 text-gray-400 hover:text-white whitespace-nowrap text-[11px] sm:text-xs">
         <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -193,7 +208,134 @@
       </div>
     </section>
 
-    <!-- ==================== ВКЛАДКА 2: УСЛУГИ ==================== -->
+    <!-- ==================== ВКЛАДКА 2: ГРАФИК (ШАХМАТКА) ==================== -->
+    <section id="section-schedule" class="space-y-3 hidden">
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-gray-400 font-medium">Шахматка занятости мастеров</span>
+        <div class="flex items-center gap-1.5">
+          <button onclick="setScheduleDate('today')" class="px-2.5 py-1 rounded-lg bg-surface border border-surfaceBorder text-[11px] text-gray-300 hover:text-white transition active:scale-95">Сегодня</button>
+          <button onclick="setScheduleDate('tomorrow')" class="px-2.5 py-1 rounded-lg bg-surface border border-surfaceBorder text-[11px] text-gray-300 hover:text-white transition active:scale-95">Завтра</button>
+        </div>
+      </div>
+
+      <!-- Выбор даты -->
+      <div class="bg-surface border border-surfaceBorder rounded-xl p-2.5 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <input type="date" id="schedule-date-picker" onchange="onScheduleDateChange(this.value)" class="bg-transparent text-white text-xs font-semibold focus:outline-none cursor-pointer" />
+        </div>
+        <div id="schedule-day-label" class="text-xs text-accent font-semibold"></div>
+      </div>
+
+      <div id="schedule-loading" class="py-10 text-center text-gray-400 text-xs">
+        <div class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-accent border-t-transparent mb-2"></div>
+        <div>Загрузка графика мастеров...</div>
+      </div>
+
+      <!-- Контейнер сетки шахматки -->
+      <div id="schedule-container" class="overflow-x-auto no-scrollbar rounded-xl border border-surfaceBorder bg-surface hidden">
+        <div id="schedule-grid" class="min-w-[420px]"></div>
+      </div>
+    </section>
+
+    <!-- ==================== ВКЛАДКА 3: АНАЛИТИКА ==================== -->
+    <section id="section-analytics" class="space-y-4 hidden">
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-gray-400 font-medium">Финансовые показатели и выручка</span>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-accent/20 text-accent border border-accent/30">В реальном времени</span>
+      </div>
+
+      <div id="analytics-loading" class="py-10 text-center text-gray-400 text-xs">
+        <div class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-accent border-t-transparent mb-2"></div>
+        <div>Расчет аналитических показателей...</div>
+      </div>
+
+      <div id="analytics-content" class="space-y-3.5 hidden">
+        <!-- 4 Главные карточки показателей -->
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="bg-surface border border-accent/35 rounded-xl p-3 shadow-md shadow-accent/5">
+            <div class="flex items-center gap-1.5 text-accent text-[11px] font-semibold">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <span>Выручка сегодня</span>
+            </div>
+            <div id="analytics-today-revenue" class="text-base font-bold text-white mt-1">0 сум</div>
+            <div id="analytics-today-count" class="text-[10px] text-gray-400 mt-0.5">0 визитов</div>
+          </div>
+          <div class="bg-surface border border-surfaceBorder rounded-xl p-3">
+            <div class="flex items-center gap-1.5 text-emerald-400 text-[11px] font-semibold">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+              <span>Выручка за неделю</span>
+            </div>
+            <div id="analytics-week-revenue" class="text-base font-bold text-white mt-1">0 сум</div>
+            <div id="analytics-week-count" class="text-[10px] text-gray-400 mt-0.5">0 визитов</div>
+          </div>
+          <div class="bg-surface border border-surfaceBorder rounded-xl p-3">
+            <div class="flex items-center gap-1.5 text-amber-400 text-[11px] font-semibold">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 7h10M7 12h10M7 17h10"/></svg>
+              <span>Средний чек</span>
+            </div>
+            <div id="analytics-avg-check" class="text-base font-bold text-white mt-1">0 сум</div>
+            <div class="text-[10px] text-gray-400 mt-0.5">на 1 визит</div>
+          </div>
+          <div class="bg-surface border border-surfaceBorder rounded-xl p-3">
+            <div class="flex items-center gap-1.5 text-blue-400 text-[11px] font-semibold">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Клиентская база</span>
+            </div>
+            <div id="analytics-total-clients" class="text-base font-bold text-white mt-1">0</div>
+            <div id="analytics-total-bookings" class="text-[10px] text-gray-400 mt-0.5">0 броней всего</div>
+          </div>
+        </div>
+
+        <!-- Статусы броней -->
+        <div class="bg-surface border border-surfaceBorder rounded-xl p-3.5 space-y-2">
+          <div class="text-xs font-semibold text-white">Воронка записей</div>
+          <div class="grid grid-cols-4 gap-1.5 text-center text-xs">
+            <div class="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <div id="analytics-status-vip" class="text-sm font-bold text-amber-300">0</div>
+              <div class="text-[9px] text-amber-400/80 mt-0.5">VIP заявки</div>
+            </div>
+            <div class="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <div id="analytics-status-confirmed" class="text-sm font-bold text-emerald-400">0</div>
+              <div class="text-[9px] text-emerald-400/80 mt-0.5">Принято</div>
+            </div>
+            <div class="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <div id="analytics-status-new" class="text-sm font-bold text-blue-400">0</div>
+              <div class="text-[9px] text-blue-400/80 mt-0.5">Новые</div>
+            </div>
+            <div class="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20">
+              <div id="analytics-status-cancelled" class="text-sm font-bold text-rose-400">0</div>
+              <div class="text-[9px] text-rose-400/80 mt-0.5">Отменено</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Топ Мастеров -->
+        <div class="bg-surface border border-surfaceBorder rounded-xl p-3.5 space-y-2.5">
+          <div class="text-xs font-semibold text-white flex items-center justify-between">
+            <span>Загрузка мастеров</span>
+            <span class="text-[10px] text-gray-400 font-normal">по визитам</span>
+          </div>
+          <div id="analytics-top-barbers" class="space-y-2"></div>
+        </div>
+
+        <!-- Топ Услуг -->
+        <div class="bg-surface border border-surfaceBorder rounded-xl p-3.5 space-y-2.5">
+          <div class="text-xs font-semibold text-white flex items-center justify-between">
+            <span>Популярные услуги</span>
+            <span class="text-[10px] text-gray-400 font-normal">топ-5</span>
+          </div>
+          <div id="analytics-top-services" class="space-y-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== ВКЛАДКА 4: УСЛУГИ ==================== -->
     <section id="section-services" class="space-y-3 hidden">
       <div class="flex items-center justify-between">
         <span class="text-xs text-gray-400 font-medium">Каталог услуг и цен</span>

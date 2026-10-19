@@ -37,7 +37,7 @@ let barberBranchFilter = 'all';
 // --- TAB SWITCHING ---
 function switchTab(tab) {
   activeTab = tab;
-  ['bookings', 'services', 'barbers', 'settings', 'billing'].forEach(t => {
+  ['bookings', 'schedule', 'analytics', 'services', 'barbers', 'settings', 'billing'].forEach(t => {
     const navBtn = document.getElementById(`nav-${t}`);
     const sec = document.getElementById(`section-${t}`);
     if (navBtn && sec) {
@@ -57,6 +57,13 @@ function switchTab(tab) {
     if (headerActionBtn) headerActionBtn.classList.remove('hidden');
     if (headerActionText) headerActionText.textContent = 'Записать';
     fetchBookings();
+  } else if (tab === 'schedule') {
+    if (headerActionBtn) headerActionBtn.classList.remove('hidden');
+    if (headerActionText) headerActionText.textContent = 'Записать';
+    fetchSchedule();
+  } else if (tab === 'analytics') {
+    if (headerActionBtn) headerActionBtn.classList.add('hidden');
+    fetchAnalytics();
   } else if (tab === 'services') {
     if (headerActionBtn) headerActionBtn.classList.remove('hidden');
     if (headerActionText) headerActionText.textContent = 'Услуга +';
@@ -75,13 +82,15 @@ function switchTab(tab) {
 }
 
 function openContextModal() {
-  if (activeTab === 'bookings') openManualBookingModal();
+  if (activeTab === 'bookings' || activeTab === 'schedule') openManualBookingModal();
   else if (activeTab === 'services') openServiceModal();
   else if (activeTab === 'barbers') openBarberModal();
 }
 
 function refreshCurrentTab() {
   if (activeTab === 'bookings') fetchBookings();
+  else if (activeTab === 'schedule') fetchSchedule();
+  else if (activeTab === 'analytics') fetchAnalytics();
   else if (activeTab === 'services') fetchServices();
   else if (activeTab === 'barbers') fetchBarbers();
   else if (activeTab === 'settings') fetchSettings();
@@ -205,14 +214,21 @@ function renderBookings() {
 
   filtered.forEach(booking => {
     const card = document.createElement('div');
-    card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-4 transition hover:border-surfaceBorder/90 shadow-md shadow-black/20';
+    const isPendingVip = booking.status === 'pending_vip';
+    if (isPendingVip) {
+      card.className = 'bg-gradient-to-br from-amber-500/10 via-surface to-surface border border-amber-500/40 rounded-2xl p-4 transition hover:border-amber-400/70 shadow-lg shadow-amber-500/5';
+    } else {
+      card.className = 'bg-surface border border-surfaceBorder rounded-2xl p-4 transition hover:border-surfaceBorder/90 shadow-md shadow-black/20';
+    }
 
     const cleanUsername = (booking.username || '').replace('@', '').trim();
     const tgLink = cleanUsername ? `https://t.me/${cleanUsername}` : null;
     const phone = booking.phone ? booking.phone.trim() : null;
 
     let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">Новая</span>';
-    if (booking.status === 'confirmed') {
+    if (isPendingVip) {
+      statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/50 flex items-center gap-1 shadow-sm shadow-amber-500/20">👑 Ожидает подтверждения Шефа</span>';
+    } else if (booking.status === 'confirmed') {
       statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Подтверждена</span>';
     } else if (booking.status === 'completed') {
       statusBadge = '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-500/10 text-gray-400 border border-gray-500/30">Завершена</span>';
@@ -223,21 +239,23 @@ function renderBookings() {
     const barberName = booking.barber_name ? escapeHtml(booking.barber_name) : 'Любой мастер';
 
     let actionsHtml = '';
-    if (booking.status === 'new') {
+    if (booking.status === 'new' || isPendingVip) {
+      const confirmText = isPendingVip ? 'Принять (Шеф)' : 'Подтвердить';
+      const cancelText = isPendingVip ? 'Отклонить' : 'Отменить';
       actionsHtml = `
         <div class="flex items-center gap-2 pt-2 border-t border-surfaceBorder/40 mt-2">
           <button onclick="updateBookingStatus(${booking.id}, 'confirmed')" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition active:scale-95">
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
-            <span>Подтвердить</span>
+            <span>${confirmText}</span>
           </button>
           <button onclick="confirmCancelBooking(${booking.id})" class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-semibold transition active:scale-95">
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
-            <span>Отменить</span>
+            <span>${cancelText}</span>
           </button>
         </div>
       `;
@@ -1331,6 +1349,304 @@ async function submitReceiptUpload() {
       </svg>
       <span>Отправить чек на проверку</span>
     `;
+  }
+}
+
+
+// ==================== 2. ГРАФИК (ШАХМАТКА) ====================
+let currentScheduleDate = getTashkentTodayStr();
+
+function setScheduleDate(mode) {
+  const d = new Date();
+  if (mode === 'tomorrow') {
+    d.setDate(d.getDate() + 1);
+  }
+  try {
+    currentScheduleDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(d);
+  } catch (e) {
+    currentScheduleDate = d.toISOString().slice(0, 10);
+  }
+  const picker = document.getElementById('schedule-date-picker');
+  if (picker) picker.value = currentScheduleDate;
+  fetchSchedule(currentScheduleDate);
+}
+
+function onScheduleDateChange(val) {
+  if (val) {
+    currentScheduleDate = val;
+    fetchSchedule(val);
+  }
+}
+
+async function fetchSchedule(dateStr) {
+  const isAllowed = await checkAdminAccess();
+  if (!isAllowed) return;
+
+  const targetDate = dateStr || currentScheduleDate || getTashkentTodayStr();
+  currentScheduleDate = targetDate;
+
+  const picker = document.getElementById('schedule-date-picker');
+  if (picker) picker.value = targetDate;
+
+  const dayLabel = document.getElementById('schedule-day-label');
+  if (dayLabel) {
+    try {
+      const parsed = new Date(targetDate + 'T12:00:00');
+      const ruDay = new Intl.DateTimeFormat('ru-RU', { weekday: 'short', month: 'short', day: 'numeric' }).format(parsed);
+      dayLabel.textContent = ruDay.charAt(0).toUpperCase() + ruDay.slice(1);
+    } catch (e) {
+      dayLabel.textContent = targetDate;
+    }
+  }
+
+  const loader = document.getElementById('schedule-loading');
+  const container = document.getElementById('schedule-container');
+  if (loader) loader.classList.remove('hidden');
+  if (container) container.classList.add('hidden');
+
+  try {
+    const res = await fetch(`/api/admin/schedule?date=${targetDate}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Schedule API error');
+    const data = await res.json();
+    renderScheduleGrid(data);
+  } catch (err) {
+    console.error('Ошибка загрузки шахматки:', err);
+    if (loader) loader.innerHTML = '<div class="text-rose-400">Ошибка загрузки расписания мастеров</div>';
+  } finally {
+    if (loader) loader.classList.add('hidden');
+    if (container) container.classList.remove('hidden');
+  }
+}
+
+function renderScheduleGrid(data) {
+  const grid = document.getElementById('schedule-grid');
+  if (!grid || !data) return;
+
+  const barbers = data.barbers || [];
+  const slots = data.slots || [];
+  const matrix = data.matrix || {};
+
+  if (barbers.length === 0) {
+    grid.innerHTML = '<div class="p-8 text-center text-gray-400 text-xs">Нет активных мастеров в салоне</div>';
+    return;
+  }
+
+  let html = `
+    <table class="w-full border-collapse text-[11px]">
+      <thead>
+        <tr class="border-b border-surfaceBorder bg-surface/90 sticky top-0 z-10 backdrop-blur">
+          <th class="py-2.5 px-2 text-left text-gray-400 font-semibold w-14 border-r border-surfaceBorder">Время</th>
+  `;
+
+  barbers.forEach(b => {
+    const vipTag = b.is_vip ? '<span class="text-amber-300 font-bold ml-1" title="VIP Шеф-мастер">👑</span>' : '';
+    const offTag = !b.is_working ? '<span class="text-[9px] text-rose-400 font-normal block">Выходной</span>' : '';
+    html += `
+      <th class="py-2.5 px-2 text-center text-white font-medium border-r border-surfaceBorder/60 min-w-[110px]">
+        <div class="truncate font-semibold flex items-center justify-center">${escapeHtml(b.name)}${vipTag}</div>
+        ${offTag}
+      </th>
+    `;
+  });
+
+  html += `
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  slots.forEach((sTime) => {
+    const isHour = sTime.endsWith(':00');
+    const rowBg = isHour ? 'bg-surface/30' : '';
+    html += `
+      <tr class="border-b border-surfaceBorder/40 ${rowBg} hover:bg-surfaceBorder/20 transition">
+        <td class="py-2 px-2 text-gray-400 font-mono font-medium border-r border-surfaceBorder select-none">
+          ${sTime}
+        </td>
+    `;
+
+    barbers.forEach(b => {
+      const bMatrix = matrix[b.id] || {};
+      const slotData = bMatrix[sTime];
+
+      if (!b.is_working) {
+        html += `<td class="p-1 border-r border-surfaceBorder/40 text-center text-gray-600 bg-black/30 select-none text-[10px]">выходной</td>`;
+      } else if (slotData) {
+        let badgeColor = 'bg-blue-500/20 text-blue-300 border-blue-500/40';
+        let statusEmoji = '✂️';
+        if (slotData.status === 'confirmed') {
+          badgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+          statusEmoji = '✅';
+        } else if (slotData.status === 'pending_vip') {
+          badgeColor = 'bg-amber-500/25 text-amber-300 border-amber-400/60 shadow-sm shadow-amber-500/10';
+          statusEmoji = '👑';
+        }
+
+        html += `
+          <td class="p-1 border-r border-surfaceBorder/40">
+            <div class="rounded-lg p-1.5 border ${badgeColor} text-[10px] leading-tight cursor-pointer" onclick="showBookingDetails(${slotData.id})">
+              <div class="font-bold truncate flex items-center gap-1">${statusEmoji} ${escapeHtml(slotData.client_name)}</div>
+              <div class="text-[9px] opacity-80 truncate">${escapeHtml(slotData.service)}</div>
+            </div>
+          </td>
+        `;
+      } else {
+        html += `
+          <td class="p-1 border-r border-surfaceBorder/40 text-center">
+            <div class="rounded-lg py-1 px-1.5 text-[9px] text-emerald-400/70 border border-emerald-500/15 bg-emerald-500/5 hover:bg-emerald-500/15 hover:text-emerald-300 transition cursor-pointer select-none" onclick="quickBookFromSchedule('${sTime}', ${b.id}, '${escapeHtml(b.name)}')">
+              + Свободно
+            </div>
+          </td>
+        `;
+      }
+    });
+
+    html += `</tr>`;
+  });
+
+  html += `
+      </tbody>
+    </table>
+  `;
+
+  grid.innerHTML = html;
+}
+
+function quickBookFromSchedule(time, barberId, barberName) {
+  openManualBookingModal();
+  setTimeout(() => {
+    const timeInput = document.getElementById('manual-booking-time');
+    const barberSelect = document.getElementById('manual-booking-barber');
+    if (timeInput && currentScheduleDate) {
+      timeInput.value = `${currentScheduleDate} ${time}`;
+    }
+    if (barberSelect && barberId) {
+      barberSelect.value = barberId;
+    }
+  }, 100);
+}
+
+function showBookingDetails(bookingId) {
+  const b = allBookings.find(x => x.id === bookingId);
+  if (!b) return;
+  alert(`📋 Запись #${b.id}\n\n👤 Клиент: ${b.full_name || '—'}\n📞 Телефон: ${b.phone || 'Не указан'}\n✂️ Услуга: ${b.service || '—'}\n⏰ Время: ${b.booking_time || '—'}\n💈 Мастер: ${b.barber_name || 'Любой'}\n📌 Статус: ${b.status}`);
+}
+
+
+// ==================== 3. АНАЛИТИКА (ANALYTICS) ====================
+async function fetchAnalytics() {
+  const isAllowed = await checkAdminAccess();
+  if (!isAllowed) return;
+
+  const loader = document.getElementById('analytics-loading');
+  const content = document.getElementById('analytics-content');
+  if (loader) loader.classList.remove('hidden');
+  if (content) content.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/admin/analytics', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Analytics API error');
+    const data = await res.json();
+    renderAnalytics(data);
+  } catch (err) {
+    console.error('Ошибка аналитики:', err);
+    if (loader) loader.innerHTML = '<div class="text-rose-400">Ошибка загрузки показателей аналитики</div>';
+  } finally {
+    if (loader) loader.classList.add('hidden');
+    if (content) content.classList.remove('hidden');
+  }
+}
+
+function renderAnalytics(data) {
+  if (!data) return;
+
+  const trEl = document.getElementById('analytics-today-revenue');
+  if (trEl) trEl.textContent = data.today_revenue_formatted || '0 сум';
+  const tcEl = document.getElementById('analytics-today-count');
+  if (tcEl) tcEl.textContent = `${data.today_bookings_count || 0} визитов`;
+
+  const wrEl = document.getElementById('analytics-week-revenue');
+  if (wrEl) wrEl.textContent = data.week_revenue_formatted || '0 сум';
+  const wcEl = document.getElementById('analytics-week-count');
+  if (wcEl) wcEl.textContent = `${data.week_bookings_count || 0} визитов`;
+
+  const acEl = document.getElementById('analytics-avg-check');
+  if (acEl) acEl.textContent = data.average_check_formatted || '0 сум';
+  const clEl = document.getElementById('analytics-total-clients');
+  if (clEl) clEl.textContent = data.total_clients || '0';
+  const tbEl = document.getElementById('analytics-total-bookings');
+  if (tbEl) tbEl.textContent = `${data.total_bookings_count || 0} броней всего`;
+
+  const sc = data.status_counts || {};
+  const svEl = document.getElementById('analytics-status-vip');
+  if (svEl) svEl.textContent = sc.pending_vip || 0;
+  const scfEl = document.getElementById('analytics-status-confirmed');
+  if (scfEl) scfEl.textContent = sc.confirmed || 0;
+  const snEl = document.getElementById('analytics-status-new');
+  if (snEl) snEl.textContent = sc.new || 0;
+  const scaEl = document.getElementById('analytics-status-cancelled');
+  if (scaEl) scaEl.textContent = sc.cancelled || 0;
+
+  // Топ барберов
+  const barbersBox = document.getElementById('analytics-top-barbers');
+  if (barbersBox) {
+    const barbers = data.top_barbers || [];
+    if (barbers.length === 0) {
+      barbersBox.innerHTML = '<div class="text-gray-500 text-[11px]">Пока нет записей к мастерам</div>';
+    } else {
+      const maxCount = Math.max(...barbers.map(b => b.count), 1);
+      barbersBox.innerHTML = barbers.map((b, i) => {
+        const pct = Math.round((b.count / maxCount) * 100);
+        const formattedRev = (b.revenue || 0).toLocaleString() + ' сум';
+        return `
+          <div class="space-y-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="font-medium text-white flex items-center gap-1.5">
+                <span class="text-[10px] text-accent font-bold">#${i + 1}</span>
+                <span>${escapeHtml(b.name)}</span>
+              </span>
+              <span class="text-gray-300 font-semibold">${b.count} зап. <span class="text-[10px] text-gray-500">(${formattedRev})</span></span>
+            </div>
+            <div class="w-full h-1.5 rounded-full bg-surfaceBorder overflow-hidden">
+              <div class="h-full bg-gradient-to-r from-accent to-gold rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Топ услуг
+  const servicesBox = document.getElementById('analytics-top-services');
+  if (servicesBox) {
+    const srvs = data.top_services || [];
+    if (srvs.length === 0) {
+      servicesBox.innerHTML = '<div class="text-gray-500 text-[11px]">Пока нет записей с услугами</div>';
+    } else {
+      const maxCount = Math.max(...srvs.map(s => s.count), 1);
+      servicesBox.innerHTML = srvs.map((s, i) => {
+        const pct = Math.round((s.count / maxCount) * 100);
+        const formattedRev = (s.revenue || 0).toLocaleString() + ' сум';
+        return `
+          <div class="space-y-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="font-medium text-white flex items-center gap-1.5">
+                <span class="text-[10px] text-emerald-400 font-bold">#${i + 1}</span>
+                <span>${escapeHtml(s.name)}</span>
+              </span>
+              <span class="text-gray-300 font-semibold">${s.count} раз <span class="text-[10px] text-gray-500">(${formattedRev})</span></span>
+            </div>
+            <div class="w-full h-1.5 rounded-full bg-surfaceBorder overflow-hidden">
+              <div class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
   }
 }
 
