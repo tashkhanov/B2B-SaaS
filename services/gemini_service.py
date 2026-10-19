@@ -196,7 +196,7 @@ class GeminiService:
 
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         self.api_key = api_key or settings.GEMINI_API_KEY
-        self.model_name = model_name or settings.GEMINI_MODEL or "gemini-3.8-flash"
+        self.model_name = model_name or settings.GEMINI_MODEL or "gemini-3.5-flash-lite"
         self._client: Optional[genai.Client] = None
         self.booking_tools = GeminiBookingTools()
         self.last_user_tools: Dict[int, List[str]] = {}
@@ -322,7 +322,13 @@ class GeminiService:
         на рабочую резервную модель без лишних задержек.
         """
         target_model = model_name or self.model_name
-        fallback_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
+        fallback_models = [
+            "gemini-3.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
+        ]
         all_candidates = [target_model] + [m for m in fallback_models if m != target_model]
 
         # Исключаем модели, у которых исчерпана суточная квота
