@@ -359,12 +359,15 @@ class GeminiService:
         на рабочую резервную модель без лишних задержек.
         """
         target_model = model_name or self.model_name
-        fallback_models = [
-            "gemini-3.1-flash-lite",
-            "gemini-3.5-flash-lite",
-            "gemini-3.5-flash",
-            "gemini-3.8-flash",
-        ]
+        if target_model in ("gemini-3.5-flash", "gemini-3.8-flash"):
+            fallback_models = ["gemini-3.5-flash", "gemini-3.8-flash"]
+        else:
+            fallback_models = [
+                "gemini-3.1-flash-lite",
+                "gemini-3.5-flash-lite",
+                "gemini-3.5-flash",
+                "gemini-3.8-flash",
+            ]
         all_candidates = [target_model] + [m for m in fallback_models if m != target_model]
         keys_count = len(self._all_api_keys())
 
@@ -654,6 +657,7 @@ class GeminiService:
             )
             trans_resp = await self._generate_content_with_retry(
                 contents=[audio_part, types.Part.from_text(text=transcribe_prompt)],
+                model_name="gemini-3.5-flash",
                 config=types.GenerateContentConfig(
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
                 ),
