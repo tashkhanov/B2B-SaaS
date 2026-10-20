@@ -136,10 +136,10 @@ async def main() -> None:
         )
         sys.exit(1)
 
-    # 2. Инициализация структуры базы данных SQLite
-    logger.info("Инициализация базы данных SQLite (%s)...", settings.DB_NAME)
-    await init_db(settings.DB_NAME)
-    logger.info("База данных успешно инициализирована.")
+    # 2. Инициализация структуры базы данных PostgreSQL
+    logger.info("Инициализация базы данных PostgreSQL (%s:%s/%s)...", settings.PG_HOST, settings.PG_PORT, settings.PG_NAME)
+    await init_db(settings.PG_NAME)
+    logger.info("База данных PostgreSQL успешно инициализирована.")
 
     # 3. Инициализация объекта бота Telegram
     bot = Bot(
