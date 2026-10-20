@@ -726,27 +726,36 @@ async def handle_voice_message(message: Message):
         return
 
     # Проверка доступности функции голосового ИИ по тарифу заведения (Feature-Gating)
-    if not is_staff and not await is_feature_enabled("has_voice_ai", tenant_identifier=settings.TENANT_SLUG):
-        await message.answer(
-            "Здравствуйте! 🙏 На данный момент я принимаю сообщения только текстом.\n\n"
-            "Напишите, пожалуйста, какую услугу и в какое удобное время вы хотели бы забронировать — я сразу проверю свободные окна!"
-        )
-        admin_id = getattr(settings, "ADMIN_CHAT_ID", None)
-        if admin_id and user_id != admin_id:
-            client_mention = f"@{message.from_user.username}" if message.from_user and message.from_user.username else f"ID {user_id}"
-            try:
-                await message.bot.send_message(
-                    chat_id=admin_id,
-                    text=(
-                        f"💡 **Уведомление для владельца салона**\n\n"
-                        f"Клиент {client_mention} отправил голосовое сообщение в бот.\n"
-                        "На вашем текущем тарифе (START) автоматическое распознавание речи выключено.\n\n"
-                        "⚡ Чтобы бот сам автоматически записывал клиентов по их голосовым сообщениям — перейдите на тариф **PRO**."
-                    ),
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.warning(f"Не удалось отправить уведомление администратору о голосовом сообщении: {e}")
+    has_voice_feature = await is_feature_enabled("has_voice_ai", tenant_identifier=settings.TENANT_SLUG)
+    if not has_voice_feature:
+        if is_staff:
+            await safe_answer(
+                message,
+                "🎙 Распознавание голосовых команд выключено для текущего тарифа заведения. Напишите, пожалуйста, команду текстом.",
+                reply_markup=get_main_keyboard(role=role, barber=barber),
+            )
+        else:
+            await safe_answer(
+                message,
+                "🎙 К сожалению, сейчас не могу прослушать голосовое сообщение. Пожалуйста, напишите ваш запрос текстом или воспользуйтесь кнопкой онлайн-записи ниже! 💈",
+                reply_markup=get_main_keyboard(role=role, barber=barber),
+            )
+            admin_id = getattr(settings, "ADMIN_CHAT_ID", None)
+            if admin_id and user_id != admin_id:
+                client_mention = f"@{message.from_user.username}" if message.from_user and message.from_user.username else f"ID {user_id}"
+                try:
+                    await message.bot.send_message(
+                        chat_id=admin_id,
+                        text=(
+                            f"💡 **Уведомление для владельца салона**\n\n"
+                            f"Клиент {client_mention} отправил голосовое сообщение в бот.\n"
+                            "На вашем текущем тарифе автоматическое распознавание речи выключено.\n\n"
+                            "⚡ Чтобы бот сам автоматически записывал клиентов по их голосовым сообщениям — подключите тариф **ULTRA**."
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить уведомление администратору о голосовом сообщении: {e}")
         return
 
     # Anti-DoS: проверка размера и длительности аудио

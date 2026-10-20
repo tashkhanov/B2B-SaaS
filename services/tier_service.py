@@ -47,12 +47,12 @@ TIER_CONFIG: Dict[SubscriptionTier, Dict[str, Any]] = {
         "max_masters": 15,
         "setup_fee_uzs": 3500000,         # Спеццена: ~3 000 000 сум
         "monthly_fee_uzs": 1190000,       # Спеццена: ~950 000 сум
-        "has_voice_ai": True,             # Текст + Голос (Узб/Рус)
+        "has_voice_ai": False,            # Текстовый ИИ + VIP-защита (Голос доступен на ULTRA)
         "has_smart_reminders": True,      # Пуши за 2ч до визита
         "has_winback_pushes": True,       # Автовозврат через 25 дней
         "has_custom_tma_brand": True,     # Dark Gold + логотипы Brohouse
         "has_promo_discount": True,       # Фирменная акция -30%
-        "has_vip_protection": True,       # Защита графика Mr. Akmal (ручное подтверждение)
+        "has_vip_protection": True,       # Защита графика VIP-мастеров (ручное подтверждение)
         "has_sms_eskiz": False,
         "has_voice_call_agent": False,
     },

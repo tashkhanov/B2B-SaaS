@@ -1,12 +1,13 @@
 import pytest
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from aiogram.types import Message, Voice, User, Chat
 from bot.handlers import handle_voice_message, _voice_rate_limit
 
 
 @pytest.mark.asyncio
-async def test_voice_duration_limit():
+@patch("bot.handlers.is_feature_enabled", new_callable=AsyncMock, return_value=True)
+async def test_voice_duration_limit(mock_feat):
     _voice_rate_limit.clear()
     msg = MagicMock(spec=Message)
     msg.from_user = User(id=111, is_bot=False, first_name="Test")
@@ -21,7 +22,8 @@ async def test_voice_duration_limit():
 
 
 @pytest.mark.asyncio
-async def test_voice_file_size_limit():
+@patch("bot.handlers.is_feature_enabled", new_callable=AsyncMock, return_value=True)
+async def test_voice_file_size_limit(mock_feat):
     _voice_rate_limit.clear()
     msg = MagicMock(spec=Message)
     msg.from_user = User(id=112, is_bot=False, first_name="Test")
@@ -37,7 +39,8 @@ async def test_voice_file_size_limit():
 
 
 @pytest.mark.asyncio
-async def test_voice_rate_limiting_5_seconds():
+@patch("bot.handlers.is_feature_enabled", new_callable=AsyncMock, return_value=True)
+async def test_voice_rate_limiting_5_seconds(mock_feat):
     _voice_rate_limit.clear()
     msg = MagicMock(spec=Message)
     msg.from_user = User(id=113, is_bot=False, first_name="Test")

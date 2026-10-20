@@ -50,13 +50,14 @@ async def test_tier_config_specs():
     assert pro["max_masters"] == 15
     assert pro["setup_fee_uzs"] == 3500000
     assert pro["monthly_fee_uzs"] == 1190000
-    assert pro["has_voice_ai"] is True
+    assert pro["has_voice_ai"] is False
     assert pro["has_smart_reminders"] is True
 
     # ENTERPRISE (исправленная цена: 7.5 млн сум)
     enterprise = TIER_CONFIG[SubscriptionTier.ENTERPRISE]
     assert enterprise["setup_fee_uzs"] == 7500000
     assert enterprise["monthly_fee_uzs"] == 3500000
+    assert enterprise["has_voice_ai"] is True
     assert enterprise["has_voice_call_agent"] is True
 
 
@@ -74,6 +75,12 @@ async def test_tenant_tier_persistence():
     # По умолчанию Brohouse имеет тариф PRO
     tier = await get_tenant_tier("brohouse", db_path=TEST_DB)
     assert tier == SubscriptionTier.PRO
+    assert await is_feature_enabled("has_voice_ai", "brohouse", db_path=TEST_DB) is False
+    assert await is_feature_enabled("has_vip_protection", "brohouse", db_path=TEST_DB) is True
+
+    # Переключаем на ULTRA / ENTERPRISE
+    ok = await set_tenant_tier("brohouse", "ENTERPRISE", db_path=TEST_DB)
+    assert ok is True
     assert await is_feature_enabled("has_voice_ai", "brohouse", db_path=TEST_DB) is True
 
     # Переключаем на START

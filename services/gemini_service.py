@@ -85,6 +85,10 @@ def clean_bot_reply(text: str) -> str:
     # Исправляем опечатки/искажения в имени Акмаля
     cleaned = re.sub(r"(?i)\bакал\s+ака\b", "Акмал ака", cleaned)
     cleaned = re.sub(r"(?i)\bакал\b", "Акмал", cleaned)
+    # Удаляем технические Markdown-звездочки (**жирный**, *курсив*) и решетки заголовков
+    cleaned = re.sub(r"\*\*+(.*?)\*\*+", r"\1", cleaned)
+    cleaned = re.sub(r"(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)", r"\1", cleaned)
+    cleaned = re.sub(r"^#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
     return cleaned.strip()
 
 
@@ -363,8 +367,8 @@ class GeminiService:
             fallback_models = ["gemini-3.5-flash", "gemini-3.8-flash"]
         else:
             fallback_models = [
-                "gemini-3.1-flash-lite",
                 "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
                 "gemini-3.5-flash",
                 "gemini-3.8-flash",
             ]
