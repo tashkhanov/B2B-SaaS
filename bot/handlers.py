@@ -37,8 +37,10 @@ async def continuous_typing(bot: Bot, chat_id: int):
     finally:
         stop_event.set()
         task.cancel()
-        with contextlib.suppress(Exception):
+        try:
             await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 from aiogram.types import (
     Message,
@@ -781,36 +783,44 @@ async def handle_voice_message(message: Message):
     finally:
         file_bytes_io.close()
 
-    # 2. Обработка голоса через Gemini с учетом роли
-    username = message.from_user.username if message.from_user else None
-    async with continuous_typing(message.bot, message.chat.id):
-        ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
-            user_id=user_id,
-            voice_bytes=voice_data,
-            mime_type="audio/ogg",
-            is_admin=is_staff,
-            username=username,
-            bot=message.bot,
+    try:
+        # 2. Обработка голоса через Gemini с учетом роли
+        username = message.from_user.username if message.from_user else None
+        async with continuous_typing(message.bot, message.chat.id):
+            ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
+                user_id=user_id,
+                voice_bytes=voice_data,
+                mime_type="audio/ogg",
+                is_admin=is_staff,
+                username=username,
+                bot=message.bot,
+            )
+
+        # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
+        recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
+        tools_called = gemini_service.had_tool_calls(user_id)
+        if recent_booking_exists or tools_called:
+            logger.info("Voice request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
+            await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+            return
+
+        # 4. Проверка и выполнение интента (для клиента или персонала)
+        handled_by_intent = False
+        if is_staff:
+            handled_by_intent = await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+        else:
+            handled_by_intent = await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
+
+        # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
+        if not handled_by_intent:
+            await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+    except Exception as e:
+        logger.exception("Неперехваченная ошибка в handle_voice_message: %s", e)
+        await safe_answer(
+            message,
+            "Братан, не удалось обработать голосовое из-за временной ошибки связи. Попробуй еще раз или напиши текстом! 💈",
+            reply_markup=get_main_keyboard()
         )
-
-    # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
-    recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
-    tools_called = gemini_service.had_tool_calls(user_id)
-    if recent_booking_exists or tools_called:
-        logger.info("Voice request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
-        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
-        return
-
-    # 4. Проверка и выполнение интента (для клиента или персонала)
-    handled_by_intent = False
-    if is_staff:
-        handled_by_intent = await process_admin_intent(message, admin_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
-    else:
-        handled_by_intent = await process_client_intent(message, client_query=f"[🎙 Голос]: {user_transcript}", ai_reply=ai_reply)
-
-    # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
-    if not handled_by_intent:
-        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 @router.message(F.text)
@@ -821,40 +831,48 @@ async def handle_user_text(message: Message):
     2. Отправляет запрос в GeminiService с историей сообщений, учетом роли и Tool Calling.
     3. Отправляет ответ пользователю (или выполняет действие через экстрактор).
     """
-    user_id = message.from_user.id if message.from_user else 0
-    username = message.from_user.username if message.from_user else None
-    user_text = message.text.strip()
-    role, barber = await get_user_role(user_id)
-    is_staff = role in ("admin", "barber", "super_admin")
+    try:
+        user_id = message.from_user.id if message.from_user else 0
+        username = message.from_user.username if message.from_user else None
+        user_text = message.text.strip()
+        role, barber = await get_user_role(user_id)
+        is_staff = role in ("admin", "barber", "super_admin")
 
-    # 1. Получение ответа от Gemini с учетом роли, Tool Calling и непрерывным typing
-    async with continuous_typing(message.bot, message.chat.id):
-        ai_reply = await gemini_service.generate_response(
-            user_id=user_id,
-            user_message=user_text,
-            is_admin=is_staff,
-            username=username,
-            bot=message.bot,
+        # 1. Получение ответа от Gemini с учетом роли, Tool Calling и непрерывным typing
+        async with continuous_typing(message.bot, message.chat.id):
+            ai_reply = await gemini_service.generate_response(
+                user_id=user_id,
+                user_message=user_text,
+                is_admin=is_staff,
+                username=username,
+                bot=message.bot,
+            )
+
+        # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
+        recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
+        tools_called = gemini_service.had_tool_calls(user_id)
+        if recent_booking_exists or tools_called:
+            logger.info("Text request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
+            await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+            return
+
+        # 4. Проверка и выполнение намерения
+        handled_by_intent = False
+        if is_staff:
+            handled_by_intent = await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
+        else:
+            handled_by_intent = await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
+
+        # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
+        if not handled_by_intent:
+            await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+    except Exception as e:
+        logger.exception("Неперехваченная ошибка в handle_user_text: %s", e)
+        await safe_answer(
+            message,
+            "Извините, произошла временная ошибка при обработке сообщения. Пожалуйста, повторите запрос.",
+            reply_markup=get_main_keyboard()
         )
-
-    # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
-    recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
-    tools_called = gemini_service.had_tool_calls(user_id)
-    if recent_booking_exists or tools_called:
-        logger.info("Text request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
-        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
-        return
-
-    # 4. Проверка и выполнение намерения
-    handled_by_intent = False
-    if is_staff:
-        handled_by_intent = await process_admin_intent(message, admin_query=user_text, ai_reply=ai_reply)
-    else:
-        handled_by_intent = await process_client_intent(message, client_query=user_text, ai_reply=ai_reply)
-
-    # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
-    if not handled_by_intent:
-        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 async def process_admin_intent(message: Message, admin_query: str, ai_reply: str) -> bool:
