@@ -360,8 +360,8 @@ class GeminiService:
         """
         target_model = model_name or self.model_name
         fallback_models = [
-            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
             "gemini-3.5-flash",
             "gemini-3.8-flash",
         ]
@@ -399,10 +399,10 @@ class GeminiService:
                                 contents=contents,
                                 config=config,
                             ),
-                            timeout=15.0,
+                            timeout=30.0,
                         )
                     except asyncio.TimeoutError:
-                        logger.warning(f"Таймаут (10с) у {current_model}. Переключаемся на резервную модель!")
+                        logger.warning(f"Таймаут (30с) у {current_model}. Переключаемся на резервную модель!")
                         self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 15
                         skip_model = True
                         break
