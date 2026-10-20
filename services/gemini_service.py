@@ -56,13 +56,11 @@ def is_super_admin_user(user_id: Optional[int]) -> bool:
 
 def clean_voice_disclaimers(text: str) -> str:
     """
-    Удаляет случайные шаблонные оговорки нейросети про 'не слышу голосовые'.
+    Удаляет случайные шаблонные оговорки нейросети про 'не слышу голосовые, но текст понял'.
     """
     patterns = [
         r"(?i)голосовы[ея]\s+сообщения?\s+(пока\s+)?не\s+слышу,?\s*(но\s+)?(текст\s+твой\s+понял|всё\s+понял|текст\s+понял)?,?\s*(от\s+души!?)?",
         r"(?i)голосово[ея]\s+не\s+слышу,?\s*(но\s+)?(всё\s+понял|текст\s+понял)?,?\s*(гап\s+йўқ!?)?",
-        r"(?i)я\s+не\s+(умею\s+)?слушать\s+голосовы[ея],?\s*",
-        r"(?i)не\s+могу\s+слушать\s+аудио,?\s*",
     ]
     cleaned = text
     for p in patterns:
@@ -500,7 +498,10 @@ class GeminiService:
                 salon_settings=salon_settings
             )
 
-            base_prompt = build_admin_system_prompt() if is_admin else build_client_system_prompt()
+            from services.tier_service import is_feature_enabled
+            has_voice_ai = await is_feature_enabled("has_voice_ai", tenant_identifier=settings.TENANT_SLUG)
+
+            base_prompt = build_admin_system_prompt(has_voice=has_voice_ai) if is_admin else build_client_system_prompt(has_voice=has_voice_ai)
             dynamic_system_prompt = f"{base_prompt}\n\n{schedule_context}"
             if is_super_admin_user(user_id):
                 dynamic_system_prompt = f"{dynamic_system_prompt}\n\n{build_creator_identity_prompt()}"

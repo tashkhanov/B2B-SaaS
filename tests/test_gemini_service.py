@@ -134,6 +134,11 @@ def test_dynamic_white_label_prompts():
     creator_p = build_creator_identity_prompt()
     assert settings.SALON_SHORT_NAME in creator_p
 
+    # Проверка голосового режима по тарифу
+    assert "СТРОГО ТЕКСТОМ" in client_p
+    client_p_voice = build_client_system_prompt(has_voice=True)
+    assert "отлично воспринимаешь голосовые" in client_p_voice
+
     # Проверка отсутствия навязчивых шаблонных фраз и слов-паразитов
     for bad_phrase in ["от души", "ээ ака", "братан", "туда-сюда", "гап йўқ"]:
         assert bad_phrase not in client_p.lower()
