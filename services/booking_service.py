@@ -288,9 +288,11 @@ async def dispatch_vip_approval_card(
         "👑 На тарифе PRO действует защита VIP-графика: требуется ваше личное согласование кнопками ниже."
     )
 
+    sent_cards: List[Dict[str, int]] = []
     for chat_id in target_chats:
+        msg = None
         try:
-            await bot.send_message(
+            msg = await bot.send_message(
                 chat_id=chat_id,
                 text=vip_card_html,
                 reply_markup=vip_kb,
@@ -299,7 +301,7 @@ async def dispatch_vip_approval_card(
         except Exception as e_html:
             logger.warning(f"Не удалось отправить HTML карточку VIP чату {chat_id}: {e_html}")
             try:
-                await bot.send_message(
+                msg = await bot.send_message(
                     chat_id=chat_id,
                     text=plain_card,
                     reply_markup=vip_kb,
@@ -307,6 +309,62 @@ async def dispatch_vip_approval_card(
                 )
             except Exception as e_plain:
                 logger.error(f"Ошибка при отправке карточки VIP чату {chat_id}: {e_plain}")
+        if msg and getattr(msg, "message_id", None):
+            sent_cards.append({"chat_id": chat_id, "message_id": msg.message_id})
+
+    if sent_cards:
+        try:
+            from database import save_booking_approval_messages
+            await save_booking_approval_messages(booking_id, sent_cards)
+        except Exception as e_save:
+            logger.warning(f"Не удалось сохранить ID карточек согласования для #{booking_id}: {e_save}")
+
+
+async def revoke_vip_approval_cards(
+    bot: Optional[Bot],
+    booking_id: int,
+    reason: str = "отменена клиентом",
+    db_path: Optional[str] = None
+) -> None:
+    """
+    Отзывает все интерактивные карточки согласования VIP-записи у барбера и админов,
+    снимая кнопки [Принять] / [Отклонить] и обновляя текст на '⚠️ ЗАЯВКА ОТОЗВАНА / ОТМЕНЕНА'.
+    """
+    if not bot or not booking_id:
+        return
+    try:
+        from database import get_booking_approval_messages, get_booking_by_id
+        messages = await get_booking_approval_messages(booking_id, db_path=db_path)
+        booking = await get_booking_by_id(booking_id, db_path=db_path)
+        client_name = booking.get("full_name", "Клиент") if booking else "Клиент"
+        b_time = booking.get("booking_time", "") if booking else ""
+        b_master = booking.get("barber_name", "Mr. Akmal") if booking else "Mr. Akmal"
+
+        revoked_text = (
+            f"⚠️ <b>ЗАЯВКА К ШЕФУ ОТОЗВАНА / ОТМЕНЕНА ({reason})</b>\n\n"
+            f"👤 <b>Клиент:</b> {html.escape(str(client_name))}\n"
+            f"💈 <b>Мастер:</b> {html.escape(str(b_master))}\n"
+            f"⏰ <b>Время:</b> {html.escape(str(b_time))}\n\n"
+            f"<i>Кнопки согласования деактивированы. Слот освобожден.</i>"
+        )
+
+        for card in messages:
+            chat_id = card.get("chat_id")
+            message_id = card.get("message_id")
+            if not chat_id or not message_id:
+                continue
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=revoked_text,
+                    reply_markup=None,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось обновить карточку согласования #{booking_id} в чате {chat_id}: {e}")
+    except Exception as e:
+        logger.error(f"Ошибка в revoke_vip_approval_cards для #{booking_id}: {e}", exc_info=True)
 
 
 class GeminiBookingTools:
@@ -678,6 +736,10 @@ class GeminiBookingTools:
 
             if not cancelled:
                 return {"success": False, "message": "Активная бронь для отмены не найдена."}
+
+            cancelled_id = cancelled.get("id")
+            if cancelled_id and bot:
+                await revoke_vip_approval_cards(bot=bot, booking_id=cancelled_id, reason="отменена клиентом")
 
             if bot and settings.ADMIN_CHAT_ID:
                 try:

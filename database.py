@@ -243,6 +243,7 @@ DDL_STATEMENTS = [
         reminder_2h_sent SMALLINT DEFAULT 0,
         client_confirmed SMALLINT DEFAULT 0,
         winback_sent SMALLINT DEFAULT 0,
+        approval_message_ids TEXT,
         created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON bookings (user_id);
@@ -292,6 +293,12 @@ async def init_db(db_path: Optional[str] = None) -> None:
     async with pool.acquire() as conn:
         for ddl in DDL_STATEMENTS:
             await conn.execute(ddl)
+
+        # Автоматическая миграция схемы для существующих баз данных
+        try:
+            await conn.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS approval_message_ids TEXT;")
+        except Exception as e:
+            logger.debug(f"Migrate approval_message_ids notice: {e}")
 
         # Проверка и создание начальных филиалов
         branches_count = await conn.fetchval("SELECT count(*) FROM branches;")
@@ -858,7 +865,7 @@ async def get_booking_by_id(booking_id: int, db_path: Optional[str] = None) -> O
     return await fetch_one(
         """
         SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-               barber_id, barber_name, service_id, branch_id, branch_name, created_at
+               barber_id, barber_name, service_id, branch_id, branch_name, approval_message_ids, created_at
         FROM bookings 
         WHERE id = $1;
         """,
@@ -872,13 +879,44 @@ async def get_user_active_booking(user_id: int, db_path: Optional[str] = None) -
     return await fetch_one(
         """
         SELECT id, user_id, username, full_name, phone, service, booking_time, status, details,
-               barber_id, barber_name, service_id, branch_id, branch_name, created_at
+               barber_id, barber_name, service_id, branch_id, branch_name, approval_message_ids, created_at
         FROM bookings 
         WHERE user_id = $1 AND status IN ('new', 'confirmed', 'pending_vip')
         ORDER BY id DESC LIMIT 1;
         """,
         user_id, db_path=db_path
     )
+
+
+async def save_booking_approval_messages(
+    booking_id: int,
+    messages: List[Dict[str, int]],
+    db_path: Optional[str] = None
+) -> bool:
+    """Сохраняет список {chat_id, message_id} отправленных карточек согласования в виде JSON строки."""
+    import json
+    raw_json = json.dumps(messages)
+    res = await execute(
+        "UPDATE bookings SET approval_message_ids = $1 WHERE id = $2;",
+        raw_json, booking_id, db_path=db_path
+    )
+    return "UPDATE 1" in res
+
+
+async def get_booking_approval_messages(
+    booking_id: int,
+    db_path: Optional[str] = None
+) -> List[Dict[str, int]]:
+    """Получает список {chat_id, message_id} для отзыва отправленных карточек согласования."""
+    import json
+    booking = await get_booking_by_id(booking_id, db_path=db_path)
+    if not booking or not booking.get("approval_message_ids"):
+        return []
+    try:
+        data = json.loads(booking["approval_message_ids"])
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
 
 
 async def cancel_user_booking(

@@ -15,6 +15,7 @@ from database import (
 )
 from services.tier_service import SubscriptionTier, is_feature_enabled
 from bot.handlers import handle_vip_accept_callback, handle_vip_reject_callback
+from aiogram import Bot
 from aiogram.types import CallbackQuery, User, Message
 
 TEST_DB = "test_vip.db"
@@ -437,4 +438,54 @@ async def test_vip_booking_via_process_admin_intent_uzbek(monkeypatch):
         # 3. Message answered informing of pending Chef approval
         message.answer.assert_called_once()
         assert "личное согласование" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_revoke_vip_approval_cards_on_cancel():
+    """Тест: сохранение ID карточек согласования в базе и их отзыв при отмене брони"""
+    from services.booking_service import revoke_vip_approval_cards, dispatch_vip_approval_card, GeminiBookingTools
+    from database import save_booking_approval_messages, get_booking_approval_messages
+
+    # 1. Проверка сохранения и получения message ids
+    booking_id = 999
+    cards_data = [{"chat_id": 555444, "message_id": 1001}, {"chat_id": 999888, "message_id": 1002}]
+
+    with patch("database.execute", new_callable=AsyncMock) as mock_exec, \
+         patch("database.fetch_one", new_callable=AsyncMock) as mock_fetch:
+
+        await save_booking_approval_messages(booking_id, cards_data)
+        mock_exec.assert_called_once()
+
+        mock_fetch.return_value = {
+            "id": booking_id,
+            "full_name": "Иброхим",
+            "barber_name": "Mr. Akmal",
+            "booking_time": "2026-10-22 17:00",
+            "approval_message_ids": '[{"chat_id": 555444, "message_id": 1001}, {"chat_id": 999888, "message_id": 1002}]'
+        }
+
+        retrieved = await get_booking_approval_messages(booking_id)
+        assert len(retrieved) == 2
+        assert retrieved[0]["chat_id"] == 555444
+
+        # 2. Проверка revoke_vip_approval_cards
+        mock_bot = AsyncMock(spec=Bot)
+        await revoke_vip_approval_cards(bot=mock_bot, booking_id=booking_id, reason="отменена клиентом")
+
+        assert mock_bot.edit_message_text.call_count == 2
+        for call in mock_bot.edit_message_text.call_args_list:
+            kwargs = call.kwargs
+            assert kwargs["reply_markup"] is None
+            assert "ОТОЗВАН" in kwargs["text"] or "ОТМЕНЕН" in kwargs["text"]
+
+    # 3. Интеграция с cancel_booking_reservation
+    tools = GeminiBookingTools()
+    mock_bot2 = AsyncMock(spec=Bot)
+    with patch("services.booking_service.cancel_user_booking", new_callable=AsyncMock, return_value={"id": 999, "status": "cancelled"}), \
+         patch("services.booking_service.revoke_vip_approval_cards", new_callable=AsyncMock) as mock_revoke:
+
+        res = await tools.cancel_booking_reservation(booking_id=999, user_id=123, bot=mock_bot2)
+        assert res["success"] is True
+        mock_revoke.assert_called_once_with(bot=mock_bot2, booking_id=999, reason="отменена клиентом")
+
 
