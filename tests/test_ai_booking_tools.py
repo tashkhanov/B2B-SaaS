@@ -33,7 +33,7 @@ async def test_tool_create_booking_reservation_akmal_vip():
 
         result = await tools.create_booking_reservation(
             customer_name="Иброхим",
-            booking_time="2026-10-20 14:00 (Вторник)",
+            booking_time="2026-10-25 14:00 (Воскресенье)",
             barber_name_or_id="Mr. Akmal",
             branch_name_or_id="Миллий бог",
             service_name_or_id="Стрижка волос",
@@ -78,7 +78,7 @@ async def test_tool_create_booking_reservation_regular_barber():
 
         result = await tools.create_booking_reservation(
             customer_name="Сардор",
-            booking_time="2026-10-20 15:00 (Вторник)",
+            booking_time="2026-10-25 15:00 (Воскресенье)",
             barber_name_or_id="Dilshod",
             branch_name_or_id="Миллий бог",
             service_name_or_id="Стрижка волос",

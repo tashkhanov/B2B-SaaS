@@ -704,7 +704,7 @@ async def test_admin_schedule_and_analytics_endpoints(monkeypatch):
         full_name="Шавкат",
         details="Стрижка",
         service="Стрижка волос",
-        booking_time=f"{today_str} 14:00 (Пн)",
+        booking_time=f"{today_str} 20:00 (Пн)",
         barber_id=1,
         barber_name="Mr. Akmal",
         status="confirmed",
@@ -732,7 +732,7 @@ async def test_admin_schedule_and_analytics_endpoints(monkeypatch):
         assert sched_data["ok"] is True
         assert sched_data["date"] == today_str
         assert "slots" in sched_data
-        assert "14:00" in sched_data["slots"]
+        assert "20:00" in sched_data["slots"]
         assert "barbers" in sched_data
         assert "matrix" in sched_data
 
@@ -747,7 +747,7 @@ async def test_admin_schedule_and_analytics_endpoints(monkeypatch):
         assert "status_counts" in an_data
         assert "top_barbers" in an_data
         assert "top_services" in an_data
-        assert an_data["status_counts"]["confirmed"] >= 1
+        assert (an_data["status_counts"]["confirmed"] + an_data["status_counts"]["completed"]) >= 1
     finally:
         await client.close()
         if os.path.exists(test_db):

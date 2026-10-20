@@ -647,7 +647,7 @@ async def test_process_admin_intent_booking_conflict():
     mock_action = AdminAction(
         action="create_booking",
         is_booking_confirmed=True,
-        booking_time="2026-10-20 14:00 (Вторник)",
+        booking_time="2026-10-25 14:00 (Воскресенье)",
         barber_name="Mr. Akmal",
         service="Стрижка волос",
         branch_name="Миллий бог",
@@ -659,7 +659,7 @@ async def test_process_admin_intent_booking_conflict():
          patch("bot.handlers.resolve_branch", new_callable=AsyncMock, return_value=(1, "Миллий бог", "ул. Чиланзар")), \
          patch("bot.handlers.resolve_service_info", new_callable=AsyncMock, return_value=({"id": 1, "name": "Стрижка волос"}, 45)), \
          patch("bot.handlers.save_booking", new_callable=AsyncMock, side_effect=BookingConflictError("Слот занят")):
-        await process_admin_intent(message, admin_query="Запиши меня на 14:00 к Акмалю", ai_reply="Хорошо")
+        await process_admin_intent(message, admin_query="Запиши меня на 25 октября 14:00 к Акмалю", ai_reply="Хорошо")
         message.answer.assert_called_once()
         args, _ = message.answer.call_args
         assert "⚠️ **Шеф, этот слот уже занят!**" in args[0]
