@@ -383,5 +383,50 @@ async def test_salon_phone_number_rejection():
         assert saved_phone is None
 
 
+@pytest.mark.asyncio
+async def test_nickname_and_akmal_name_sanitization():
+    """Тест: очистка скобок и прозвищ вроде (Акимка) и нормализация имени Mr. Akmal"""
+    from services.booking_service import sanitize_name_string, is_invalid_customer_name
+    from services.gemini_service import clean_bot_reply
+
+    # 1. Проверка хелпера очистки скобок
+    assert sanitize_name_string("Иброхим (Акимка)") == "Иброхим"
+    assert sanitize_name_string("Mr. Akmal [Шеф]") == "Mr. Akmal"
+    assert sanitize_name_string("Сардор (клиент)") == "Сардор"
+
+    # 2. Недопустимые имена
+    barbers = [{"id": 4, "name": "Mr. Akmal"}]
+    assert is_invalid_customer_name("акимка", barbers) is True
+    assert is_invalid_customer_name("Акимка", barbers) is True
+    assert is_invalid_customer_name("Акал", barbers) is True
+
+    # 3. Нормализация ответа Gemini от опечаток и прозвищ
+    raw_text = "Отлично! Записал вас к мастеру Mr. Akmal (Акимка). акал ака подтвердит запись в течение 15 минут."
+    cleaned = clean_bot_reply(raw_text)
+    assert "(Акимка)" not in cleaned
+    assert "акал ака" not in cleaned
+    assert "Акмал ака" in cleaned
+
+    # 4. Проверка create_booking_reservation со скобками в имени
+    tools = GeminiBookingTools()
+    with patch("services.booking_service.get_user_active_booking", new_callable=AsyncMock, return_value=None), \
+         patch("services.booking_service.save_booking", new_callable=AsyncMock, return_value=126) as mock_save, \
+         patch("services.booking_service.is_feature_enabled", new_callable=AsyncMock, return_value=True), \
+         patch("services.booking_service.dispatch_vip_approval_card", new_callable=AsyncMock):
+
+        res = await tools.create_booking_reservation(
+            customer_name="Иброхим (Акимка)",
+            booking_time="2026-10-22 17:00",
+            barber_name_or_id="Mr. Akmal (Акимка)",
+            user_id=1243374131,
+            username="@tashkhanov",
+        )
+        assert res["success"] is True
+        saved_name = mock_save.call_args[1].get("full_name")
+        assert saved_name == "Иброхим"
+        assert res["barber_name"] == "Mr. Akmal"
+
+
+
 
 

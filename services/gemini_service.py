@@ -71,6 +71,23 @@ def clean_voice_disclaimers(text: str) -> str:
     return cleaned if cleaned else text
 
 
+def clean_bot_reply(text: str) -> str:
+    """
+    Очищает ответ бота от шаблонных оговорок про голосовые,
+    удаляет галлюцинированные скобки с прозвищами (например '(Акимка)')
+    и исправляет опечатки в имени Шеф-мастера ('акал ака' -> 'Акмал ака').
+    """
+    if not text:
+        return text
+    cleaned = clean_voice_disclaimers(text)
+    # Удаляем скобки с кличками/пояснениями: (Акимка), (акимка), (клиент), (прозвище)
+    cleaned = re.sub(r"\s*\((?:Акимка|акимка|Аким|аким|прозвище|кличка|клиент|гость|малы)\)", "", cleaned, flags=re.IGNORECASE)
+    # Исправляем опечатки/искажения в имени Акмаля
+    cleaned = re.sub(r"(?i)\bакал\s+ака\b", "Акмал ака", cleaned)
+    cleaned = re.sub(r"(?i)\bакал\b", "Акмал", cleaned)
+    return cleaned.strip()
+
+
 class VoiceResult(BaseModel):
     """
     Результат обработки голосового сообщения:
@@ -548,7 +565,7 @@ class GeminiService:
             elif not raw_reply and last_tool_message:
                 raw_reply = last_tool_message
 
-            bot_reply = clean_voice_disclaimers(raw_reply) if raw_reply else fallback
+            bot_reply = clean_bot_reply(raw_reply) if raw_reply else fallback
 
             await add_message(user_id=user_id, role="user", text=user_message)
             await add_message(user_id=user_id, role="model", text=bot_reply)

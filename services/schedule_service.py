@@ -209,6 +209,7 @@ def resolve_barber_match(
         t = text.lower()
         replacements = [
             ("акмаль", "akmal"), ("акмал", "akmal"),
+            ("акал", "akmal"), ("акимка", "akmal"), ("аким", "akmal"),
             ("дильшод", "dilshod"), ("дилшод", "dilshod"),
             ("аббос", "abbos"), ("исмаилов", "ismailov"),
             ("нодир", "nodir"), ("турсунов", "tursunov"),

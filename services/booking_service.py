@@ -68,18 +68,36 @@ INVALID_CUSTOMER_NAMES = {
     "гость", "малы", "клиент", "шеф", "братан", "друг", "человек", "пользователь", "клиента",
     "guest", "user", "client", "customer", "admin", "админ", "барбер", "мастер", "парикмахер",
     "неизвестно", "никто", "тест", "test", "none", "null", "undefined", "нет", "отмена",
-    "запись", "бронь", "время", "окно", "день", "сегодня", "завтра"
+    "запись", "бронь", "время", "окно", "день", "сегодня", "завтра",
+    # Клички, искажения и уменьшительные формы
+    "акимка", "аким", "акал", "прозвище", "кличка", "ака", "ука"
 }
+
+
+def sanitize_name_string(val: Optional[str]) -> str:
+    """
+    Очищает имя от текста в круглых/квадратных/фигурных скобках (например '(Акимка)'),
+    удаляет кавычки и сжимает пробелы.
+    """
+    if not val:
+        return ""
+    # Удаляем содержимое любых скобок: (Акимка), [Шеф], {клиент}
+    cleaned = re.sub(r"\(.*?\)|\[.*?\]|\{.*?\}", "", str(val))
+    # Удаляем кавычки
+    cleaned = re.sub(r"[\"«»'„“]", "", cleaned)
+    # Сжимаем лишние пробелы
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
 
 def is_invalid_customer_name(name: Optional[str], barbers: Optional[List[Dict[str, Any]]] = None) -> bool:
     """
     Строгая валидация имени клиента. Отсекает вопросительные слова ('Каким'),
-    местоимения ('меня'), шаблонные слова ('малы', 'клиент') и совпадения с мастерами.
+    местоимения ('меня'), шаблонные слова ('малы', 'клиент'), клички ('Акимка') и совпадения с мастерами.
     """
     if not name:
         return True
-    clean = name.strip().lower()
+    clean = sanitize_name_string(name).strip().lower()
     if len(clean) < 2:
         return True
     if clean in INVALID_CUSTOMER_NAMES:
@@ -413,8 +431,9 @@ class GeminiBookingTools:
             active_bookings = await get_active_bookings()
             barbers = await get_barbers(active_only=True)
 
-            # Очистка имени от галлюцинаций и ошибочных местоимений / вопросительных слов
-            clean_name = (customer_name or "").strip()
+            # Очистка имени от галлюцинаций, скобок и ошибочных местоимений / вопросительных слов
+            raw_c_name = sanitize_name_string(customer_name)
+            clean_name = raw_c_name if raw_c_name else (customer_name or "").strip()
             clean_un = (username or "").strip().lstrip("@")
             is_creator = (
                 is_super_admin_user(user_id)
@@ -429,7 +448,7 @@ class GeminiBookingTools:
                     clean_name = clean_un
                 else:
                     clean_name = "Клиент"
-            elif is_creator and clean_name.lower() in ("меня", "мне", "себя", "иброхим", "каким"):
+            elif is_creator and clean_name.lower() in ("меня", "мне", "себя", "иброхим", "каким", "акимка", "аким", "акал"):
                 clean_name = "Иброхим"
 
             # Очистка телефона от галлюцинаций и подстановки служебных номеров заведения
@@ -473,8 +492,9 @@ class GeminiBookingTools:
                     clean_phone = None
 
             # Сопоставление барбера
+            clean_barber_query = sanitize_name_string(barber_name_or_id)
             matched_barber = resolve_barber_match(
-                query_or_name=barber_name_or_id,
+                query_or_name=clean_barber_query or barber_name_or_id,
                 barbers=barbers,
                 fallback_text=f"{clean_name} {booking_time}"
             )
