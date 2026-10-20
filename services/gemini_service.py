@@ -340,10 +340,10 @@ class GeminiService:
         """
         target_model = model_name or self.model_name
         fallback_models = [
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.5-flash",
-            "gemini-3.1-flash-lite",
-            "gemini-flash-lite-latest",
             "gemini-3.8-flash",
         ]
         all_candidates = [target_model] + [m for m in fallback_models if m != target_model]
@@ -360,16 +360,28 @@ class GeminiService:
         for current_model in models_to_try:
             for attempt in range(max_retries):
                 try:
-                    res = await self.client.aio.models.generate_content(
-                        model=current_model,
-                        contents=contents,
-                        config=config,
+                    # Устанавливаем строгий таймаут 7.0 секунд на один запрос к API,
+                    # чтобы бот не зависал на минуту, если конкретная модель испытывает задержки на серверах Google
+                    res = await asyncio.wait_for(
+                        self.client.aio.models.generate_content(
+                            model=current_model,
+                            contents=contents,
+                            config=config,
+                        ),
+                        timeout=7.0,
                     )
                     # Если резервная модель успешно сработала, делаем её основной для дальнейших запросов
                     if current_model != self.model_name and self.exhausted_models.get(self.model_name, 0) > now:
                         logger.info(f"Переключаем основную модель сервиса с {self.model_name} на рабочую {current_model}")
                         self.model_name = current_model
                     return res
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Таймаут (7с) при обращении к Gemini {current_model}. "
+                        "Модель испытывает задержку на серверах Google. Мгновенно переключаемся на резервную модель!"
+                    )
+                    self.exhausted_models[current_model] = time.time() + 300
+                    break
                 except Exception as e:
                     err_msg = str(e)
                     is_hard_quota = (
@@ -378,13 +390,15 @@ class GeminiService:
                         or "free_tier_requests" in err_msg
                         or "RESOURCE_EXHAUSTED" in err_msg
                     )
-                    is_transient = (
+                    is_high_demand = (
                         "503" in err_msg
-                        or "429" in err_msg
                         or "UNAVAILABLE" in err_msg
                         or "high demand" in err_msg
-                        or "ResourceExhausted" in err_msg
                         or "overloaded" in err_msg
+                    )
+                    is_transient = (
+                        "429" in err_msg
+                        or "ResourceExhausted" in err_msg
                     )
                     last_error = e
 
@@ -398,10 +412,20 @@ class GeminiService:
                         self.exhausted_models[current_model] = time.time() + 1800
                         break
 
-                    if is_transient and attempt < max_retries - 1:
-                        backoff = 1.0 * (1.5 ** attempt)
+                    if is_high_demand:
+                        # Сервера Google перегружены для этой модели (503 High Demand).
+                        # Не ждем и не спамим повторами: сразу переключаемся на следующую модель в пуле!
                         logger.warning(
-                            f"Gemini {current_model} вернул временную ошибку ({e}). Повтор {attempt + 1}/{max_retries} через {backoff:.1f}с..."
+                            f"Модель {current_model} перегружена на серверах Google (503 High Demand). "
+                            "Мгновенно переключаемся на резервную модель!"
+                        )
+                        self.exhausted_models[current_model] = time.time() + 120
+                        break
+
+                    if is_transient and attempt < max_retries - 1:
+                        backoff = 0.5 * (1.5 ** attempt)
+                        logger.warning(
+                            f"Gemini {current_model} вернул временную ошибку ({e}). Быстрый повтор {attempt + 1}/{max_retries} через {backoff:.1f}с..."
                         )
                         await asyncio.sleep(backoff)
                         continue
@@ -409,6 +433,7 @@ class GeminiService:
                         logger.warning(
                             f"Модель {current_model} перегружена после {max_retries} попыток. Переключаемся на резервную модель..."
                         )
+                        self.exhausted_models[current_model] = time.time() + 120
                         break
                     else:
                         raise e
@@ -672,6 +697,7 @@ class GeminiService:
                 response_mime_type="application/json",
                 response_schema=ClientAction,
                 temperature=0.1,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             )
 
             response = await self._generate_content_with_retry(
@@ -737,6 +763,7 @@ class GeminiService:
                 response_mime_type="application/json",
                 response_schema=AdminAction,
                 temperature=0.1,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             )
 
             response = await self._generate_content_with_retry(

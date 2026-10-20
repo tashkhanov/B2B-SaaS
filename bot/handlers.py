@@ -2,11 +2,43 @@ import io
 import re
 import html
 import time
+import asyncio
 import logging
+import contextlib
 from typing import Optional, Tuple, List, Dict
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 
 _voice_rate_limit: Dict[int, float] = {}
+
+
+@contextlib.asynccontextmanager
+async def continuous_typing(bot: Bot, chat_id: int):
+    """
+    Фоновый воркер, отправляющий ChatAction.TYPING каждые 4 секунды,
+    пока нейросеть обрабатывает аудио или формирует ответ.
+    Гарантирует, что у клиента в Telegram не пропадет статус 'печатает...'.
+    """
+    stop_event = asyncio.Event()
+
+    async def _typing_loop():
+        while not stop_event.is_set():
+            try:
+                await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=4.0)
+            except asyncio.TimeoutError:
+                pass
+
+    task = asyncio.create_task(_typing_loop())
+    try:
+        yield
+    finally:
+        stop_event.set()
+        task.cancel()
+        with contextlib.suppress(Exception):
+            await task
 
 from aiogram.types import (
     Message,
@@ -734,14 +766,15 @@ async def handle_voice_message(message: Message):
 
     # 2. Обработка голоса через Gemini с учетом роли
     username = message.from_user.username if message.from_user else None
-    ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
-        user_id=user_id,
-        voice_bytes=voice_data,
-        mime_type="audio/ogg",
-        is_admin=is_staff,
-        username=username,
-        bot=message.bot,
-    )
+    async with continuous_typing(message.bot, message.chat.id):
+        ai_reply, user_transcript = await gemini_service.generate_response_from_voice(
+            user_id=user_id,
+            voice_bytes=voice_data,
+            mime_type="audio/ogg",
+            is_admin=is_staff,
+            username=username,
+            bot=message.bot,
+        )
 
     # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
@@ -777,17 +810,15 @@ async def handle_user_text(message: Message):
     role, barber = await get_user_role(user_id)
     is_staff = role in ("admin", "barber", "super_admin")
 
-    # 1. Индикация "печатает..." во время запроса к AI
-    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
-
-    # 2. Получение ответа от Gemini с учетом роли и Tool Calling
-    ai_reply = await gemini_service.generate_response(
-        user_id=user_id,
-        user_message=user_text,
-        is_admin=is_staff,
-        username=username,
-        bot=message.bot,
-    )
+    # 1. Получение ответа от Gemini с учетом роли, Tool Calling и непрерывным typing
+    async with continuous_typing(message.bot, message.chat.id):
+        ai_reply = await gemini_service.generate_response(
+            user_id=user_id,
+            user_message=user_text,
+            is_admin=is_staff,
+            username=username,
+            bot=message.bot,
+        )
 
     # 3. Если Gemini Tool Calling выполнил операции (бронь, отмена и т.д.), отправляем ответ и завершаем
     recent_booking_exists = await has_recent_booking_any_time(user_id=user_id, seconds=30)
