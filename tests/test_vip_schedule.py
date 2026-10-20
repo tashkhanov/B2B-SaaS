@@ -133,7 +133,7 @@ async def test_vip_booking_workflow_via_web_api(monkeypatch):
         calls = mock_bot.send_message.call_args_list
         chef_call = next((c for c in calls if c.kwargs.get("chat_id") == 888777), None)
         assert chef_call is not None
-        assert "ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ" in chef_call.kwargs.get("text", "")
+        assert "ЗАПРОС НА ЗАПИСЬ" in chef_call.kwargs.get("text", "")
         assert chef_call.kwargs.get("reply_markup") is not None
 
     finally:
@@ -569,8 +569,8 @@ async def test_client_menu_my_booking_and_cancellation():
     msg.answer.assert_called_once()
     menu_text = msg.answer.call_args[0][0]
     menu_kb = msg.answer.call_args.kwargs.get("reply_markup")
-    assert "ВАША ЗАЯВКА К ШЕФ-МАСТЕРУ" in menu_text
-    assert "Ожидает личного подтверждения Шефом" in menu_text
+    assert "ВАША ЗАЯВКА НА СОГЛАСОВАНИЕ (VIP)" in menu_text
+    assert "Ожидает личного подтверждения мастером" in menu_text
     assert menu_kb is not None
     # Кнопка отзыва должна присутствовать
     cancel_btn = menu_kb.inline_keyboard[0][0]

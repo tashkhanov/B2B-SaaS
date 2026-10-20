@@ -241,9 +241,10 @@ async def dispatch_vip_approval_card(
         ]]
     )
 
+    role_title = (barber_obj.get("role_title") if barber_obj else None) or "VIP-мастер"
     safe_full_name = html.escape(str(full_name or "Клиент"))
     safe_username = html.escape(str(username or "нет username"))
-    safe_barber_name = html.escape(str(final_barber_name or "Шеф"))
+    safe_barber_name = html.escape(str(final_barber_name or role_title))
     safe_branch_name = html.escape(str(target_branch_name or "Миллий бог"))
     safe_branch_address = html.escape(str(branch_address or ""))
     safe_service = html.escape(str(canonical_service or "Стрижка"))
@@ -264,7 +265,7 @@ async def dispatch_vip_approval_card(
 
     branch_line = f"📍 <b>Филиал:</b> {safe_branch_name}" + (f" ({safe_branch_address})\n" if safe_branch_address else "\n")
     vip_card_html = (
-        "👑 <b>ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ!</b>\n\n"
+        f"👑 <b>ЗАПРОС НА ЗАПИСЬ ({role_title.upper()})!</b>\n\n"
         f"👤 <b>Клиент:</b> {safe_full_name}\n"
         f"{tg_username_line}"
         f"💈 <b>Мастер:</b> {safe_barber_name}\n"
@@ -338,10 +339,10 @@ async def revoke_vip_approval_cards(
         booking = await get_booking_by_id(booking_id, db_path=db_path)
         client_name = booking.get("full_name", "Клиент") if booking else "Клиент"
         b_time = booking.get("booking_time", "") if booking else ""
-        b_master = booking.get("barber_name", "Mr. Akmal") if booking else "Mr. Akmal"
+        b_master = booking.get("barber_name", "Мастер") if booking else "Мастер"
 
         revoked_text = (
-            f"⚠️ <b>ЗАЯВКА К ШЕФУ ОТОЗВАНА / ОТМЕНЕНА ({reason})</b>\n\n"
+            f"⚠️ <b>VIP-ЗАЯВКА ОТОЗВАНА / ОТМЕНЕНА ({reason})</b>\n\n"
             f"👤 <b>Клиент:</b> {html.escape(str(client_name))}\n"
             f"💈 <b>Мастер:</b> {html.escape(str(b_master))}\n"
             f"⏰ <b>Время:</b> {html.escape(str(b_time))}\n\n"
@@ -615,11 +616,12 @@ class GeminiBookingTools:
 
             # Если VIP — отправляем карточку согласования
             if booking_status == "pending_vip":
+                role_title = (barber_obj.get("role_title") if barber_obj else None) or "VIP-мастер"
                 await dispatch_vip_approval_card(
                     bot=bot,
                     booking_id=booking_id,
                     barber_obj=barber_obj,
-                    final_barber_name=final_barber_name or "Mr. Akmal",
+                    final_barber_name=final_barber_name or role_title,
                     full_name=customer_name,
                     username=username,
                     user_id=user_id,
@@ -630,8 +632,8 @@ class GeminiBookingTools:
                     branch_address=branch_address,
                 )
                 msg = (
-                    f"👑 Запрос на бронирование к Шеф-мастеру {final_barber_name} успешно зарегистрирован "
-                    f"и отправлен на личное согласование Шефу. Слот будет подтвержден в течение 15 минут."
+                    f"👑 Запрос на бронирование к мастеру {final_barber_name} ({role_title}) успешно зарегистрирован "
+                    f"и отправлен на личное согласование. Слот будет подтвержден в ближайшее время."
                 )
             else:
                 # Оповещение администратора и барбера

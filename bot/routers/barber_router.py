@@ -118,11 +118,12 @@ async def handle_vip_accept_callback(callback: CallbackQuery):
 
         await update_booking_status(booking_id, "confirmed")
 
-        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Шеф")
+        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Мастер")
+        role_title = (barber.get("role_title") if barber else None) or "VIP-мастер"
         try:
             old_text = callback.message.text or ""
             await callback.message.edit_text(
-                f"{old_text}\n\n✅ ВИЗИТ ПРИНЯТ ШЕФОМ! (Подтвердил: {actor_name})",
+                f"{old_text}\n\n✅ ВИЗИТ ПРИНЯТ ({role_title.upper()})! (Подтвердил: {actor_name})",
                 reply_markup=None,
                 parse_mode=None
             )
@@ -132,28 +133,28 @@ async def handle_vip_accept_callback(callback: CallbackQuery):
         # Уведомляем клиента
         client_tg_id = booking.get("user_id")
         if client_tg_id and client_tg_id != 0:
-            b_name = booking.get("barber_name") or settings.OWNER_NAME
+            b_name = booking.get("barber_name") or role_title
             b_time = booking.get("booking_time") or ""
             service = booking.get("service") or "Стрижка"
             branch = booking.get("branch_name") or settings.SALON_SHORT_NAME
             msg_html = (
-                "👑 <b>Шеф-мастер ПОДТВЕРДИЛ вашу запись!</b>\n\n"
+                f"👑 <b>{html.escape(role_title)} ПОДТВЕРДИЛ вашу запись!</b>\n\n"
                 f"✂️ <b>Услуга:</b> {html.escape(str(service))}\n"
                 f"💈 <b>Мастер:</b> {html.escape(str(b_name))}\n"
                 f"⏰ <b>Время:</b> {html.escape(str(b_time))}\n"
                 f"📍 <b>Филиал:</b> {html.escape(str(branch))}\n\n"
-                f"{html.escape(str(b_name))} ждет вас в назначенное время, ака! 💈"
+                f"{html.escape(str(b_name))} ждет вас в назначенное время! 💈"
             )
             try:
                 await callback.bot.send_message(chat_id=client_tg_id, text=msg_html, parse_mode="HTML")
             except Exception:
                 plain_msg = (
-                    "👑 Шеф-мастер ПОДТВЕРДИЛ вашу запись!\n\n"
+                    f"👑 {role_title} ПОДТВЕРДИЛ вашу запись!\n\n"
                     f"✂️ Услуга: {service}\n"
                     f"💈 Мастер: {b_name}\n"
                     f"⏰ Время: {b_time}\n"
                     f"📍 Филиал: {branch}\n\n"
-                    f"{b_name} ждет вас в назначенное время, ака! 💈"
+                    f"{b_name} ждет вас в назначенное время! 💈"
                 )
                 try:
                     await callback.bot.send_message(chat_id=client_tg_id, text=plain_msg, parse_mode=None)
@@ -203,11 +204,12 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
 
         await update_booking_status(booking_id, "cancelled")
 
-        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Шеф")
+        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Мастер")
+        role_title = (barber.get("role_title") if barber else None) or "VIP-мастер"
         try:
             old_text = callback.message.text or ""
             await callback.message.edit_text(
-                f"{old_text}\n\n❌ ВИЗИТ ОТКЛОНЕН ШЕФОМ (Кем: {actor_name})",
+                f"{old_text}\n\n❌ ВИЗИТ ОТКЛОНЕН ({role_title.upper()}) (Кем: {actor_name})",
                 reply_markup=None,
                 parse_mode=None
             )
@@ -217,7 +219,7 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
         # Уведомляем клиента с предложением перезаписи
         client_tg_id = booking.get("user_id")
         if client_tg_id and client_tg_id != 0:
-            b_name = booking.get("barber_name") or settings.OWNER_NAME
+            b_name = booking.get("barber_name") or role_title
             b_time = booking.get("booking_time") or ""
             base_url = (getattr(settings, "WEBAPP_URL", "") or "").rstrip("/")
             has_https = base_url.startswith("https://")
@@ -235,15 +237,15 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
                 )
 
             msg_html = (
-                f"ℹ️ <b>К сожалению, Шеф-мастер {html.escape(str(b_name))} не сможет принять вас в назначенное время ({html.escape(str(b_time))}).</b>\n\n"
-                "График шефа очень плотный. Пожалуйста, выберите другое удобное окно или запишитесь к любому из наших топ-стилистов:"
+                f"ℹ️ <b>К сожалению, {html.escape(role_title)} {html.escape(str(b_name))} не сможет принять вас в назначенное время ({html.escape(str(b_time))}).</b>\n\n"
+                "График мастера очень плотный. Пожалуйста, выберите другое удобное окно или запишитесь к любому из наших стилистов:"
             )
             try:
                 await callback.bot.send_message(chat_id=client_tg_id, text=msg_html, reply_markup=kb, parse_mode="HTML")
             except Exception:
                 plain_msg = (
-                    f"ℹ️ К сожалению, Шеф-мастер {b_name} не сможет принять вас в назначенное время ({b_time}).\n\n"
-                    "График шефа очень плотный. Пожалуйста, выберите другое удобное окно или запишитесь к любому из наших топ-стилистов:"
+                    f"ℹ️ К сожалению, {role_title} {b_name} не сможет принять вас в назначенное время ({b_time}).\n\n"
+                    "График мастера очень плотный. Пожалуйста, выберите другое удобное окно или запишитесь к любому из наших стилистов:"
                 )
                 try:
                     await callback.bot.send_message(chat_id=client_tg_id, text=plain_msg, reply_markup=kb, parse_mode=None)

@@ -188,8 +188,7 @@ def is_barber_vip(barber: Optional[Dict]) -> bool:
     if barber.get("is_vip") is not None:
         return bool(barber.get("is_vip"))
     role = (barber.get("role_title") or "").lower()
-    name = (barber.get("name") or "").lower()
-    return bool("шеф" in role or "директор" in role or "главный" in role or "владелец" in role or "akmal" in name)
+    return bool("шеф" in role or "директор" in role or "главный" in role or "владелец" in role or "vip" in role)
 
 
 def resolve_barber_match(
@@ -581,7 +580,7 @@ def build_schedule_context_for_prompt(
             status_text = "на смене" if b.get("is_working_today", 1) else "выходной сегодня"
             role = b.get("role_title") or "Барбер"
             is_vip = is_barber_vip(b)
-            vip_tag = " [👑 VIP-ШЕФ: Требует личного согласования! Не обещай прямую бронь, сообщай что запрос отправлен на личное согласование Шефу]" if is_vip else " [Стандартная автозапись]"
+            vip_tag = f" [👑 {role.upper()}: Требует личного согласования! Не обещай прямую бронь, вызови create_booking_reservation (вернет pending_vip) и сообщи клиенту, что запрос отправлен на личное согласование мастеру]" if is_vip else " [Стандартная автозапись]"
             lines.append(f"- ID {b['id']}: {b['name']} ({role}) — {status_text}{vip_tag}")
         lines.append("")
 

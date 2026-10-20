@@ -1635,23 +1635,24 @@ async def handle_create_booking(request: web.Request) -> web.Response:
             )
 
             # Сообщение клиенту в личку в Telegram
+            role_title = (assigned_barber.get("role_title") if assigned_barber else None) or "VIP-мастер"
             if bot and user_id and user_id != 0:
                 client_msg_html = (
-                    f"👑 <b>Ваш запрос к Шеф-мастеру {html.escape(str(final_barber_name))} отправлен на личное согласование!</b>\n\n"
+                    f"👑 <b>Ваш запрос к мастеру {html.escape(str(final_barber_name))} ({html.escape(role_title)}) отправлен на личное согласование!</b>\n\n"
                     f"⏰ <b>Время:</b> {html.escape(str(normalized_time))}\n"
                     f"✂️ <b>Услуга:</b> {html.escape(str(service))}\n"
                     f"📍 <b>Филиал:</b> {html.escape(str(branch_name))}\n\n"
-                    "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
+                    f"{html.escape(role_title)} лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
                 )
                 try:
                     await bot.send_message(chat_id=user_id, text=client_msg_html, parse_mode="HTML")
                 except Exception:
                     plain_client = (
-                        f"👑 Ваш запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!\n\n"
+                        f"👑 Ваш запрос к мастеру {final_barber_name} ({role_title}) отправлен на личное согласование!\n\n"
                         f"⏰ Время: {normalized_time}\n"
                         f"✂️ Услуга: {service}\n"
                         f"📍 Филиал: {branch_name}\n\n"
-                        "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
+                        f"{role_title} лично согласует слот в течение 15 минут, и вам сразу придет подтверждение! 🙏"
                     )
                     try:
                         await bot.send_message(chat_id=user_id, text=plain_client, parse_mode=None)
@@ -1667,7 +1668,7 @@ async def handle_create_booking(request: web.Request) -> web.Response:
                 "branch_id": branch_id,
                 "branch_name": branch_name,
                 "status": "pending_vip",
-                "message": f"Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование."
+                "message": f"Запрос к мастеру {final_barber_name} ({role_title}) отправлен на личное согласование."
             })
 
         # 1. Мгновенное подтверждение клиенту в личный чат Telegram

@@ -487,7 +487,7 @@ async def test_creator_personal_booking():
     mock_admin_action = AdminAction(
         action="create_booking",
         client_query="Иброхим",
-        booking_time="2026-10-20 16:00",
+        booking_time="2026-10-25 16:00",
         service="Стрижка волос",
         barber_name="Tursunov Nodir",
     )

@@ -1064,12 +1064,13 @@ async def process_admin_intent(message: Message, admin_query: str, ai_reply: str
                     target_branch_name=target_branch_name,
                     branch_address=branch_address,
                 )
+                role_title = (barber_obj.get("role_title") if barber_obj else None) or "VIP-мастер"
                 await message.answer(
-                    f"👑 **Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!**\n\n"
+                    f"👑 **Запрос к мастеру {final_barber_name} ({role_title}) отправлен на личное согласование!**\n\n"
                     f"⏰ **Время:** {normalized_time}\n"
                     f"✂️ **Услуга:** {canonical_service}\n"
                     f"📍 **Филиал:** {target_branch_name} ({branch_address})\n\n"
-                    "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
+                    f"{role_title} лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
                     parse_mode="Markdown"
                 )
                 return True
@@ -1298,16 +1299,17 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                 target_branch_name=target_branch_name,
                 branch_address=branch_address,
             )
-            safe_barber_name = html.escape(str(final_barber_name or "Шеф"))
-            safe_branch_name = html.escape(str(target_branch_name or "Миллий бог"))
+            role_title = (matched_barber.get("role_title") if matched_barber else None) or "VIP-мастер"
+            safe_barber_name = html.escape(str(final_barber_name or role_title))
+            safe_branch_name = html.escape(str(target_branch_name or settings.SALON_SHORT_NAME))
             safe_service = html.escape(str(canonical_service or "Стрижка"))
             safe_time = html.escape(str(booking_time or ""))
             client_msg_html = (
-                f"👑 <b>Запрос к Шеф-мастеру {safe_barber_name} отправлен на личное согласование!</b>\n\n"
+                f"👑 <b>Запрос к мастеру {safe_barber_name} ({html.escape(role_title)}) отправлен на личное согласование!</b>\n\n"
                 f"⏰ <b>Время:</b> {safe_time}\n"
                 f"✂️ <b>Услуга:</b> {safe_service}\n"
                 f"📍 <b>Филиал:</b> {safe_branch_name}\n\n"
-                "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏"
+                f"{html.escape(role_title)} лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏"
             )
             try:
                 await message.answer(
@@ -1317,11 +1319,11 @@ async def process_client_intent(message: Message, client_query: str, ai_reply: s
                 )
             except Exception:
                 await message.answer(
-                    f"👑 Запрос к Шеф-мастеру {final_barber_name} отправлен на личное согласование!\n\n"
+                    f"👑 Запрос к мастеру {final_barber_name} ({role_title}) отправлен на личное согласование!\n\n"
                     f"⏰ Время: {booking_time}\n"
                     f"✂️ Услуга: {canonical_service}\n"
                     f"📍 Филиал: {target_branch_name}\n\n"
-                    "Шеф лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
+                    f"{role_title} лично согласует слот в течение 15 минут, и вам сразу придет подтверждение здесь в чате! 🙏",
                     parse_mode=None,
                     reply_markup=AI_BUSINESS_KEYBOARD,
                 )
@@ -1659,17 +1661,17 @@ async def handle_my_booking_menu(message: Message):
 
     if booking.get("status") == "pending_vip":
         text = (
-            "👑 **ВАША ЗАЯВКА К ШЕФ-МАСТЕРУ**\n\n"
-            f"💈 **Мастер:** {b_barber} (Шеф)\n"
+            "👑 **ВАША ЗАЯВКА НА СОГЛАСОВАНИЕ (VIP)**\n\n"
+            f"💈 **Мастер:** {b_barber}\n"
             f"✂️ **Услуга:** {b_service}\n"
             f"⏰ **Время:** {b_time}\n"
             f"📍 **Филиал:** {b_branch}\n\n"
-            "⏳ **Статус:** _Ожидает личного подтверждения Шефом_\n"
-            "Шеф Mr. Akmal и администратор рассматривают заявку. Если у вас изменились планы, вы можете отозвать заявку кнопкой ниже:"
+            "⏳ **Статус:** _Ожидает личного подтверждения мастером_\n"
+            "Мастер и администрация рассматривают заявку. Если у вас изменились планы, вы можете отозвать заявку кнопкой ниже:"
         )
         kb = InlineKeyboardMarkup(
             inline_keyboard=[[
-                InlineKeyboardButton(text="❌ Отозвать заявку к Шефу", callback_data=f"cancel_vip_client:{b_id}")
+                InlineKeyboardButton(text="❌ Отозвать VIP-заявку", callback_data=f"cancel_vip_client:{b_id}")
             ]]
         )
         await message.answer(text, reply_markup=kb, parse_mode="Markdown")
@@ -1740,7 +1742,7 @@ async def handle_cancel_client_booking_callback(callback: CallbackQuery):
             reschedule_kb = None
 
         is_vip = (booking.get("status") == "pending_vip")
-        msg_header = "❌ **Заявка к Шефу успешно отозвана!**" if is_vip else "❌ **Ваша запись успешно отменена.**"
+        msg_header = "❌ **VIP-заявка успешно отозвана!**" if is_vip else "❌ **Ваша запись успешно отменена.**"
         try:
             await callback.message.edit_text(
                 f"{msg_header}\n\n"
@@ -1822,11 +1824,12 @@ async def handle_vip_accept_callback(callback: CallbackQuery):
 
         await update_booking_status(booking_id, "confirmed")
 
-        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Шеф")
+        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Мастер")
+        role_title = (barber.get("role_title") if barber else None) or "VIP-мастер"
         try:
             old_text = callback.message.text or ""
             await callback.message.edit_text(
-                f"{old_text}\n\n✅ **ВИЗИТ ПРИНЯТ ШЕФОМ!** (Подтвердил: {actor_name})",
+                f"{old_text}\n\n✅ **ВИЗИТ ПРИНЯТ ({role_title.upper()})!** (Подтвердил: {actor_name})",
                 reply_markup=None,
                 parse_mode="Markdown"
             )
@@ -1836,17 +1839,17 @@ async def handle_vip_accept_callback(callback: CallbackQuery):
         # Уведомляем клиента
         client_tg_id = booking.get("user_id")
         if client_tg_id and client_tg_id != 0:
-            b_name = booking.get("barber_name") or settings.OWNER_NAME
+            b_name = booking.get("barber_name") or role_title
             b_time = booking.get("booking_time") or ""
             service = booking.get("service") or "Стрижка"
             branch = booking.get("branch_name") or settings.SALON_SHORT_NAME
             msg = (
-                "👑 **Шеф-мастер ПОДТВЕРДИЛ вашу запись!**\n\n"
+                f"👑 **{role_title} ПОДТВЕРДИЛ вашу запись!**\n\n"
                 f"✂️ **Услуга:** {service}\n"
                 f"💈 **Мастер:** {b_name}\n"
                 f"⏰ **Время:** {b_time}\n"
                 f"📍 **Филиал:** {branch}\n\n"
-                f"{b_name} ждет вас в назначенное время, ака! 💈"
+                f"{b_name} ждет вас в назначенное время! 💈"
             )
             try:
                 await callback.bot.send_message(chat_id=client_tg_id, text=msg, parse_mode="Markdown")
@@ -1896,11 +1899,12 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
 
         await update_booking_status(booking_id, "cancelled")
 
-        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Шеф")
+        actor_name = barber["name"] if barber else (callback.from_user.first_name or "Мастер")
+        role_title = (barber.get("role_title") if barber else None) or "VIP-мастер"
         try:
             old_text = callback.message.text or ""
             await callback.message.edit_text(
-                f"{old_text}\n\n❌ **ВИЗИТ ОТКЛОНЕН ШЕФОМ** (Кем: {actor_name})",
+                f"{old_text}\n\n❌ **ВИЗИТ ОТКЛОНЕН ({role_title.upper()})** (Кем: {actor_name})",
                 reply_markup=None,
                 parse_mode="Markdown"
             )
@@ -1910,7 +1914,7 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
         # Уведомляем клиента с предложением перезаписи
         client_tg_id = booking.get("user_id")
         if client_tg_id and client_tg_id != 0:
-            b_name = booking.get("barber_name") or settings.OWNER_NAME
+            b_name = booking.get("barber_name") or role_title
             b_time = booking.get("booking_time") or ""
             base_url = (getattr(settings, "WEBAPP_URL", "") or "").rstrip("/")
             has_https = base_url.startswith("https://")
@@ -1928,8 +1932,8 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
                 )
 
             msg = (
-                f"ℹ️ **К сожалению, Шеф-мастер {b_name} не сможет принять вас в назначенное время ({b_time}).**\n\n"
-                "График шефа очень плотный. Пожалуйста, выберите другое удобное окно или запишитесь к любому из наших топ-стилистов:"
+                f"ℹ️ **К сожалению, {role_title} {b_name} не сможет принять вас в назначенное время ({b_time}).**\n\n"
+                "График мастера очень плотный. Пожалуйста, выберите другое удобное окно или запишитесь к любому из наших стилистов:"
             )
             try:
                 await callback.bot.send_message(chat_id=client_tg_id, text=msg, reply_markup=kb, parse_mode="Markdown")

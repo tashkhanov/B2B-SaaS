@@ -644,10 +644,11 @@ class GeminiService:
             barber_info_str = ", ".join([f"'{b['name']}'" for b in barbers]) if barbers else ""
             barber_hint = (
                 f"\nМАСТЕРА САЛОНА: {barber_info_str}.\n"
-                "ВНИМАНИЕ: Если упоминается мастер (например, Mr. Akmal, Akmal, Акмаль, Mr. Akmalning huzuriga, Mr. Akmalga, к Акмалю) — "
+                "ВНИМАНИЕ: Если в диалоге упоминается мастер из списка (или формы 'к [Имя]', '[Имя]ga', '[Имя]ning huzuriga') — "
                 "запиши его строго в barber_name, а НЕ в customer_name! customer_name — это имя клиента, а не мастера!\n"
             ) if barber_info_str else ""
 
+            creator_admin_name = getattr(settings, "SUPER_ADMIN_NAME", "Иброхим")
             prompt = (
                 f"Ты — анализатор диалогов клиентов салона {settings.SALON_NAME}.\n"
                 f"ТЕКУЩЕЕ ВРЕМЯ В {settings.SALON_CITY.upper()}: {now_str}.\n"
@@ -660,9 +661,9 @@ class GeminiService:
                 "2. action = 'check_my_booking' — если клиент спрашивает, когда он записан ('когда я записан?', 'на сколько моя стрижка?', 'eslatib yuboring').\n"
                 "3. action = 'create_booking' — если клиент хочет записаться или запись согласуется. "
                 "Установи is_booking_confirmed = true, если в диалоге названо желаемое время/дата (например 'ertaga soat 14:00', 'завтра в 14:00', 'пятница 16:30'), "
-                "ЛИБО если ассистент уже ответил, что записал клиента / передал запрос Шефу на согласование! "
+                "ЛИБО если ассистент уже ответил, что записал клиента / передал запрос мастеру на согласование! "
                 "ВНИМАНИЕ: Если клиент путается, называет сразу несколько противоречивых дат или времен ('на послезавтра или в пятницу, ой нет в понедельник...'), ЛИБО давит 'я уже всё дал', но точное время не определено — действие СТРОГО 'chat', is_booking_confirmed = false, booking_time = null! Категорически запрещено угадывать время наугад!\n"
-                "customer_name: укажи имя клиента, если названо в диалоге (если Создатель платформы — customer_name='Иброхим'). Если клиент не называл имя в тексте, оставь customer_name=null (оно возьмется из профиля Telegram).\n"
+                f"customer_name: укажи имя клиента, если названо в диалоге (если Создатель платформы — customer_name='{creator_admin_name}'). Если клиент не называл имя в тексте, оставь customer_name=null (оно возьмется из профиля Telegram).\n"
                 "КРИТИЧЕСКИ ВАЖНО: booking_time пиши только в каноническом формате 'YYYY-MM-DD HH:MM (ДеньНедели)' с точной датой.\n"
                 "4. action = 'chat' — во всех остальных случаях (вопрос по прайсу, локации, невнятные/противоречивые запросы и т.д.)."
             )
@@ -695,11 +696,12 @@ class GeminiService:
         try:
             now_str = format_tashkent_now_for_prompt()
             creator_hint = ""
+            creator_admin_name = getattr(settings, "SUPER_ADMIN_NAME", "Иброхим")
             if is_super_admin_user(user_id):
                 creator_hint = (
-                    "\nОСОБОЕ ПРАВИЛО ДЛЯ СОЗДАТЕЛЯ / ШЕФА:\n"
-                    "Если в запросе сказано 'запиши меня', 'мне стрижку', 'забронируй мне', либо на узбекском ('...ga yozib qo'y', '...ga yozib qo'ying', 'soch oldirishga yoz') — "
-                    "клиент это сам Шеф / Иброхим (client_query='Иброхим', action='create_booking').\n"
+                    f"\nОСОБОЕ ПРАВИЛО ДЛЯ СОЗДАТЕЛЯ / СУПЕР-АДМИНА:\n"
+                    f"Если в запросе сказано 'запиши меня', 'мне стрижку', 'забронируй мне', либо на узбекском ('...ga yozib qo'y', '...ga yozib qo'ying', 'soch oldirishga yoz') — "
+                    f"клиент это сам Создатель ({creator_admin_name}) (client_query='{creator_admin_name}', action='create_booking').\n"
                 )
 
             branches = await get_branches(active_only=True)
@@ -710,7 +712,7 @@ class GeminiService:
             barber_info_str = ", ".join([f"'{b['name']}'" for b in barbers]) if barbers else ""
             barber_hint = (
                 f"\nСПИСОК МАСТЕРОВ САЛОНА: {barber_info_str}.\n"
-                "ВНИМАНИЕ: Если в запросе упомянут мастер (например, Mr. Akmal, Akmalga, к Акмалю, Akmalning huzuriga) — "
+                "ВНИМАНИЕ: Если в запросе упомянут мастер из списка (или формы 'к [Имя]', '[Имя]ga', '[Имя]ning huzuriga') — "
                 "запиши его строго в barber_name, а НЕ в client_query! client_query — это клиент, а НЕ барбер!\n"
             ) if barber_info_str else ""
 
