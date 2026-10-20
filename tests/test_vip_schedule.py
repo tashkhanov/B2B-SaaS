@@ -489,3 +489,54 @@ async def test_revoke_vip_approval_cards_on_cancel():
         mock_revoke.assert_called_once_with(bot=mock_bot2, booking_id=999, reason="отменена клиентом")
 
 
+@pytest.mark.asyncio
+async def test_vip_accept_reject_blocks_cancelled_booking():
+    """Тест: подтверждение или отклонение уже отмененной записи блокируется (защита от воскрешения брони)."""
+    b_id = await save_booking(
+        user_id=777,
+        username="@test_cancelled",
+        full_name="Клиент Отмененный",
+        details="VIP Запись",
+        service="Стрижка от Шефа",
+        booking_time="2026-10-27 16:00",
+        status="cancelled",
+        db_path=TEST_DB
+    )
+
+    mock_bot = AsyncMock(spec=Bot)
+    mock_msg = AsyncMock(spec=Message)
+    mock_msg.message_id = 123
+    mock_msg.chat = MagicMock(id=999888)
+    mock_msg.text = "👑 ЗАПРОС НА ЗАПИСЬ К ШЕФ-МАСТЕРУ!"
+
+    # 1. Попытка принять отмененную запись
+    cb_accept = MagicMock(spec=CallbackQuery)
+    cb_accept.data = f"vip_accept:{b_id}"
+    cb_accept.message = mock_msg
+    cb_accept.from_user = User(id=999888, is_bot=False, first_name="Akmal")
+    cb_accept.bot = mock_bot
+    cb_accept.answer = AsyncMock()
+
+    await handle_vip_accept_callback(cb_accept)
+
+    cb_accept.answer.assert_called_once()
+    assert "отменена" in cb_accept.answer.call_args[0][0].lower()
+    rec = await get_booking_by_id(b_id, db_path=TEST_DB)
+    # Статус НЕ должен стать confirmed
+    assert rec["status"] == "cancelled"
+
+    # 2. Попытка отклонить отмененную запись
+    cb_reject = MagicMock(spec=CallbackQuery)
+    cb_reject.data = f"vip_reject:{b_id}"
+    cb_reject.message = mock_msg
+    cb_reject.from_user = User(id=999888, is_bot=False, first_name="Akmal")
+    cb_reject.bot = mock_bot
+    cb_reject.answer = AsyncMock()
+
+    await handle_vip_reject_callback(cb_reject)
+
+    cb_reject.answer.assert_called_once()
+    assert "отменена" in cb_reject.answer.call_args[0][0].lower()
+
+
+

@@ -1641,6 +1641,22 @@ async def handle_vip_accept_callback(callback: CallbackQuery):
             await callback.answer("Запись не найдена в базе.", show_alert=True)
             return
 
+        if booking.get("status") == "cancelled":
+            try:
+                old_text = callback.message.text or ""
+                await callback.message.edit_text(
+                    f"{old_text}\n\n⚠️ **ЗАПИСЬ УЖЕ БЫЛА ОТМЕНЕНА КЛИЕНТОМ**",
+                    reply_markup=None,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+            await callback.answer("⚠️ Эта запись уже была отменена клиентом!", show_alert=True)
+            return
+
         await update_booking_status(booking_id, "confirmed")
 
         actor_name = barber["name"] if barber else (callback.from_user.first_name or "Шеф")
@@ -1697,6 +1713,22 @@ async def handle_vip_reject_callback(callback: CallbackQuery):
         booking = await get_booking_by_id(booking_id)
         if not booking:
             await callback.answer("Запись не найдена в базе.", show_alert=True)
+            return
+
+        if booking.get("status") == "cancelled":
+            try:
+                old_text = callback.message.text or ""
+                await callback.message.edit_text(
+                    f"{old_text}\n\n⚠️ **ЗАПИСЬ УЖЕ БЫЛА ОТМЕНЕНА КЛИЕНТОМ**",
+                    reply_markup=None,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+            await callback.answer("⚠️ Эта запись уже была отменена клиентом!", show_alert=True)
             return
 
         await update_booking_status(booking_id, "cancelled")
