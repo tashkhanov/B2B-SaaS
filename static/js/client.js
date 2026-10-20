@@ -695,14 +695,22 @@ async function loadMyBooking() {
       }
 
       const statusEl = document.getElementById('my-booking-status');
+      const cancelBtn = document.getElementById('my-cancel-btn');
       if (data.booking.status === 'confirmed') {
         statusEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30';
         statusEl.textContent = 'Подтверждена';
+        if (cancelBtn) cancelBtn.textContent = 'Отменить запись';
+      } else if (data.booking.status === 'pending_vip') {
+        statusEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/30';
+        statusEl.textContent = '👑 На согласовании у Шефа';
+        if (cancelBtn) cancelBtn.textContent = 'Отозвать заявку к Шефу';
       } else {
         statusEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30';
         statusEl.textContent = 'Новая';
+        if (cancelBtn) cancelBtn.textContent = 'Отменить запись';
       }
       banner.dataset.bookingId = data.booking.id;
+      banner.dataset.isVip = data.booking.status === 'pending_vip' ? '1' : '0';
     } else {
       banner.classList.add('hidden');
     }
@@ -717,11 +725,15 @@ async function cancelMyBooking() {
 
   const banner = document.getElementById('my-booking-banner');
   const bookingId = banner.dataset.bookingId;
-  if (!confirm("Вы уверены, что хотите отменить эту запись?")) return;
+  const isVip = banner.dataset.isVip === '1';
+  const confirmMsg = isVip
+    ? "Вы уверены, что хотите отозвать эту заявку к Шеф-мастеру?"
+    : "Вы уверены, что хотите отменить эту запись?";
+  if (!confirm(confirmMsg)) return;
 
   const btn = document.getElementById('my-cancel-btn');
   btn.disabled = true;
-  btn.textContent = 'Отменяем запись...';
+  btn.textContent = isVip ? 'Отозываем заявку...' : 'Отменяем запись...';
 
   try {
     const res = await fetch('/api/my-booking/cancel', {
@@ -737,7 +749,10 @@ async function cancelMyBooking() {
       if (flow) flow.classList.remove('hidden');
       const screen = document.getElementById('success-screen');
       if (screen) screen.classList.add('hidden');
-      alert('Ваша запись успешно отменена!');
+      const alertMsg = isVip
+        ? 'Заявка к Шеф-мастеру успешно отозвана!'
+        : 'Ваша запись успешно отменена!';
+      alert(alertMsg);
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
       loadSlots(selectedDate);
     } else {

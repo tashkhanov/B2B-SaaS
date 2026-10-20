@@ -128,14 +128,14 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
                         text="📅 Онлайн-запись (TMA)",
                         web_app=WebAppInfo(url=f"{base_url}/book"),
                     ),
-                    KeyboardButton(text="✂️ Прайс-лист"),
+                    KeyboardButton(text="📋 Моя запись"),
                 ],
-                [KeyboardButton(text="📍 Где мы находимся?")],
+                [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
             ]
         else:
             keyboard = [
+                [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="📋 Моя запись")],
                 [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
-                [KeyboardButton(text="📅 Записаться")],
             ]
 
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, is_persistent=True)

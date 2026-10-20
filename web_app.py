@@ -1804,6 +1804,12 @@ async def handle_update_status(request: web.Request) -> web.Response:
                     logger.warning(f"Не удалось отправить уведомление о подтверждении клиенту {client_tg_id}: {e}")
 
             elif new_status == "cancelled":
+                try:
+                    from services.booking_service import revoke_vip_approval_cards
+                    await revoke_vip_approval_cards(bot=bot, booking_id=booking_id, reason="отменена администратором")
+                except Exception as e_rev:
+                    logger.warning("Failed to revoke vip cards in handle_update_status: %s", e_rev)
+
                 msg = (
                     f"ℹ️ **Ваша запись в {settings.SALON_SHORT_NAME} была отменена.**\n\n"
                     f"⏰ Время: {b_time}\n"
@@ -1852,6 +1858,13 @@ async def handle_cancel_my_booking(request: web.Request) -> web.Response:
 
         bot = request.app.get(BOT_KEY)
         if bot:
+            if cancelled.get("id"):
+                try:
+                    from services.booking_service import revoke_vip_approval_cards
+                    await revoke_vip_approval_cards(bot=bot, booking_id=cancelled["id"], reason="отменена клиентом через Web App")
+                except Exception as e_rev:
+                    logger.warning("Failed to revoke vip cards in handle_cancel_my_booking: %s", e_rev)
+
             if settings.ADMIN_CHAT_ID:
                 try:
                     await bot.send_message(

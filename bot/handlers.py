@@ -250,14 +250,14 @@ def get_main_keyboard(role: str = "client", barber: dict = None, is_admin: bool 
                         text="📅 Онлайн-запись (TMA)",
                         web_app=WebAppInfo(url=f"{base_url}/book"),
                     ),
-                    KeyboardButton(text="✂️ Прайс-лист"),
+                    KeyboardButton(text="📋 Моя запись"),
                 ],
-                [KeyboardButton(text="📍 Где мы находимся?")],
+                [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
             ]
         else:
             keyboard = [
+                [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="📋 Моя запись")],
                 [KeyboardButton(text="✂️ Прайс-лист"), KeyboardButton(text="📍 Где мы находимся?")],
-                [KeyboardButton(text="📅 Записаться")],
             ]
 
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, is_persistent=True)
@@ -1616,9 +1616,172 @@ async def handle_cancel_visit_callback(callback: CallbackQuery):
             except Exception as e:
                 logger.warning("Failed to notify admin on cancel_visit: %s", e)
 
+        try:
+            from services.booking_service import revoke_vip_approval_cards
+            await revoke_vip_approval_cards(bot=callback.bot, booking_id=booking_id, reason="отменена клиентом за 2 часа")
+        except Exception:
+            pass
+
         await callback.answer("Запись отменена. Слот освобожден.")
     except Exception as e:
         logger.error("Error in handle_cancel_visit_callback: %s", e)
+        await callback.answer("Произошла ошибка при отмене записи.", show_alert=True)
+
+
+@router.message(F.text.in_({"📋 Моя запись", "/my_booking", "/mybooking", "/cancel"}))
+async def handle_my_booking_menu(message: Message):
+    """Отображение активной записи клиента с возможностью отмены или отзыва VIP-запроса."""
+    user_id = message.from_user.id if message.from_user else 0
+    booking = await get_user_active_booking(user_id)
+
+    base_url = (getattr(settings, "WEBAPP_URL", "") or "").rstrip("/")
+    has_https = base_url.startswith("https://")
+
+    if not booking:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(text="💈 Записаться онлайн (TMA)", web_app=WebAppInfo(url=f"{base_url}/book"))
+            ]]
+        ) if has_https else None
+        await message.answer(
+            "ℹ️ **У вас нет активных записей в Brohouse.**\n\n"
+            "Вы можете легко записаться к мастеру онлайн или просто написать мне в чат: например, *«Хочу на стрижку завтра в 15:00»* ✂️",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    b_id = booking["id"]
+    b_barber = booking.get("barber_name") or "Мастер"
+    b_time = booking.get("booking_time") or ""
+    b_service = booking.get("service") or "Стрижка"
+    b_branch = booking.get("branch_name") or settings.SALON_SHORT_NAME
+
+    if booking.get("status") == "pending_vip":
+        text = (
+            "👑 **ВАША ЗАЯВКА К ШЕФ-МАСТЕРУ**\n\n"
+            f"💈 **Мастер:** {b_barber} (Шеф)\n"
+            f"✂️ **Услуга:** {b_service}\n"
+            f"⏰ **Время:** {b_time}\n"
+            f"📍 **Филиал:** {b_branch}\n\n"
+            "⏳ **Статус:** _Ожидает личного подтверждения Шефом_\n"
+            "Шеф Mr. Akmal и администратор рассматривают заявку. Если у вас изменились планы, вы можете отозвать заявку кнопкой ниже:"
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(text="❌ Отозвать заявку к Шефу", callback_data=f"cancel_vip_client:{b_id}")
+            ]]
+        )
+        await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    else:
+        status_title = "✅ Подтверждена" if booking.get("status") == "confirmed" else "🆕 Оформлена"
+        text = (
+            "📋 **ВАША АКТИВНАЯ ЗАПИСЬ**\n\n"
+            f"💈 **Мастер:** {b_barber}\n"
+            f"✂️ **Услуга:** {b_service}\n"
+            f"⏰ **Время:** {b_time}\n"
+            f"📍 **Филиал:** {b_branch}\n"
+            f"📌 **Статус:** {status_title}\n\n"
+            "Если ваши планы изменились, пожалуйста, отмените запись заранее, чтобы освободить слот:"
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(text="❌ Отменить запись", callback_data=f"cancel_booking_client:{b_id}")
+            ]]
+        )
+        await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+
+
+@router.callback_query(F.data.startswith("cancel_vip_client:") | F.data.startswith("cancel_booking_client:"))
+async def handle_cancel_client_booking_callback(callback: CallbackQuery):
+    """Клиент отменяет или отзывает свою активную запись / VIP-заявку."""
+    try:
+        booking_id = int(callback.data.split(":")[1])
+        user_id = callback.from_user.id if callback.from_user else 0
+        booking = await get_booking_by_id(booking_id)
+
+        if not booking:
+            await callback.answer("Запись не найдена.", show_alert=True)
+            return
+
+        is_owner = (booking.get("user_id") == user_id)
+        role, _ = await get_user_role(user_id)
+        if not is_owner and role not in ("admin", "super_admin"):
+            await callback.answer("У вас нет прав для отмены этой записи.", show_alert=True)
+            return
+
+        if booking.get("status") == "cancelled":
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            await callback.answer("Эта запись уже была отменена.", show_alert=True)
+            return
+
+        await update_booking_status(booking_id, "cancelled")
+
+        # Отзываем интерактивные карточки согласования у Шефа и админов
+        from services.booking_service import revoke_vip_approval_cards
+        await revoke_vip_approval_cards(
+            bot=callback.bot,
+            booking_id=booking_id,
+            reason="отозвана клиентом через меню"
+        )
+
+        base_url = (getattr(settings, "WEBAPP_URL", "") or "").rstrip("/")
+        has_https = base_url.startswith("https://")
+        if has_https:
+            reschedule_kb = InlineKeyboardMarkup(
+                inline_keyboard=[[
+                    InlineKeyboardButton(text="📅 Выбрать другое время (TMA)", web_app=WebAppInfo(url=f"{base_url}/book"))
+                ]]
+            )
+        else:
+            reschedule_kb = None
+
+        is_vip = (booking.get("status") == "pending_vip")
+        msg_header = "❌ **Заявка к Шефу успешно отозвана!**" if is_vip else "❌ **Ваша запись успешно отменена.**"
+        try:
+            await callback.message.edit_text(
+                f"{msg_header}\n\n"
+                "Слот освобожден. Если вы захотите выбрать другое удобное время, нажмите кнопку ниже:",
+                reply_markup=reschedule_kb,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+        client_name = booking.get("full_name") or (callback.from_user.first_name if callback.from_user else "Клиент")
+        b_time = booking.get("booking_time") or ""
+        b_name = booking.get("barber_name") or "Мастер"
+        barber_id = booking.get("barber_id")
+
+        alert_text = (
+            f"🔔 **КЛИЕНТ ОТОЗВАЛ ЗАПИСЬ / VIP-ЗАЯВКУ:**\n\n"
+            f"👤 Клиент: **{client_name}**\n"
+            f"⏰ Время: **{b_time}** (СЛОТ СВОБОДЕН)\n"
+            f"💈 Мастер: {b_name}\n"
+            f"📍 Филиал: {booking.get('branch_name', settings.SALON_SHORT_NAME)}\n\n"
+            "💡 _Слот снова доступен для записи других клиентов!_"
+        )
+
+        if barber_id:
+            barber = await get_barber_by_id(barber_id)
+            if barber and barber.get("telegram_id"):
+                try:
+                    await callback.bot.send_message(chat_id=barber["telegram_id"], text=alert_text, parse_mode="Markdown")
+                except Exception as e:
+                    logger.warning("Failed to notify barber on cancel_client_booking: %s", e)
+
+        if settings.ADMIN_CHAT_ID:
+            try:
+                await callback.bot.send_message(chat_id=settings.ADMIN_CHAT_ID, text=alert_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning("Failed to notify admin on cancel_client_booking: %s", e)
+
+        await callback.answer("Заявка успешно отозвана." if is_vip else "Запись отменена.")
+    except Exception as e:
+        logger.error("Error in handle_cancel_client_booking_callback: %s", e)
         await callback.answer("Произошла ошибка при отмене записи.", show_alert=True)
 
 
@@ -1889,9 +2052,15 @@ admin_router.callback_query.register(handle_approve_receipt, F.data.startswith("
 admin_router.callback_query.register(handle_reject_receipt, F.data.startswith("reject_receipt:"))
 
 client_router.message.register(handle_voice_message, F.voice)
+common_router.message.register(handle_my_booking_menu, Command("my_booking"))
+common_router.message.register(handle_my_booking_menu, Command("mybooking"))
+common_router.message.register(handle_my_booking_menu, Command("cancel"))
+common_router.message.register(handle_my_booking_menu, F.text == "📋 Моя запись")
 client_router.message.register(handle_user_text, F.text)
 client_router.callback_query.register(handle_confirm_visit_callback, F.data.startswith("confirm_visit:"))
 client_router.callback_query.register(handle_cancel_visit_callback, F.data.startswith("cancel_visit:"))
+client_router.callback_query.register(handle_cancel_client_booking_callback, F.data.startswith("cancel_vip_client:"))
+client_router.callback_query.register(handle_cancel_client_booking_callback, F.data.startswith("cancel_booking_client:"))
 client_router.callback_query.register(handle_open_booking_dialog, F.data == "open_booking_dialog")
 
 

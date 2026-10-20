@@ -539,4 +539,115 @@ async def test_vip_accept_reject_blocks_cancelled_booking():
     assert "отменена" in cb_reject.answer.call_args[0][0].lower()
 
 
+@pytest.mark.asyncio
+async def test_client_menu_my_booking_and_cancellation():
+    """Тест: просмотр активной VIP-заявки клиентом и её отзыв через меню бота"""
+    from bot.handlers import handle_my_booking_menu, handle_cancel_client_booking_callback
+
+    user_id = 98765
+    b_id = await save_booking(
+        user_id=user_id,
+        username="@vip_client_test",
+        full_name="Тестовый VIP Клиент",
+        details="VIP Бронь",
+        service="Комплекс от Шефа",
+        booking_time="2026-10-28 14:00",
+        barber_name="Mr. Akmal",
+        status="pending_vip",
+        db_path=TEST_DB
+    )
+
+    mock_bot = AsyncMock(spec=Bot)
+    msg = MagicMock(spec=Message)
+    msg.from_user = User(id=user_id, is_bot=False, first_name="ТестКлиент")
+    msg.answer = AsyncMock()
+    msg.bot = mock_bot
+
+    # 1. Запрос меню '📋 Моя запись'
+    await handle_my_booking_menu(msg)
+
+    msg.answer.assert_called_once()
+    menu_text = msg.answer.call_args[0][0]
+    menu_kb = msg.answer.call_args.kwargs.get("reply_markup")
+    assert "ВАША ЗАЯВКА К ШЕФ-МАСТЕРУ" in menu_text
+    assert "Ожидает личного подтверждения Шефом" in menu_text
+    assert menu_kb is not None
+    # Кнопка отзыва должна присутствовать
+    cancel_btn = menu_kb.inline_keyboard[0][0]
+    assert cancel_btn.callback_data == f"cancel_vip_client:{b_id}"
+    assert "Отозвать" in cancel_btn.text
+
+    # 2. Клиент нажимает '❌ Отозвать заявку к Шефу'
+    cb = MagicMock(spec=CallbackQuery)
+    cb.data = f"cancel_vip_client:{b_id}"
+    cb.from_user = User(id=user_id, is_bot=False, first_name="ТестКлиент")
+    cb.bot = mock_bot
+    cb.answer = AsyncMock()
+    cb_msg = AsyncMock(spec=Message)
+    cb.message = cb_msg
+
+    with patch("services.booking_service.revoke_vip_approval_cards", new_callable=AsyncMock) as mock_revoke:
+        await handle_cancel_client_booking_callback(cb)
+
+        # Проверяем, что в базе статус стал cancelled
+        b_after = await get_booking_by_id(b_id, db_path=TEST_DB)
+        assert b_after["status"] == "cancelled"
+
+        # Проверяем, что был вызван отзыв карточек согласования
+        mock_revoke.assert_called_once_with(bot=mock_bot, booking_id=b_id, reason="отозвана клиентом через меню")
+
+        # Проверяем, что сообщение было отредактировано
+        cb_msg.edit_text.assert_called_once()
+        assert "успешно отозвана" in cb_msg.edit_text.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_web_app_cancel_my_booking_revokes_vip_cards(monkeypatch):
+    """Тест: вызов API /api/my-booking/cancel отзывает VIP карточки согласования"""
+    from web_app import create_web_app
+    from aiohttp.test_utils import TestClient, TestServer
+    from config import settings
+
+    monkeypatch.setattr(settings, "ADMIN_CHAT_ID", 999888)
+
+    user_id = 444333
+    b_id = await save_booking(
+        user_id=user_id,
+        username="@tma_vip_client",
+        full_name="Клиент TMA",
+        details="VIP Запись",
+        service="Стрижка от Шефа",
+        booking_time="2026-10-29 11:00",
+        barber_name="Mr. Akmal",
+        status="pending_vip",
+        db_path=TEST_DB
+    )
+
+    mock_bot = AsyncMock(spec=Bot)
+    app = create_web_app(bot=mock_bot)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    try:
+        with patch("services.booking_service.revoke_vip_approval_cards", new_callable=AsyncMock) as mock_revoke:
+            resp = await client.post("/api/my-booking/cancel", json={
+                "user_id": user_id,
+                "booking_id": b_id
+            })
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["ok"] is True
+            assert data["cancelled"]["status"] == "cancelled"
+
+            mock_revoke.assert_called_once_with(
+                bot=mock_bot,
+                booking_id=b_id,
+                reason="отменена клиентом через Web App"
+            )
+    finally:
+        await client.close()
+
+
+
 
