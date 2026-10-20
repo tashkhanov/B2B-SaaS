@@ -402,8 +402,8 @@ class GeminiService:
                             timeout=15.0,
                         )
                     except asyncio.TimeoutError:
-                        logger.warning(f"Таймаут (15с) у {current_model}. Переключаемся на резервную модель!")
-                        self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 300
+                        logger.warning(f"Таймаут (10с) у {current_model}. Переключаемся на резервную модель!")
+                        self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 15
                         skip_model = True
                         break
                     except Exception as e:
@@ -442,7 +442,7 @@ class GeminiService:
 
                         if is_high_demand:
                             logger.warning(f"Модель {current_model} перегружена (503). Переключаемся на резервную!")
-                            self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 120
+                            self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 5
                             skip_model = True
                             break
 
@@ -590,16 +590,23 @@ class GeminiService:
 
                 contents.append(types.Content(role="user", parts=function_response_parts))
 
-                next_response = await self._generate_content_with_retry(
-                    contents=contents,
-                    config=config,
-                )
-                response = next_response
+                try:
+                    next_response = await self._generate_content_with_retry(
+                        contents=contents,
+                        config=config,
+                    )
+                    response = next_response
+                except Exception as loop_err:
+                    logger.warning(
+                        f"Не удалось получить текстовое подтверждение от Gemini после выполнения инструментов: {loop_err}. "
+                        "Используем сохраненное сообщение инструмента."
+                    )
+                    break
 
             self.last_user_tools[user_id] = executed_tools
 
             fallback = ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
-            raw_reply = (response.text or "").strip()
+            raw_reply = (getattr(response, "text", None) or "").strip()
             if not raw_reply and getattr(response, "candidates", None) and response.candidates and response.candidates[0].content:
                 parts = response.candidates[0].content.parts or []
                 text_parts = [p.text for p in parts if getattr(p, "text", None)]
@@ -619,6 +626,8 @@ class GeminiService:
 
         except Exception as e:
             logger.error(f"Ошибка при вызове Gemini API для user_id {user_id}: {e}", exc_info=True)
+            if last_tool_message:
+                return last_tool_message
             return ADMIN_FALLBACK_RESPONSE if is_admin else FALLBACK_RESPONSE
 
     async def generate_response_from_voice(

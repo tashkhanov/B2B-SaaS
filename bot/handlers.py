@@ -53,6 +53,23 @@ from aiogram.types import (
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 
+
+async def safe_answer(message: Message, text: str, reply_markup=None):
+    """
+    Безопасная отправка сообщения пользователю.
+    Защищает от сбоев Telegram API при ошибках парсинга Markdown entities (can't parse entities).
+    """
+    if not text:
+        return
+    try:
+        await message.answer(text, reply_markup=reply_markup, parse_mode=None)
+    except Exception as e:
+        logger.warning(f"Ошибка safe_answer: {e}. Пробуем отправить без клавиатуры...")
+        try:
+            await message.answer(text, parse_mode=None)
+        except Exception as e2:
+            logger.error(f"Критическая ошибка отправки в safe_answer: {e2}")
+
 from config import settings
 from database import (
     clear_history,
@@ -781,7 +798,7 @@ async def handle_voice_message(message: Message):
     tools_called = gemini_service.had_tool_calls(user_id)
     if recent_booking_exists or tools_called:
         logger.info("Voice request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
-        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
     # 4. Проверка и выполнение интента (для клиента или персонала)
@@ -793,7 +810,7 @@ async def handle_voice_message(message: Message):
 
     # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
     if not handled_by_intent:
-        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 @router.message(F.text)
@@ -825,7 +842,7 @@ async def handle_user_text(message: Message):
     tools_called = gemini_service.had_tool_calls(user_id)
     if recent_booking_exists or tools_called:
         logger.info("Text request handled via Gemini Tool Calling for user %s (recent=%s, tools=%s); skipping legacy intent extraction.", user_id, recent_booking_exists, tools_called)
-        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
         return
 
     # 4. Проверка и выполнение намерения
@@ -837,7 +854,7 @@ async def handle_user_text(message: Message):
 
     # 5. Отправка ответа пользователю, если действие не было обработано специализированным хэндлером
     if not handled_by_intent:
-        await message.answer(ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
+        await safe_answer(message, ai_reply, reply_markup=get_main_keyboard(role=role, barber=barber))
 
 
 async def process_admin_intent(message: Message, admin_query: str, ai_reply: str) -> bool:
