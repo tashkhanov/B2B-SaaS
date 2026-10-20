@@ -97,7 +97,8 @@ class Settings(BaseSettings):
     # 5. Telegram Bot & AI
     BOT_TOKEN: str = ""
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_API_KEYS: str = ""  # резервные ключи через запятую (ротация при исчерпании квоты)
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     ADMIN_CHAT_ID: Optional[int] = None
     DB_NAME: str = "barbershop.db"
 

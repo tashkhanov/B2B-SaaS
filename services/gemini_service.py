@@ -234,6 +234,26 @@ class GeminiService:
     def client(self, value: genai.Client) -> None:
         self._client = value
 
+    def _all_api_keys(self) -> List[str]:
+        """Основной ключ + резервные из GEMINI_API_KEYS (через запятую), без дублей."""
+        keys: List[str] = [self.api_key or "AIzaSy_dummy_api_key_placeholder"]
+        extra = getattr(settings, "GEMINI_API_KEYS", "") or ""
+        for k in extra.split(","):
+            k = k.strip()
+            if k and k not in keys:
+                keys.append(k)
+        return keys
+
+    def _client_for(self, key_idx: int) -> genai.Client:
+        """Клиент для ключа №key_idx (0 — основной, совместим с подменой .client в тестах)."""
+        if key_idx == 0:
+            return self.client
+        if not hasattr(self, "_extra_clients"):
+            self._extra_clients: Dict[int, genai.Client] = {}
+        if key_idx not in self._extra_clients:
+            self._extra_clients[key_idx] = genai.Client(api_key=self._all_api_keys()[key_idx])
+        return self._extra_clients[key_idx]
+
     def get_tool_declarations(self) -> List[Any]:
         """Возвращает список Python-функций для инструментов Gemini."""
         def check_available_slots(
@@ -340,106 +360,106 @@ class GeminiService:
         """
         target_model = model_name or self.model_name
         fallback_models = [
-            "gemini-3.1-flash-lite",
             "gemini-3.5-flash-lite",
-            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
             "gemini-3.5-flash",
             "gemini-3.8-flash",
         ]
         all_candidates = [target_model] + [m for m in fallback_models if m != target_model]
+        keys_count = len(self._all_api_keys())
 
-        # Исключаем модели, у которых исчерпана суточная квота
+        def _ex_key(model: str, key_idx: Any) -> str:
+            return f"{key_idx}:{model}"
+
         now = time.time()
-        models_to_try = [m for m in all_candidates if self.exhausted_models.get(m, 0) < now]
-        if not models_to_try:
-            # Если все помечены исчерпанными, сбрасываем кэш и пробуем снова
+        # Если ВСЕ пары (ключ, модель) заблокированы — сбрасываем бан и пробуем заново
+        if all(
+            self.exhausted_models.get(_ex_key(m, "*"), 0) >= now
+            or all(self.exhausted_models.get(_ex_key(m, i), 0) >= now for i in range(keys_count))
+            for m in all_candidates
+        ):
             self.exhausted_models.clear()
-            models_to_try = all_candidates
 
         last_error = None
-        for current_model in models_to_try:
-            for attempt in range(max_retries):
-                try:
-                    # Устанавливаем строгий таймаут 7.0 секунд на один запрос к API,
-                    # чтобы бот не зависал на минуту, если конкретная модель испытывает задержки на серверах Google
-                    res = await asyncio.wait_for(
-                        self.client.aio.models.generate_content(
-                            model=current_model,
-                            contents=contents,
-                            config=config,
-                        ),
-                        timeout=7.0,
-                    )
-                    # Если резервная модель успешно сработала, делаем её основной для дальнейших запросов
-                    if current_model != self.model_name and self.exhausted_models.get(self.model_name, 0) > now:
-                        logger.info(f"Переключаем основную модель сервиса с {self.model_name} на рабочую {current_model}")
-                        self.model_name = current_model
-                    return res
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"Таймаут (7с) при обращении к Gemini {current_model}. "
-                        "Модель испытывает задержку на серверах Google. Мгновенно переключаемся на резервную модель!"
-                    )
-                    self.exhausted_models[current_model] = time.time() + 300
+        for current_model in all_candidates:
+            if self.exhausted_models.get(_ex_key(current_model, "*"), 0) >= time.time():
+                continue
+            skip_model = False
+            for key_idx in range(keys_count):
+                if skip_model:
                     break
-                except Exception as e:
-                    err_msg = str(e)
-                    is_hard_quota = (
-                        "quotaValue" in err_msg
-                        or "Quota exceeded" in err_msg
-                        or "free_tier_requests" in err_msg
-                        or "RESOURCE_EXHAUSTED" in err_msg
-                    )
-                    is_high_demand = (
-                        "503" in err_msg
-                        or "UNAVAILABLE" in err_msg
-                        or "high demand" in err_msg
-                        or "overloaded" in err_msg
-                    )
-                    is_transient = (
-                        "429" in err_msg
-                        or "ResourceExhausted" in err_msg
-                    )
-                    last_error = e
-
-                    if is_hard_quota:
-                        # Суточная квота Free Tier исчерпана. Ждать 1-2 секунды бесполезно.
-                        # Сразу заносим модель в бан на 30 минут и МГНОВЕННО переключаемся на следующую модель!
-                        logger.warning(
-                            f"Модель {current_model} исчерпала квоту (Quota Exceeded). "
-                            "Мгновенно переключаемся на резервную модель без ожидания!"
+                if self.exhausted_models.get(_ex_key(current_model, key_idx), 0) >= time.time():
+                    continue
+                for attempt in range(max_retries):
+                    try:
+                        # Строгий таймаут 7с на запрос, чтобы бот не висел минутами
+                        return await asyncio.wait_for(
+                            self._client_for(key_idx).aio.models.generate_content(
+                                model=current_model,
+                                contents=contents,
+                                config=config,
+                            ),
+                            timeout=15.0,
                         )
-                        self.exhausted_models[current_model] = time.time() + 1800
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Таймаут (15с) у {current_model}. Переключаемся на резервную модель!")
+                        self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 300
+                        skip_model = True
                         break
+                    except Exception as e:
+                        err_msg = str(e)
+                        is_hard_quota = (
+                            "quotaValue" in err_msg
+                            or "Quota exceeded" in err_msg
+                            or "free_tier_requests" in err_msg
+                            or "RESOURCE_EXHAUSTED" in err_msg
+                        )
+                        is_high_demand = (
+                            "503" in err_msg
+                            or "UNAVAILABLE" in err_msg
+                            or "high demand" in err_msg
+                            or "overloaded" in err_msg
+                        )
+                        is_transient = "429" in err_msg or "ResourceExhausted" in err_msg
+                        is_model_missing = "404" in err_msg or "NOT_FOUND" in err_msg
+                        last_error = e
 
-                    if is_high_demand:
-                        # Сервера Google перегружены для этой модели (503 High Demand).
-                        # Не ждем и не спамим повторами: сразу переключаемся на следующую модель в пуле!
-                        logger.warning(
-                            f"Модель {current_model} перегружена на серверах Google (503 High Demand). "
-                            "Мгновенно переключаемся на резервную модель!"
-                        )
-                        self.exhausted_models[current_model] = time.time() + 120
-                        break
+                        if is_model_missing:
+                            # Модель недоступна этому проекту/ключу — пропускаем её, цепочка продолжается
+                            logger.warning(f"Модель {current_model} недоступна (404). Пропускаем.")
+                            self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 3600
+                            skip_model = True
+                            break
 
-                    if is_transient and attempt < max_retries - 1:
-                        backoff = 0.5 * (1.5 ** attempt)
-                        logger.warning(
-                            f"Gemini {current_model} вернул временную ошибку ({e}). Быстрый повтор {attempt + 1}/{max_retries} через {backoff:.1f}с..."
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
-                    elif is_transient:
-                        logger.warning(
-                            f"Модель {current_model} перегружена после {max_retries} попыток. Переключаемся на резервную модель..."
-                        )
-                        self.exhausted_models[current_model] = time.time() + 120
-                        break
-                    else:
-                        raise e
+                        if is_hard_quota:
+                            # Квота этого ключа для этой модели исчерпана — пробуем следующий ключ
+                            logger.warning(
+                                f"Квота {current_model} исчерпана на ключе #{key_idx + 1}/{keys_count}. "
+                                "Переключаемся на следующий ключ/модель."
+                            )
+                            self.exhausted_models[_ex_key(current_model, key_idx)] = time.time() + 1800
+                            break
+
+                        if is_high_demand:
+                            logger.warning(f"Модель {current_model} перегружена (503). Переключаемся на резервную!")
+                            self.exhausted_models[_ex_key(current_model, "*")] = time.time() + 120
+                            skip_model = True
+                            break
+
+                        if is_transient and attempt < max_retries - 1:
+                            backoff = 0.5 * (1.5 ** attempt)
+                            logger.warning(f"Gemini {current_model} временная ошибка ({e}). Повтор {attempt + 1}/{max_retries} через {backoff:.1f}с...")
+                            await asyncio.sleep(backoff)
+                            continue
+                        elif is_transient:
+                            self.exhausted_models[_ex_key(current_model, key_idx)] = time.time() + 120
+                            break
+                        else:
+                            raise e
 
         if last_error:
             raise last_error
+        raise RuntimeError("Все модели и ключи Gemini временно недоступны")
 
     async def generate_response(
         self,
